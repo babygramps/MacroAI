@@ -690,7 +690,7 @@ async function searchUSDADirect(query: string): Promise<NormalizedFood[]> {
     );
     console.log('=================================================\n');
     
-    return enrichedFoods.map(normalizeUSDA);
+    return enrichedFoods.map(food => normalizeUSDA(food));
   } catch (error) {
     console.error('USDA search error:', error);
     return [];
