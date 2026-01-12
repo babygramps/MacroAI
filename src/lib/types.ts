@@ -88,6 +88,23 @@ export interface UserGoals {
   proteinGoal: number;
   carbsGoal: number;
   fatGoal: number;
+  targetWeightKg?: number;
+  preferredWeightUnit?: 'kg' | 'lbs';
+}
+
+// Weight tracking
+export interface WeightLogEntry {
+  id: string;
+  weightKg: number;
+  recordedAt: string;
+  note?: string;
+}
+
+export interface WeightStats {
+  entries: WeightLogEntry[];
+  currentWeight: number | null;
+  changeFromWeekAgo: number | null;
+  changeFromMonthAgo: number | null;
 }
 
 // Food log entry

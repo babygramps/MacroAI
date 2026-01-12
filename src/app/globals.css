@@ -17,6 +17,7 @@
   --color-protein: #00E5A0;
   --color-carbs: #FFD23F;
   --color-fat: #A855F7;
+  --color-weight: #60A5FA; /* Soft blue for weight tracking */
   
   /* Text */
   --text-primary: #FFFFFF;
@@ -40,6 +41,7 @@
   --color-macro-protein: var(--color-protein);
   --color-macro-carbs: var(--color-carbs);
   --color-macro-fat: var(--color-fat);
+  --color-weight: var(--color-weight);
   
   --color-text-primary: var(--text-primary);
   --color-text-secondary: var(--text-secondary);
@@ -190,6 +192,10 @@ body {
 
 .glow-fat {
   filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.4));
+}
+
+.glow-weight {
+  filter: drop-shadow(0 0 20px rgba(96, 165, 250, 0.4));
 }
 
 /* Skeleton loading */

@@ -1,6 +1,6 @@
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
-import type { DayData, DailySummary, FoodLogEntry, WeeklyStats, UserGoals } from './types';
+import type { DayData, DailySummary, FoodLogEntry, WeeklyStats, UserGoals, WeightLogEntry, WeightStats } from './types';
 
 const client = generateClient<Schema>();
 
@@ -290,6 +290,8 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
         proteinGoal: profile.proteinGoal ?? 150,
         carbsGoal: profile.carbsGoal ?? 200,
         fatGoal: profile.fatGoal ?? 65,
+        targetWeightKg: profile.targetWeightKg ?? undefined,
+        preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
       };
     }
     return null;
@@ -297,4 +299,174 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
     console.error('[statsHelpers] Error fetching user goals:', error);
     return null;
   }
+}
+
+// ============================================
+// Weight Tracking Helper Functions
+// ============================================
+
+/**
+ * Fetch weight history for a given number of days
+ */
+export async function fetchWeightHistory(days: number = 30): Promise<WeightLogEntry[]> {
+  const today = new Date();
+  today.setHours(23, 59, 59, 999);
+  
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  startDate.setHours(0, 0, 0, 0);
+
+  console.log('[statsHelpers] Fetching weight history:', {
+    startDate: startDate.toISOString(),
+    endDate: today.toISOString(),
+    days,
+  });
+
+  try {
+    const { data: logs } = await client.models.WeightLog.list({
+      filter: {
+        recordedAt: {
+          between: [startDate.toISOString(), today.toISOString()],
+        },
+      },
+    });
+
+    if (!logs || logs.length === 0) {
+      console.log('[statsHelpers] No weight entries found');
+      return [];
+    }
+
+    const entries: WeightLogEntry[] = logs.map((log) => ({
+      id: log.id,
+      weightKg: log.weightKg,
+      recordedAt: log.recordedAt,
+      note: log.note ?? undefined,
+    }));
+
+    // Sort by date ascending (oldest first)
+    entries.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+
+    console.log('[statsHelpers] Weight history fetched:', entries.length, 'entries');
+    return entries;
+  } catch (error) {
+    console.error('[statsHelpers] Error fetching weight history:', error);
+    return [];
+  }
+}
+
+/**
+ * Get the most recent weight entry
+ */
+export async function getLatestWeight(): Promise<WeightLogEntry | null> {
+  console.log('[statsHelpers] Fetching latest weight...');
+  
+  try {
+    const { data: logs } = await client.models.WeightLog.list();
+
+    if (!logs || logs.length === 0) {
+      console.log('[statsHelpers] No weight entries found');
+      return null;
+    }
+
+    // Sort by recordedAt descending (most recent first)
+    const sorted = [...logs].sort(
+      (a, b) => new Date(b.recordedAt).getTime() - new Date(a.recordedAt).getTime()
+    );
+
+    const latest = sorted[0];
+    console.log('[statsHelpers] Latest weight:', latest.weightKg, 'kg');
+
+    return {
+      id: latest.id,
+      weightKg: latest.weightKg,
+      recordedAt: latest.recordedAt,
+      note: latest.note ?? undefined,
+    };
+  } catch (error) {
+    console.error('[statsHelpers] Error fetching latest weight:', error);
+    return null;
+  }
+}
+
+/**
+ * Calculate weight change over a period
+ * Returns the difference between the most recent entry and the oldest entry within the period
+ */
+export function calculateWeightChange(entries: WeightLogEntry[], days: number): number | null {
+  if (entries.length < 2) {
+    return null;
+  }
+
+  const now = new Date();
+  const cutoffDate = new Date(now);
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+
+  // Get entries within the period
+  const recentEntries = entries.filter(
+    (e) => new Date(e.recordedAt).getTime() >= cutoffDate.getTime()
+  );
+
+  if (recentEntries.length < 2) {
+    // Not enough data within the period, use all entries
+    const current = entries[entries.length - 1];
+    const oldest = entries[0];
+    return Math.round((current.weightKg - oldest.weightKg) * 10) / 10;
+  }
+
+  const current = recentEntries[recentEntries.length - 1];
+  const oldest = recentEntries[0];
+
+  return Math.round((current.weightKg - oldest.weightKg) * 10) / 10;
+}
+
+/**
+ * Fetch complete weight statistics
+ */
+export async function fetchWeightStats(): Promise<WeightStats> {
+  console.log('[statsHelpers] Fetching weight stats...');
+
+  const entries = await fetchWeightHistory(90); // Get 90 days of data
+  const latestEntry = entries.length > 0 ? entries[entries.length - 1] : null;
+  const currentWeight = latestEntry?.weightKg ?? null;
+
+  const changeFromWeekAgo = calculateWeightChange(entries, 7);
+  const changeFromMonthAgo = calculateWeightChange(entries, 30);
+
+  console.log('[statsHelpers] Weight stats:', {
+    entriesCount: entries.length,
+    currentWeight,
+    changeFromWeekAgo,
+    changeFromMonthAgo,
+  });
+
+  return {
+    entries,
+    currentWeight,
+    changeFromWeekAgo,
+    changeFromMonthAgo,
+  };
+}
+
+/**
+ * Convert kg to lbs
+ */
+export function kgToLbs(kg: number): number {
+  return Math.round(kg * 2.20462 * 10) / 10;
+}
+
+/**
+ * Convert lbs to kg
+ */
+export function lbsToKg(lbs: number): number {
+  return Math.round(lbs / 2.20462 * 10) / 10;
+}
+
+/**
+ * Format weight with unit
+ */
+export function formatWeight(weightKg: number, unit: 'kg' | 'lbs' = 'kg'): string {
+  if (unit === 'lbs') {
+    return `${kgToLbs(weightKg)} lbs`;
+  }
+  return `${Math.round(weightKg * 10) / 10} kg`;
 }

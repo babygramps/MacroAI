@@ -1,46 +1,62 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
 import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
-import { fetchWeeklyStats, fetchUserGoals } from '@/lib/statsHelpers';
-import type { WeeklyStats, UserGoals } from '@/lib/types';
+import { WeightChart, WeightChartSkeleton } from '@/components/ui/WeightChart';
+import { WeightLogModal } from '@/components/WeightLogModal';
+import { fetchWeeklyStats, fetchUserGoals, fetchWeightStats, formatWeight } from '@/lib/statsHelpers';
+import type { WeeklyStats, UserGoals, WeightStats } from '@/lib/types';
 
 export default function StatsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<WeeklyStats | null>(null);
   const [goals, setGoals] = useState<UserGoals | null>(null);
+  const [weightStats, setWeightStats] = useState<WeightStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    console.log('[StatsPage] Loading stats...');
+    try {
+      const [weeklyStats, userGoals, weightData] = await Promise.all([
+        fetchWeeklyStats(),
+        fetchUserGoals(),
+        fetchWeightStats(),
+      ]);
+      
+      console.log('[StatsPage] Stats loaded:', {
+        daysCount: weeklyStats.days.length,
+        streak: weeklyStats.streak,
+        averages: weeklyStats.averages,
+        weightEntries: weightData.entries.length,
+        currentWeight: weightData.currentWeight,
+      });
+      
+      setStats(weeklyStats);
+      setGoals(userGoals);
+      setWeightStats(weightData);
+    } catch (err) {
+      console.error('[StatsPage] Error loading stats:', err);
+      setError('Failed to load statistics. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function loadStats() {
-      console.log('[StatsPage] Loading stats...');
-      try {
-        const [weeklyStats, userGoals] = await Promise.all([
-          fetchWeeklyStats(),
-          fetchUserGoals(),
-        ]);
-        
-        console.log('[StatsPage] Stats loaded:', {
-          daysCount: weeklyStats.days.length,
-          streak: weeklyStats.streak,
-          averages: weeklyStats.averages,
-        });
-        
-        setStats(weeklyStats);
-        setGoals(userGoals);
-      } catch (err) {
-        console.error('[StatsPage] Error loading stats:', err);
-        setError('Failed to load statistics. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
     loadStats();
-  }, []);
+  }, [loadStats]);
+
+  const handleWeightLogSuccess = () => {
+    setIsWeightModalOpen(false);
+    // Refresh weight stats
+    loadStats();
+  };
+
+  const preferredUnit = goals?.preferredWeightUnit || 'kg';
 
   return (
     <div className="min-h-screen bg-bg-primary pb-8">
@@ -185,7 +201,7 @@ export default function StatsPage() {
             </section>
 
             {/* Macro Distribution */}
-            <section className="card animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+            <section className="card mb-6 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
               <h2 className="text-card-title text-text-secondary mb-4">Weekly Macro Distribution</h2>
               <div className="flex justify-center py-4">
                 {isLoading ? (
@@ -206,9 +222,122 @@ export default function StatsPage() {
                 </p>
               )}
             </section>
+
+            {/* Weight Progress */}
+            <section className="card animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-card-title text-text-secondary">Weight Progress</h2>
+                <button
+                  onClick={() => setIsWeightModalOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm transition-colors bg-bg-elevated text-text-secondary hover:bg-bg-primary"
+                  style={{ color: '#60A5FA' }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Log Weight
+                </button>
+              </div>
+
+              {/* Current Weight & Change */}
+              {isLoading ? (
+                <div className="flex gap-4 mb-4">
+                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                    <div className="h-4 w-20 skeleton rounded mb-2" />
+                    <div className="h-8 w-24 skeleton rounded" />
+                  </div>
+                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                    <div className="h-4 w-16 skeleton rounded mb-2" />
+                    <div className="h-8 w-16 skeleton rounded" />
+                  </div>
+                </div>
+              ) : weightStats && weightStats.currentWeight ? (
+                <div className="flex gap-4 mb-4">
+                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                    <p className="text-caption text-text-muted mb-1">Current</p>
+                    <p className="text-2xl font-mono font-bold" style={{ color: '#60A5FA' }}>
+                      {formatWeight(weightStats.currentWeight, preferredUnit)}
+                    </p>
+                  </div>
+                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                    <p className="text-caption text-text-muted mb-1">7-Day Change</p>
+                    {weightStats.changeFromWeekAgo !== null ? (
+                      <p className={`text-2xl font-mono font-bold ${
+                        weightStats.changeFromWeekAgo > 0 
+                          ? 'text-red-400' 
+                          : weightStats.changeFromWeekAgo < 0 
+                            ? 'text-green-400' 
+                            : 'text-text-secondary'
+                      }`}>
+                        {weightStats.changeFromWeekAgo > 0 ? '+' : ''}
+                        {preferredUnit === 'lbs' 
+                          ? Math.round(weightStats.changeFromWeekAgo * 2.20462 * 10) / 10
+                          : weightStats.changeFromWeekAgo
+                        }
+                        <span className="text-sm text-text-muted ml-1">{preferredUnit}</span>
+                      </p>
+                    ) : (
+                      <p className="text-xl text-text-muted">—</p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-bg-elevated rounded-xl p-6 mb-4 text-center">
+                  <p className="text-3xl mb-2">⚖️</p>
+                  <p className="text-text-secondary mb-2">No weight data yet</p>
+                  <p className="text-caption text-text-muted">
+                    Start tracking your weight to see progress
+                  </p>
+                </div>
+              )}
+
+              {/* Weight Chart */}
+              {isLoading ? (
+                <WeightChartSkeleton />
+              ) : weightStats && weightStats.entries.length >= 2 ? (
+                <WeightChart 
+                  data={weightStats.entries} 
+                  unit={preferredUnit}
+                  targetWeight={goals?.targetWeightKg}
+                />
+              ) : weightStats && weightStats.entries.length === 1 ? (
+                <p className="text-caption text-text-muted text-center py-4">
+                  Log more weights to see your progress chart
+                </p>
+              ) : null}
+
+              {/* Goal weight if set */}
+              {!isLoading && goals?.targetWeightKg && weightStats?.currentWeight && (
+                <div className="mt-4 pt-4 border-t border-border-subtle">
+                  <div className="flex items-center justify-between">
+                    <span className="text-caption text-text-muted">Goal Weight</span>
+                    <span className="text-sm font-mono text-green-400">
+                      {formatWeight(goals.targetWeightKg, preferredUnit)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-caption text-text-muted">To go</span>
+                    <span className="text-sm font-mono text-text-secondary">
+                      {formatWeight(
+                        Math.abs(weightStats.currentWeight - goals.targetWeightKg),
+                        preferredUnit
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </section>
           </>
         )}
       </main>
+
+      {/* Weight Log Modal */}
+      <WeightLogModal
+        isOpen={isWeightModalOpen}
+        onClose={() => setIsWeightModalOpen(false)}
+        onSuccess={handleWeightLogSuccess}
+        preferredUnit={preferredUnit}
+      />
     </div>
   );
 }

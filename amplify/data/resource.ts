@@ -8,8 +8,20 @@ const schema = a.schema({
       proteinGoal: a.integer(),
       carbsGoal: a.integer(),
       fatGoal: a.integer(),
+      targetWeightKg: a.float(), // optional target weight in kg
+      preferredWeightUnit: a.string(), // "kg" | "lbs"
     })
     .authorization((allow) => [allow.owner()]),
+
+  // Weight tracking entries
+  WeightLog: a
+    .model({
+      weightKg: a.float().required(), // weight stored in kg
+      recordedAt: a.datetime().required(),
+      note: a.string(), // optional note (e.g., "after workout")
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('recordedAt')]),
 
   FoodLog: a
     .model({

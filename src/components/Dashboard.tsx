@@ -8,7 +8,9 @@ import { ProgressRing } from './ui/ProgressRing';
 import { FoodLogCard, FoodLogCardSkeleton } from './ui/FoodLogCard';
 import { FoodLogModal } from './FoodLogModal';
 import { DateNavigator } from './ui/DateNavigator';
-import type { FoodLogEntry, UserGoals, DailySummary } from '@/lib/types';
+import type { FoodLogEntry, UserGoals, DailySummary, WeightLogEntry } from '@/lib/types';
+import { WeightLogModal } from './WeightLogModal';
+import { getLatestWeight, formatWeight } from '@/lib/statsHelpers';
 
 // Helper to check if a date is today
 function isToday(date: Date): boolean {
@@ -53,7 +55,9 @@ export function Dashboard() {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
+  const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -64,8 +68,13 @@ export function Dashboard() {
   const fetchData = useCallback(async (date: Date) => {
     setIsLoading(true);
     try {
-      // Fetch user profile
-      const { data: profiles } = await client.models.UserProfile.list();
+      // Fetch user profile and latest weight in parallel
+      const [profilesResult, weightResult] = await Promise.all([
+        client.models.UserProfile.list(),
+        getLatestWeight(),
+      ]);
+      
+      const { data: profiles } = profilesResult;
       if (profiles && profiles.length > 0) {
         const profile = profiles[0];
         setGoals({
@@ -73,10 +82,14 @@ export function Dashboard() {
           proteinGoal: profile.proteinGoal ?? DEFAULT_GOALS.proteinGoal,
           carbsGoal: profile.carbsGoal ?? DEFAULT_GOALS.carbsGoal,
           fatGoal: profile.fatGoal ?? DEFAULT_GOALS.fatGoal,
+          preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
+          targetWeightKg: profile.targetWeightKg ?? undefined,
         });
       } else {
         setNeedsOnboarding(true);
       }
+      
+      setLatestWeight(weightResult);
 
       // Fetch food logs for the selected date
       const startOfDay = new Date(date);
@@ -184,8 +197,16 @@ export function Dashboard() {
     }
   };
 
+  const handleWeightLogSuccess = async () => {
+    setIsWeightModalOpen(false);
+    // Refresh latest weight
+    const weight = await getLatestWeight();
+    setLatestWeight(weight);
+  };
+
   // Check if we can add food (only for today)
   const canAddFood = isToday(selectedDate);
+  const preferredUnit = goals.preferredWeightUnit || 'kg';
 
   // Redirect to onboarding if needed
   if (needsOnboarding && !isLoading) {
@@ -280,7 +301,7 @@ export function Dashboard() {
         </div>
 
         {/* Macro Rings */}
-        <div className="flex justify-center gap-6 mb-8">
+        <div className="flex justify-center gap-6 mb-6">
           <ProgressRing
             value={summary.totalProtein}
             max={goals.proteinGoal}
@@ -305,6 +326,54 @@ export function Dashboard() {
             unit="g"
             label="Fat"
           />
+        </div>
+
+        {/* Weight Card */}
+        <div className="mb-8">
+          <button
+            onClick={() => setIsWeightModalOpen(true)}
+            className="w-full card flex items-center justify-between hover:bg-bg-elevated transition-colors group"
+          >
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ backgroundColor: 'rgba(96, 165, 250, 0.15)' }}
+              >
+                <svg 
+                  className="w-5 h-5" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                  style={{ color: '#60A5FA' }}
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" 
+                  />
+                </svg>
+              </div>
+              <div className="text-left">
+                <p className="text-caption text-text-muted">Current Weight</p>
+                {isLoading ? (
+                  <div className="h-6 w-16 skeleton rounded mt-1" />
+                ) : latestWeight ? (
+                  <p className="text-lg font-mono font-bold" style={{ color: '#60A5FA' }}>
+                    {formatWeight(latestWeight.weightKg, preferredUnit)}
+                  </p>
+                ) : (
+                  <p className="text-body text-text-secondary">Not logged</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-text-muted group-hover:text-text-secondary transition-colors">
+              <span className="text-caption">Log</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+            </div>
+          </button>
         </div>
 
         {/* Food Log */}
@@ -368,6 +437,14 @@ export function Dashboard() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleLogSuccess}
+      />
+
+      {/* Weight Log Modal */}
+      <WeightLogModal
+        isOpen={isWeightModalOpen}
+        onClose={() => setIsWeightModalOpen(false)}
+        onSuccess={handleWeightLogSuccess}
+        preferredUnit={preferredUnit}
       />
     </div>
   );
