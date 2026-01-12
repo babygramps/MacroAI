@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { WeightLogEntry } from '@/lib/types';
+import type { WeightLogEntry, WeightDataPoint } from '@/lib/types';
 
 interface WeightChartProps {
   data: WeightLogEntry[];
   unit?: 'kg' | 'lbs';
   targetWeight?: number;
+  // New prop for trend data
+  trendData?: WeightDataPoint[];
+  showTrendLine?: boolean;
 }
 
 // Get short date format (Jan 5)
@@ -23,7 +26,13 @@ function convertWeight(weightKg: number, unit: 'kg' | 'lbs'): number {
   return Math.round(weightKg * 10) / 10;
 }
 
-export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProps) {
+export function WeightChart({ 
+  data, 
+  unit = 'kg', 
+  targetWeight,
+  trendData,
+  showTrendLine = true,
+}: WeightChartProps) {
   const [animatedProgress, setAnimatedProgress] = useState(0);
 
   // Chart dimensions
@@ -34,10 +43,17 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
   const graphWidth = chartWidth - padding.left - padding.right;
   const graphHeight = chartHeight - padding.top - padding.bottom;
 
-  // Convert data to chart coordinates
-  const weights = data.map((d) => convertWeight(d.weightKg, unit));
-  const minWeight = Math.min(...weights, targetWeight ? convertWeight(targetWeight, unit) : Infinity);
-  const maxWeight = Math.max(...weights, targetWeight ? convertWeight(targetWeight, unit) : -Infinity);
+  // Collect all weights (raw + trend + target) for y-axis scaling
+  const rawWeights = data.map((d) => convertWeight(d.weightKg, unit));
+  const trendWeights = trendData?.map((d) => convertWeight(d.trendWeight, unit)) ?? [];
+  const allWeights = [...rawWeights, ...trendWeights];
+  
+  if (targetWeight) {
+    allWeights.push(convertWeight(targetWeight, unit));
+  }
+
+  const minWeight = Math.min(...allWeights);
+  const maxWeight = Math.max(...allWeights);
   const weightRange = maxWeight - minWeight || 1;
   const weightPadding = weightRange * 0.1; // Add 10% padding
 
@@ -45,12 +61,20 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
   const yMax = maxWeight + weightPadding;
   const yRange = yMax - yMin;
 
-  // Generate points for the line
-  const points = data.map((entry, index) => {
+  // Generate points for raw scale weights (scatter points)
+  const scalePoints = data.map((entry, index) => {
     const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
     const weight = convertWeight(entry.weightKg, unit);
     const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
     return { x, y, weight, date: entry.recordedAt };
+  });
+
+  // Generate points for trend weights (smooth line)
+  const trendPoints = (trendData ?? []).map((entry, index, arr) => {
+    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+    const weight = convertWeight(entry.trendWeight, unit);
+    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+    return { x, y, weight, date: entry.date };
   });
 
   // Create smooth curve path using catmull-rom spline
@@ -79,11 +103,13 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
     return path;
   }
 
-  const linePath = createSmoothPath(points);
+  // Use trend data for the line if available, otherwise fall back to scale data
+  const linePoints = showTrendLine && trendPoints.length > 0 ? trendPoints : scalePoints;
+  const linePath = createSmoothPath(linePoints);
 
   // Create gradient area path
-  const areaPath = linePath
-    ? `${linePath} L ${points[points.length - 1]?.x} ${padding.top + graphHeight} L ${points[0]?.x} ${padding.top + graphHeight} Z`
+  const areaPath = linePath && linePoints.length > 0
+    ? `${linePath} L ${linePoints[linePoints.length - 1]?.x} ${padding.top + graphHeight} L ${linePoints[0]?.x} ${padding.top + graphHeight} Z`
     : '';
 
   // Goal line position
@@ -99,11 +125,20 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
   ];
 
   // X-axis labels (first and last date)
+  // Helper to get date from either type
+  const getDateFromEntry = (entry: WeightLogEntry | WeightDataPoint): string => {
+    if ('recordedAt' in entry) {
+      return entry.recordedAt;
+    }
+    return entry.date;
+  };
+  
+  const dateSource = trendData && trendData.length > 0 ? trendData : data;
   const xLabels =
-    data.length > 0
+    dateSource.length > 0
       ? [
-          { label: formatShortDate(data[0].recordedAt), x: padding.left },
-          { label: formatShortDate(data[data.length - 1].recordedAt), x: chartWidth - padding.right },
+          { label: formatShortDate(getDateFromEntry(dateSource[0] as WeightLogEntry | WeightDataPoint)), x: padding.left },
+          { label: formatShortDate(getDateFromEntry(dateSource[dateSource.length - 1] as WeightLogEntry | WeightDataPoint)), x: chartWidth - padding.right },
         ]
       : [];
 
@@ -113,9 +148,9 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
       setAnimatedProgress(1);
     }, 100);
     return () => clearTimeout(timer);
-  }, [data]);
+  }, [data, trendData]);
 
-  if (data.length === 0) {
+  if (data.length === 0 && (!trendData || trendData.length === 0)) {
     return (
       <div className="w-full flex items-center justify-center py-8">
         <p className="text-text-muted text-center">No weight data yet</p>
@@ -123,8 +158,26 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
     );
   }
 
+  // Get latest values for display
+  const latestTrendWeight = trendPoints.length > 0 ? trendPoints[trendPoints.length - 1].weight : null;
+  const latestScaleWeight = scalePoints.length > 0 ? scalePoints[scalePoints.length - 1].weight : null;
+
   return (
     <div className="w-full">
+      {/* Legend */}
+      {showTrendLine && trendData && trendData.length > 0 && (
+        <div className="flex items-center justify-center gap-4 mb-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-[#60A5FA] opacity-50" />
+            <span className="text-xs text-text-muted">Scale</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-0.5 bg-[#60A5FA]" />
+            <span className="text-xs text-text-muted">Trend</span>
+          </div>
+        </div>
+      )}
+      
       <svg
         viewBox={`0 0 ${chartWidth} ${chartHeight}`}
         className="w-full max-w-[320px] mx-auto"
@@ -133,8 +186,12 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
         {/* Definitions */}
         <defs>
           <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.4} />
+            <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.3} />
             <stop offset="100%" stopColor="#60A5FA" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="trendLineGradient" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.6} />
+            <stop offset="100%" stopColor="#60A5FA" stopOpacity={1} />
           </linearGradient>
           <clipPath id="lineClip">
             <rect
@@ -222,7 +279,7 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
           </>
         )}
 
-        {/* Area fill */}
+        {/* Area fill under trend line */}
         <path
           d={areaPath}
           fill="url(#weightGradient)"
@@ -233,55 +290,85 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
           }}
         />
 
-        {/* Line */}
-        <path
-          d={linePath}
-          fill="none"
-          stroke="#60A5FA"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          clipPath="url(#lineClip)"
-          style={{
-            transition: 'stroke-dashoffset 0.6s ease-out',
-          }}
-        />
+        {/* Trend Line (smooth, solid) */}
+        {showTrendLine && trendPoints.length > 0 && (
+          <path
+            d={createSmoothPath(trendPoints)}
+            fill="none"
+            stroke="url(#trendLineGradient)"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            clipPath="url(#lineClip)"
+            style={{
+              transition: 'stroke-dashoffset 0.6s ease-out',
+            }}
+          />
+        )}
 
-        {/* Data points */}
-        {points.map((point, index) => (
-          <g key={index}>
-            {/* Outer glow for last point */}
-            {index === points.length - 1 && (
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r={8}
-                fill="#60A5FA"
-                opacity={0.2 * animatedProgress}
-              />
-            )}
+        {/* Fallback: Simple line if no trend data */}
+        {(!showTrendLine || trendPoints.length === 0) && (
+          <path
+            d={linePath}
+            fill="none"
+            stroke="#60A5FA"
+            strokeWidth={2.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            clipPath="url(#lineClip)"
+            style={{
+              transition: 'stroke-dashoffset 0.6s ease-out',
+            }}
+          />
+        )}
+
+        {/* Raw scale weight points (scatter) */}
+        {scalePoints.map((point, index) => (
+          <g key={`scale-${index}`}>
             {/* Point */}
             <circle
               cx={point.x}
               cy={point.y}
-              r={index === points.length - 1 ? 5 : 3}
-              fill={index === points.length - 1 ? '#60A5FA' : '#141419'}
+              r={3}
+              fill="#141419"
               stroke="#60A5FA"
-              strokeWidth={2}
-              opacity={animatedProgress}
+              strokeWidth={1.5}
+              opacity={animatedProgress * 0.7}
               style={{
                 transition: 'opacity 0.6s ease-out',
-                transitionDelay: `${index * 50}ms`,
+                transitionDelay: `${index * 30}ms`,
               }}
             />
           </g>
         ))}
 
-        {/* Latest weight label */}
-        {points.length > 0 && (
+        {/* Trend endpoint highlight */}
+        {showTrendLine && trendPoints.length > 0 && (
+          <g>
+            {/* Outer glow */}
+            <circle
+              cx={trendPoints[trendPoints.length - 1].x}
+              cy={trendPoints[trendPoints.length - 1].y}
+              r={10}
+              fill="#60A5FA"
+              opacity={0.15 * animatedProgress}
+            />
+            {/* Inner point */}
+            <circle
+              cx={trendPoints[trendPoints.length - 1].x}
+              cy={trendPoints[trendPoints.length - 1].y}
+              r={5}
+              fill="#60A5FA"
+              opacity={animatedProgress}
+            />
+          </g>
+        )}
+
+        {/* Latest trend weight label */}
+        {latestTrendWeight !== null && trendPoints.length > 0 && (
           <text
-            x={points[points.length - 1].x}
-            y={points[points.length - 1].y - 12}
+            x={trendPoints[trendPoints.length - 1].x}
+            y={trendPoints[trendPoints.length - 1].y - 14}
             textAnchor="middle"
             fill="#FFFFFF"
             fontSize="11"
@@ -289,10 +376,52 @@ export function WeightChart({ data, unit = 'kg', targetWeight }: WeightChartProp
             fontWeight="500"
             opacity={animatedProgress}
           >
-            {points[points.length - 1].weight}
+            {latestTrendWeight}
           </text>
         )}
+
+        {/* Fallback: show scale weight if no trend */}
+        {(!showTrendLine || trendPoints.length === 0) && latestScaleWeight !== null && scalePoints.length > 0 && (
+          <>
+            {/* Outer glow for last scale point */}
+            <circle
+              cx={scalePoints[scalePoints.length - 1].x}
+              cy={scalePoints[scalePoints.length - 1].y}
+              r={8}
+              fill="#60A5FA"
+              opacity={0.2 * animatedProgress}
+            />
+            <circle
+              cx={scalePoints[scalePoints.length - 1].x}
+              cy={scalePoints[scalePoints.length - 1].y}
+              r={5}
+              fill="#60A5FA"
+              opacity={animatedProgress}
+            />
+            <text
+              x={scalePoints[scalePoints.length - 1].x}
+              y={scalePoints[scalePoints.length - 1].y - 12}
+              textAnchor="middle"
+              fill="#FFFFFF"
+              fontSize="11"
+              fontFamily="'Space Mono', monospace"
+              fontWeight="500"
+              opacity={animatedProgress}
+            >
+              {latestScaleWeight}
+            </text>
+          </>
+        )}
       </svg>
+
+      {/* Scale vs Trend comparison */}
+      {showTrendLine && latestTrendWeight !== null && latestScaleWeight !== null && latestTrendWeight !== latestScaleWeight && (
+        <div className="flex justify-center mt-2">
+          <div className="text-xs text-text-muted">
+            Scale: {latestScaleWeight} {unit} | Trend: {latestTrendWeight} {unit}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

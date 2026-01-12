@@ -6,25 +6,36 @@ import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
 import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
 import { WeightChart, WeightChartSkeleton } from '@/components/ui/WeightChart';
 import { WeightLogModal } from '@/components/WeightLogModal';
-import { fetchWeeklyStats, fetchUserGoals, fetchWeightStats, formatWeight } from '@/lib/statsHelpers';
-import type { WeeklyStats, UserGoals, WeightStats } from '@/lib/types';
+import { MetabolicInsightsCard, MetabolicInsightsCardSkeleton } from '@/components/ui/MetabolicInsightsCard';
+import { TdeeProgressCard, TdeeProgressCardSkeleton } from '@/components/ui/TdeeProgressCard';
+import { WeeklyCheckInCard, WeeklyCheckInCardSkeleton } from '@/components/ui/WeeklyCheckInCard';
+import { 
+  fetchWeeklyStats, 
+  fetchUserGoals, 
+  fetchWeightStatsWithTrend, 
+  formatWeight,
+  fetchMetabolicInsights,
+} from '@/lib/statsHelpers';
+import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights } from '@/lib/types';
 
 export default function StatsPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<WeeklyStats | null>(null);
   const [goals, setGoals] = useState<UserGoals | null>(null);
-  const [weightStats, setWeightStats] = useState<WeightStats | null>(null);
+  const [weightStats, setWeightStats] = useState<WeightStatsWithTrend | null>(null);
+  const [metabolicInsights, setMetabolicInsights] = useState<MetabolicInsights | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
 
   const loadStats = useCallback(async () => {
     console.log('[StatsPage] Loading stats...');
     try {
-      const [weeklyStats, userGoals, weightData] = await Promise.all([
+      const [weeklyStats, userGoals, weightData, insights] = await Promise.all([
         fetchWeeklyStats(),
         fetchUserGoals(),
-        fetchWeightStats(),
+        fetchWeightStatsWithTrend(),
+        fetchMetabolicInsights(),
       ]);
       
       console.log('[StatsPage] Stats loaded:', {
@@ -33,11 +44,18 @@ export default function StatsPage() {
         averages: weeklyStats.averages,
         weightEntries: weightData.entries.length,
         currentWeight: weightData.currentWeight,
+        trendWeight: weightData.trendWeight,
+        metabolicInsights: insights ? {
+          tdee: insights.currentTdee,
+          confidence: insights.confidenceLevel,
+          isInColdStart: insights.isInColdStart,
+        } : null,
       });
       
       setStats(weeklyStats);
       setGoals(userGoals);
       setWeightStats(weightData);
+      setMetabolicInsights(insights);
     } catch (err) {
       console.error('[StatsPage] Error loading stats:', err);
       setError('Failed to load statistics. Please try again.');
@@ -91,6 +109,50 @@ export default function StatsPage() {
           </div>
         ) : (
           <>
+            {/* Cold Start Progress Card (shown during learning phase) */}
+            {isLoading ? (
+              <section className="mb-6">
+                <TdeeProgressCardSkeleton />
+              </section>
+            ) : metabolicInsights?.isInColdStart && (
+              <section className="mb-6">
+                <TdeeProgressCard
+                  daysTracked={metabolicInsights.daysTracked}
+                  coldStartTdee={metabolicInsights.coldStartTdee}
+                  isInColdStart={metabolicInsights.isInColdStart}
+                />
+              </section>
+            )}
+
+            {/* Metabolic Insights Card (shown after cold start or with data) */}
+            {isLoading ? (
+              <section className="mb-6">
+                <MetabolicInsightsCardSkeleton />
+              </section>
+            ) : metabolicInsights && !metabolicInsights.isInColdStart && (
+              <section className="mb-6">
+                <MetabolicInsightsCard 
+                  insights={metabolicInsights}
+                  unit={preferredUnit}
+                />
+              </section>
+            )}
+
+            {/* Weekly Check-In Card (shown when available) */}
+            {isLoading ? (
+              <section className="mb-6">
+                <WeeklyCheckInCardSkeleton />
+              </section>
+            ) : metabolicInsights?.weeklyCheckIn && (
+              <section className="mb-6">
+                <WeeklyCheckInCard 
+                  checkIn={metabolicInsights.weeklyCheckIn}
+                  goals={goals}
+                  unit={preferredUnit}
+                />
+              </section>
+            )}
+
             {/* Streak Card */}
             <section className="card mb-6 animate-fade-in-up">
               <div className="flex items-center justify-between">
@@ -223,7 +285,7 @@ export default function StatsPage() {
               )}
             </section>
 
-            {/* Weight Progress */}
+            {/* Weight Progress - Enhanced with Trend */}
             <section className="card animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-card-title text-text-secondary">Weight Progress</h2>
@@ -239,7 +301,7 @@ export default function StatsPage() {
                 </button>
               </div>
 
-              {/* Current Weight & Change */}
+              {/* Current Weight & Change - Now with Trend */}
               {isLoading ? (
                 <div className="flex gap-4 mb-4">
                   <div className="flex-1 bg-bg-elevated rounded-xl p-4">
@@ -251,14 +313,21 @@ export default function StatsPage() {
                     <div className="h-8 w-16 skeleton rounded" />
                   </div>
                 </div>
-              ) : weightStats && weightStats.currentWeight ? (
+              ) : weightStats && (weightStats.currentWeight || weightStats.trendWeight) ? (
                 <div className="flex gap-4 mb-4">
+                  {/* Trend Weight (Primary) */}
                   <div className="flex-1 bg-bg-elevated rounded-xl p-4">
-                    <p className="text-caption text-text-muted mb-1">Current</p>
+                    <p className="text-caption text-text-muted mb-1">Trend Weight</p>
                     <p className="text-2xl font-mono font-bold" style={{ color: '#60A5FA' }}>
-                      {formatWeight(weightStats.currentWeight, preferredUnit)}
+                      {formatWeight(weightStats.trendWeight ?? weightStats.currentWeight ?? 0, preferredUnit)}
                     </p>
+                    {weightStats.trendWeight && weightStats.currentWeight && weightStats.trendWeight !== weightStats.currentWeight && (
+                      <p className="text-xs text-text-muted mt-1">
+                        Scale: {formatWeight(weightStats.currentWeight, preferredUnit)}
+                      </p>
+                    )}
                   </div>
+                  {/* Weekly Change */}
                   <div className="flex-1 bg-bg-elevated rounded-xl p-4">
                     <p className="text-caption text-text-muted mb-1">7-Day Change</p>
                     {weightStats.changeFromWeekAgo !== null ? (
@@ -291,7 +360,7 @@ export default function StatsPage() {
                 </div>
               )}
 
-              {/* Weight Chart */}
+              {/* Weight Chart - Enhanced with Trend Line */}
               {isLoading ? (
                 <WeightChartSkeleton />
               ) : weightStats && weightStats.entries.length >= 2 ? (
@@ -299,6 +368,8 @@ export default function StatsPage() {
                   data={weightStats.entries} 
                   unit={preferredUnit}
                   targetWeight={goals?.targetWeightKg}
+                  trendData={weightStats.trendData}
+                  showTrendLine={true}
                 />
               ) : weightStats && weightStats.entries.length === 1 ? (
                 <p className="text-caption text-text-muted text-center py-4">
@@ -307,7 +378,7 @@ export default function StatsPage() {
               ) : null}
 
               {/* Goal weight if set */}
-              {!isLoading && goals?.targetWeightKg && weightStats?.currentWeight && (
+              {!isLoading && goals?.targetWeightKg && (weightStats?.trendWeight || weightStats?.currentWeight) && (
                 <div className="mt-4 pt-4 border-t border-border-subtle">
                   <div className="flex items-center justify-between">
                     <span className="text-caption text-text-muted">Goal Weight</span>
@@ -319,7 +390,7 @@ export default function StatsPage() {
                     <span className="text-caption text-text-muted">To go</span>
                     <span className="text-sm font-mono text-text-secondary">
                       {formatWeight(
-                        Math.abs(weightStats.currentWeight - goals.targetWeightKg),
+                        Math.abs((weightStats?.trendWeight ?? weightStats?.currentWeight ?? 0) - goals.targetWeightKg),
                         preferredUnit
                       )}
                     </span>

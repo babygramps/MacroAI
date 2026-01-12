@@ -1,6 +1,32 @@
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
-import type { DayData, DailySummary, FoodLogEntry, WeeklyStats, UserGoals, WeightLogEntry, WeightStats } from './types';
+import type { 
+  DayData, 
+  DailySummary, 
+  FoodLogEntry, 
+  WeeklyStats, 
+  UserGoals, 
+  WeightLogEntry, 
+  WeightStats,
+  DailyLog,
+  ComputedState,
+  WeeklyCheckIn,
+  MetabolicInsights,
+  WeightStatsWithTrend,
+} from './types';
+import { METABOLIC_CONSTANTS } from './types';
+import { calculateTrendWeights, getWeeklyWeightChange } from './trendEngine';
+import { 
+  calculateColdStartTdee, 
+  determineConfidenceLevel,
+  buildComputedState,
+} from './expenditureEngine';
+import { 
+  buildWeeklyCheckIn, 
+  calculateCalorieTarget,
+  getWeekStartDate,
+  getWeekEndDate,
+} from './coachingEngine';
 
 const client = generateClient<Schema>();
 
@@ -278,7 +304,7 @@ export async function fetchWeeklyStats(endDate: Date = new Date()): Promise<Week
 }
 
 /**
- * Fetch user goals
+ * Fetch user goals (with metabolic modeling fields)
  */
 export async function fetchUserGoals(): Promise<UserGoals | null> {
   try {
@@ -292,6 +318,16 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
         fatGoal: profile.fatGoal ?? 65,
         targetWeightKg: profile.targetWeightKg ?? undefined,
         preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
+        // Metabolic modeling fields
+        heightCm: profile.heightCm ?? undefined,
+        birthDate: profile.birthDate ?? undefined,
+        sex: (profile.sex as 'male' | 'female') ?? undefined,
+        initialBodyFatPct: profile.initialBodyFatPct ?? undefined,
+        expenditureStrategy: (profile.expenditureStrategy as 'static' | 'dynamic') ?? 'dynamic',
+        startDate: profile.startDate ?? undefined,
+        athleteStatus: profile.athleteStatus ?? false,
+        goalType: (profile.goalType as 'lose' | 'gain' | 'maintain') ?? 'maintain',
+        goalRate: profile.goalRate ?? 0.5,
       };
     }
     return null;
@@ -469,4 +505,356 @@ export function formatWeight(weightKg: number, unit: 'kg' | 'lbs' = 'kg'): strin
     return `${kgToLbs(weightKg)} lbs`;
   }
   return `${Math.round(weightKg * 10) / 10} kg`;
+}
+
+// ============================================
+// Metabolic Modeling Helper Functions
+// ============================================
+
+/**
+ * Fetch or create DailyLog entries for a date range
+ * Aggregates FoodLog entries into daily totals
+ */
+export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
+  console.log('[statsHelpers] Fetching daily logs for', days, 'days');
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  
+  try {
+    // Fetch food data for the range
+    const weekData = await fetchWeekData(today, days);
+    
+    // Fetch weight data for the range
+    const weightEntries = await fetchWeightHistory(days);
+    
+    // Create a map of date -> weight
+    const weightByDate = new Map<string, number>();
+    for (const entry of weightEntries) {
+      const dateKey = formatDateKey(new Date(entry.recordedAt));
+      weightByDate.set(dateKey, entry.weightKg);
+    }
+    
+    // Build DailyLog entries
+    const dailyLogs: DailyLog[] = weekData.map(dayData => {
+      const hasEntries = dayData.summary.entries.length > 0;
+      const scaleWeight = weightByDate.get(dayData.date) ?? null;
+      
+      // Determine log status
+      let logStatus: 'complete' | 'partial' | 'skipped' = 'skipped';
+      if (hasEntries) {
+        logStatus = 'complete';
+      }
+      
+      return {
+        date: dayData.date,
+        scaleWeightKg: scaleWeight,
+        nutritionCalories: hasEntries ? dayData.summary.totalCalories : null,
+        nutritionProteinG: hasEntries ? dayData.summary.totalProtein : null,
+        nutritionCarbsG: hasEntries ? dayData.summary.totalCarbs : null,
+        nutritionFatG: hasEntries ? dayData.summary.totalFat : null,
+        stepCount: null, // Not currently tracking steps
+        logStatus,
+      };
+    });
+    
+    console.log('[statsHelpers] Built', dailyLogs.length, 'daily logs');
+    return dailyLogs;
+  } catch (error) {
+    console.error('[statsHelpers] Error fetching daily logs:', error);
+    return [];
+  }
+}
+
+/**
+ * Fetch computed states for a date range
+ * If not stored, compute them on-the-fly
+ */
+export async function fetchComputedStates(days: number = 30): Promise<ComputedState[]> {
+  console.log('[statsHelpers] Fetching/computing states for', days, 'days');
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  
+  try {
+    // Check if we have stored computed states
+    const { data: storedStates } = await client.models.ComputedState.list({
+      filter: {
+        date: {
+          between: [formatDateKey(startDate), formatDateKey(today)],
+        },
+      },
+    });
+    
+    if (storedStates && storedStates.length > 0) {
+      console.log('[statsHelpers] Found', storedStates.length, 'stored computed states');
+      
+      // Convert to our type
+      const states: ComputedState[] = storedStates.map(s => ({
+        id: s.id,
+        date: s.date,
+        trendWeightKg: s.trendWeightKg,
+        estimatedTdeeKcal: s.estimatedTdeeKcal,
+        rawTdeeKcal: s.rawTdeeKcal ?? s.estimatedTdeeKcal,
+        fluxConfidenceRange: s.fluxConfidenceRange ?? 200,
+        energyDensityUsed: s.energyDensityUsed ?? 7700,
+        weightDeltaKg: s.weightDeltaKg ?? 0,
+      }));
+      
+      // Sort by date
+      states.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      
+      return states;
+    }
+    
+    // No stored states - compute on the fly
+    console.log('[statsHelpers] No stored states, computing on-the-fly');
+    return await computeStatesOnTheFly(days);
+  } catch (error) {
+    console.error('[statsHelpers] Error fetching computed states:', error);
+    return [];
+  }
+}
+
+/**
+ * Compute states on-the-fly when no stored data exists
+ */
+async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - days);
+  
+  // Get daily logs and weight entries
+  const dailyLogs = await fetchDailyLogs(days);
+  const weightEntries = await fetchWeightHistory(days);
+  const userGoals = await fetchUserGoals();
+  
+  if (weightEntries.length === 0) {
+    console.log('[statsHelpers] No weight data for computing states');
+    return [];
+  }
+  
+  // Calculate trend weights
+  const trendData = calculateTrendWeights(weightEntries, startDate, today);
+  
+  // Get initial TDEE estimate
+  let prevTdee = 2000; // Default
+  if (userGoals && weightEntries.length > 0) {
+    const coldStartTdee = calculateColdStartTdee(userGoals, weightEntries[0].weightKg);
+    if (coldStartTdee) {
+      prevTdee = coldStartTdee;
+    }
+  }
+  
+  // Build computed states
+  const states: ComputedState[] = [];
+  
+  for (let i = 0; i < trendData.length; i++) {
+    const point = trendData[i];
+    const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
+    const dailyLog = dailyLogs.find(d => d.date === point.date) ?? null;
+    
+    const state = buildComputedState(
+      point.date,
+      point.trendWeight,
+      prevTrendWeight,
+      dailyLog,
+      prevTdee
+    );
+    
+    states.push(state);
+    prevTdee = state.estimatedTdeeKcal;
+  }
+  
+  console.log('[statsHelpers] Computed', states.length, 'states on-the-fly');
+  return states;
+}
+
+/**
+ * Fetch weight stats with trend data included
+ */
+export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend> {
+  console.log('[statsHelpers] Fetching weight stats with trend...');
+  
+  const baseStats = await fetchWeightStats();
+  const entries = baseStats.entries;
+  
+  if (entries.length === 0) {
+    return {
+      ...baseStats,
+      trendWeight: null,
+      trendData: [],
+    };
+  }
+  
+  // Calculate trend weights for all entries
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const startDate = new Date(entries[0].recordedAt);
+  startDate.setHours(0, 0, 0, 0);
+  
+  const trendData = calculateTrendWeights(entries, startDate, today);
+  const latestTrend = trendData.length > 0 
+    ? trendData[trendData.length - 1].trendWeight 
+    : null;
+  
+  console.log('[statsHelpers] Trend data calculated:', {
+    points: trendData.length,
+    latestTrend,
+    scaleWeight: baseStats.currentWeight,
+  });
+  
+  return {
+    ...baseStats,
+    trendWeight: latestTrend,
+    trendData,
+  };
+}
+
+/**
+ * Fetch complete metabolic insights
+ * This is the main entry point for the stats page
+ */
+export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null> {
+  console.log('[statsHelpers] Fetching metabolic insights...');
+  
+  try {
+    // Fetch all required data in parallel
+    const [userGoals, weightStatsWithTrend, computedStates, dailyLogs] = await Promise.all([
+      fetchUserGoals(),
+      fetchWeightStatsWithTrend(),
+      fetchComputedStates(30),
+      fetchDailyLogs(7), // Last 7 days for weekly check-in
+    ]);
+    
+    if (!userGoals) {
+      console.log('[statsHelpers] No user goals found');
+      return null;
+    }
+    
+    // Determine days tracked
+    const daysTracked = computedStates.filter(s => s.estimatedTdeeKcal > 0).length;
+    const isInColdStart = daysTracked < METABOLIC_CONSTANTS.COLD_START_DAYS;
+    
+    // Get current TDEE
+    let currentTdee = 2000; // Default
+    let coldStartTdee: number | null = null;
+    
+    if (isInColdStart) {
+      // Use Mifflin-St Jeor during cold start
+      if (weightStatsWithTrend.currentWeight) {
+        coldStartTdee = calculateColdStartTdee(userGoals, weightStatsWithTrend.currentWeight);
+        currentTdee = coldStartTdee ?? 2000;
+      }
+    } else if (computedStates.length > 0) {
+      // Use the most recent computed TDEE
+      const latest = computedStates[computedStates.length - 1];
+      currentTdee = latest.estimatedTdeeKcal;
+    }
+    
+    // Calculate weekly weight change
+    const weeklyWeightChange = getWeeklyWeightChange(weightStatsWithTrend.trendData);
+    
+    // Determine confidence level
+    const recentMissingDays = dailyLogs.filter(d => d.logStatus === 'skipped').length;
+    const confidenceLevel = determineConfidenceLevel(daysTracked, recentMissingDays);
+    
+    // Calculate suggested calories
+    const goalType = userGoals.goalType ?? 'maintain';
+    const goalRate = userGoals.goalRate ?? 0.5;
+    const suggestedCalories = calculateCalorieTarget(currentTdee, goalType, goalRate);
+    
+    // Build weekly check-in if we have enough data
+    let weeklyCheckIn: WeeklyCheckIn | null = null;
+    if (daysTracked >= 7) {
+      const weekStart = getWeekStartDate();
+      const weekEnd = getWeekEndDate();
+      weeklyCheckIn = buildWeeklyCheckIn(
+        weekStart,
+        weekEnd,
+        dailyLogs,
+        computedStates.slice(-7),
+        userGoals
+      );
+    }
+    
+    const insights: MetabolicInsights = {
+      currentTdee,
+      trendWeight: weightStatsWithTrend.trendWeight ?? weightStatsWithTrend.currentWeight ?? 0,
+      scaleWeight: weightStatsWithTrend.currentWeight,
+      weeklyWeightChange,
+      confidenceLevel,
+      daysUntilAccurate: Math.max(0, METABOLIC_CONSTANTS.COLD_START_DAYS - daysTracked),
+      daysTracked,
+      suggestedCalories,
+      weeklyCheckIn,
+      isInColdStart,
+      coldStartTdee,
+    };
+    
+    console.log('[statsHelpers] Metabolic insights:', {
+      tdee: insights.currentTdee,
+      trendWeight: insights.trendWeight,
+      confidence: insights.confidenceLevel,
+      isInColdStart: insights.isInColdStart,
+      daysTracked: insights.daysTracked,
+    });
+    
+    return insights;
+  } catch (error) {
+    console.error('[statsHelpers] Error fetching metabolic insights:', error);
+    return null;
+  }
+}
+
+/**
+ * Save a computed state to the database
+ */
+export async function saveComputedState(state: ComputedState): Promise<void> {
+  try {
+    await client.models.ComputedState.create({
+      date: state.date,
+      trendWeightKg: state.trendWeightKg,
+      estimatedTdeeKcal: state.estimatedTdeeKcal,
+      rawTdeeKcal: state.rawTdeeKcal,
+      fluxConfidenceRange: state.fluxConfidenceRange,
+      energyDensityUsed: state.energyDensityUsed,
+      weightDeltaKg: state.weightDeltaKg,
+    });
+    console.log('[statsHelpers] Saved computed state for', state.date);
+  } catch (error) {
+    console.error('[statsHelpers] Error saving computed state:', error);
+  }
+}
+
+/**
+ * Save a weekly check-in to the database
+ */
+export async function saveWeeklyCheckIn(checkIn: WeeklyCheckIn): Promise<void> {
+  try {
+    await client.models.WeeklyCheckIn.create({
+      weekStartDate: checkIn.weekStartDate,
+      weekEndDate: checkIn.weekEndDate,
+      averageTdee: checkIn.averageTdee,
+      suggestedCalories: checkIn.suggestedCalories,
+      adherenceScore: checkIn.adherenceScore,
+      confidenceLevel: checkIn.confidenceLevel,
+      trendWeightStart: checkIn.trendWeightStart,
+      trendWeightEnd: checkIn.trendWeightEnd,
+      weeklyWeightChange: checkIn.weeklyWeightChange,
+      notes: checkIn.notes,
+    });
+    console.log('[statsHelpers] Saved weekly check-in for', checkIn.weekStartDate);
+  } catch (error) {
+    console.error('[statsHelpers] Error saving weekly check-in:', error);
+  }
 }
