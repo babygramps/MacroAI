@@ -432,20 +432,19 @@ export default function OnboardingPage() {
         
         return (
           <>
-            <div className="bg-bg-surface rounded-2xl p-6 mb-4 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+            <div className="value-display animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
               <div className="text-center">
-                <span className="text-[48px] font-mono font-bold text-text-primary min-w-[150px] inline-block">
+                <span className="value-display-number">
                   {displayValue}
                 </span>
                 <span className="text-body text-text-muted ml-2">{numStep.unit}</span>
               </div>
             </div>
 
-            <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ animationDelay: '0.25s' }}>
+            <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ '--stagger-index': 3 } as React.CSSProperties}>
               <button
                 onClick={() => handleValueChange(-numStep.step)}
-                className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
-                           hover:bg-bg-surface active:scale-95 transition-all"
+                className="stepper-button"
                 aria-label="Decrease"
               >
                 <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -454,8 +453,7 @@ export default function OnboardingPage() {
               </button>
               <button
                 onClick={() => handleValueChange(numStep.step)}
-                className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
-                           hover:bg-bg-surface active:scale-95 transition-all"
+                className="stepper-button"
                 aria-label="Increase"
               >
                 <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -464,16 +462,12 @@ export default function OnboardingPage() {
               </button>
             </div>
 
-            <div className="flex gap-2 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+            <div className="flex gap-2 animate-fade-in-up" style={{ '--stagger-index': 4 } as React.CSSProperties}>
               {numStep.presets.map((preset) => (
                 <button
                   key={preset}
                   onClick={() => handlePresetClick(preset)}
-                  className={`px-4 py-2 rounded-full transition-colors ${
-                    Math.abs(value - preset) < 0.01
-                      ? 'bg-macro-calories text-white'
-                      : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
-                  }`}
+                  className={`preset-button ${Math.abs(value - preset) < 0.01 ? 'active' : ''}`}
                 >
                   {numStep.step < 1 ? preset.toFixed(2) : preset}
                 </button>
@@ -487,10 +481,10 @@ export default function OnboardingPage() {
         if (unitSystem === 'imperial') {
           // Feet/Inches picker
           return (
-            <div className="animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-              <div className="bg-bg-surface rounded-2xl p-6 mb-4">
+            <div className="animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
+              <div className="value-display">
                 <div className="text-center">
-                  <span className="text-[48px] font-mono font-bold text-text-primary">
+                  <span className="value-display-number">
                     {heightFeet}&apos;{heightInches}&quot;
                   </span>
                 </div>
@@ -501,7 +495,7 @@ export default function OnboardingPage() {
                 <div className="flex flex-col items-center gap-2">
                   <button
                     onClick={() => handleHeightChange(Math.min(7, heightFeet + 1), heightInches)}
-                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                    className="icon-button"
                   >
                     <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -511,7 +505,7 @@ export default function OnboardingPage() {
                   <div className="text-sm text-text-muted">feet</div>
                   <button
                     onClick={() => handleHeightChange(Math.max(4, heightFeet - 1), heightInches)}
-                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                    className="icon-button"
                   >
                     <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -523,7 +517,7 @@ export default function OnboardingPage() {
                 <div className="flex flex-col items-center gap-2">
                   <button
                     onClick={() => handleHeightChange(heightFeet, (heightInches + 1) % 12)}
-                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                    className="icon-button"
                   >
                     <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
@@ -533,7 +527,7 @@ export default function OnboardingPage() {
                   <div className="text-sm text-text-muted">inches</div>
                   <button
                     onClick={() => handleHeightChange(heightFeet, (heightInches - 1 + 12) % 12)}
-                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                    className="icon-button"
                   >
                     <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -548,11 +542,7 @@ export default function OnboardingPage() {
                   <button
                     key={`${preset.ft}-${preset.in}`}
                     onClick={() => handleHeightChange(preset.ft, preset.in)}
-                    className={`px-4 py-2 rounded-full transition-colors ${
-                      heightFeet === preset.ft && heightInches === preset.in
-                        ? 'bg-macro-calories text-white'
-                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
-                    }`}
+                    className={`preset-button ${heightFeet === preset.ft && heightInches === preset.in ? 'active' : ''}`}
                   >
                     {preset.ft}&apos;{preset.in}&quot;
                   </button>
@@ -565,20 +555,19 @@ export default function OnboardingPage() {
           const heightCm = values.heightCm as number;
           return (
             <>
-              <div className="bg-bg-surface rounded-2xl p-6 mb-4 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+              <div className="value-display animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
                 <div className="text-center">
-                  <span className="text-[48px] font-mono font-bold text-text-primary min-w-[150px] inline-block">
+                  <span className="value-display-number">
                     {Math.round(heightCm)}
                   </span>
                   <span className="text-body text-text-muted ml-2">cm</span>
                 </div>
               </div>
 
-              <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ animationDelay: '0.25s' }}>
+              <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ '--stagger-index': 3 } as React.CSSProperties}>
                 <button
                   onClick={() => handleHeightCmChange(Math.max(100, heightCm - 1))}
-                  className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
-                             hover:bg-bg-surface active:scale-95 transition-all"
+                  className="stepper-button"
                 >
                   <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
@@ -586,8 +575,7 @@ export default function OnboardingPage() {
                 </button>
                 <button
                   onClick={() => handleHeightCmChange(Math.min(250, heightCm + 1))}
-                  className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
-                             hover:bg-bg-surface active:scale-95 transition-all"
+                  className="stepper-button"
                 >
                   <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -595,16 +583,12 @@ export default function OnboardingPage() {
                 </button>
               </div>
 
-              <div className="flex gap-2 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+              <div className="flex gap-2 animate-fade-in-up" style={{ '--stagger-index': 4 } as React.CSSProperties}>
                 {[160, 170, 180].map((preset) => (
                   <button
                     key={preset}
                     onClick={() => handleHeightCmChange(preset)}
-                    className={`px-4 py-2 rounded-full transition-colors ${
-                      Math.round(heightCm) === preset
-                        ? 'bg-macro-calories text-white'
-                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
-                    }`}
+                    className={`preset-button ${Math.round(heightCm) === preset ? 'active' : ''}`}
                   >
                     {preset}
                   </button>
@@ -620,16 +604,12 @@ export default function OnboardingPage() {
         const value = values[step.field] as string;
         
         return (
-          <div className="flex flex-col gap-3 w-full max-w-sm animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+          <div className="flex flex-col gap-3 w-full max-w-sm animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
             {selectStep.options.map((option) => (
               <button
                 key={option.value}
                 onClick={() => handleSelectChange(option.value)}
-                className={`flex items-center gap-3 p-4 rounded-xl transition-all ${
-                  value === option.value
-                    ? 'bg-macro-calories text-white ring-2 ring-macro-calories ring-offset-2 ring-offset-bg-primary'
-                    : 'bg-bg-surface text-text-primary hover:bg-bg-elevated'
-                }`}
+                className={`select-option ${value === option.value ? 'active' : ''}`}
               >
                 {option.emoji && <span className="text-2xl">{option.emoji}</span>}
                 <span className="text-lg font-medium">{option.label}</span>
@@ -643,7 +623,7 @@ export default function OnboardingPage() {
         const value = values[step.field] as string;
         
         return (
-          <div className="w-full max-w-sm animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+          <div className="w-full max-w-sm animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
             <input
               type="date"
               value={value}
@@ -664,23 +644,15 @@ export default function OnboardingPage() {
         const value = values[step.field] as boolean;
         
         return (
-          <div className="w-full max-w-sm animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+          <div className="w-full max-w-sm animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
             <button
               onClick={handleToggleChange}
-              className={`w-full p-6 rounded-xl transition-all ${
-                value
-                  ? 'bg-macro-calories text-white ring-2 ring-macro-calories ring-offset-2 ring-offset-bg-primary'
-                  : 'bg-bg-surface text-text-primary hover:bg-bg-elevated'
-              }`}
+              className={`toggle-option ${value ? 'active' : ''}`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-lg font-medium">{toggleStep.description}</span>
-                <div className={`w-12 h-7 rounded-full p-1 transition-colors ${
-                  value ? 'bg-white/30' : 'bg-bg-elevated'
-                }`}>
-                  <div className={`w-5 h-5 rounded-full transition-all ${
-                    value ? 'bg-white ml-5' : 'bg-text-muted ml-0'
-                  }`} />
+                <div className={`toggle-track ${value ? 'active' : ''}`}>
+                  <div className={`toggle-thumb ${value ? 'active' : ''}`} />
                 </div>
               </div>
             </button>
@@ -711,18 +683,18 @@ export default function OnboardingPage() {
   };
 
   return (
-    <div className="min-h-screen bg-bg-primary flex flex-col">
+    <div className="page-container-compact flex flex-col">
       {/* Progress dots */}
       <div className="flex gap-2 justify-center py-6">
         {Array.from({ length: getVisibleStepCount() }).map((_, index) => (
           <div
             key={index}
-            className={`h-2 rounded-full transition-all duration-300 ${
+            className={`progress-dot ${
               index === getVisibleStepIndex()
-                ? 'w-8 bg-macro-calories'
+                ? 'active'
                 : index < getVisibleStepIndex()
-                  ? 'w-2 bg-macro-calories/50'
-                  : 'w-2 bg-bg-elevated'
+                  ? 'completed'
+                  : ''
             }`}
           />
         ))}
@@ -732,8 +704,7 @@ export default function OnboardingPage() {
       {currentStep > 0 && (
         <button
           onClick={handleBack}
-          className="absolute top-6 left-4 w-10 h-10 rounded-full bg-bg-elevated 
-                     flex items-center justify-center hover:bg-bg-surface transition-colors"
+          className="icon-button absolute top-6 left-4"
           aria-label="Go back"
         >
           <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -746,8 +717,7 @@ export default function OnboardingPage() {
       {existingProfileId && (
         <button
           onClick={() => router.push('/')}
-          className="absolute top-6 right-4 px-3 py-1.5 rounded-full bg-bg-elevated 
-                     text-sm text-text-secondary hover:bg-bg-surface transition-colors"
+          className="preset-button absolute top-6 right-4"
         >
           Skip
         </button>
@@ -759,12 +729,12 @@ export default function OnboardingPage() {
         <div className="text-6xl mb-6 animate-fade-in-up">{step.emoji}</div>
 
         {/* Title */}
-        <h1 className="text-page-title text-center mb-2 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+        <h1 className="text-page-title text-center mb-2 animate-fade-in-up" style={{ '--stagger-index': 1 } as React.CSSProperties}>
           {step.title}
         </h1>
 
         {/* Subtitle */}
-        <p className="text-body text-text-secondary text-center mb-8 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
+        <p className="text-body text-text-secondary text-center mb-8 animate-fade-in-up" style={{ '--stagger-index': 1 } as React.CSSProperties}>
           {step.subtitle}
         </p>
 
@@ -773,7 +743,7 @@ export default function OnboardingPage() {
       </div>
 
       {/* Next button */}
-      <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-bg-primary via-bg-primary to-transparent">
+      <div className="fixed-bottom-cta">
         <button
           onClick={handleNext}
           disabled={isSaving}
@@ -781,7 +751,7 @@ export default function OnboardingPage() {
         >
           {isSaving ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="spinner" />
               Saving...
             </>
           ) : (

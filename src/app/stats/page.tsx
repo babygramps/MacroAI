@@ -80,14 +80,13 @@ export default function StatsPage() {
     : goals?.preferredWeightUnit || 'kg';
 
   return (
-    <div className="min-h-screen bg-bg-primary pb-8">
+    <div className="page-container-compact">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-bg-primary/80 backdrop-blur-lg border-b border-border-subtle">
-        <div className="max-w-lg mx-auto px-4 py-4 flex items-center">
+      <header className="page-header">
+        <div className="content-wrapper flex items-center">
           <button
             onClick={() => router.push('/')}
-            className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center 
-                       hover:bg-bg-surface transition-colors mr-4"
+            className="icon-button mr-4"
             aria-label="Go back"
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -99,7 +98,7 @@ export default function StatsPage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-lg mx-auto px-4 py-6">
+      <main className="content-wrapper py-6">
         {error ? (
           <div className="card text-center py-8">
             <p className="text-red-500 mb-4">{error}</p>
@@ -198,20 +197,20 @@ export default function StatsPage() {
             </section>
 
             {/* Weekly Averages */}
-            <section className="card mb-6 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+            <section className="card mb-6 animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
               <h2 className="text-card-title text-text-secondary mb-4">Weekly Averages</h2>
               {isLoading ? (
-                <div className="grid grid-cols-2 gap-4">
+                <div className="stats-grid">
                   {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="bg-bg-elevated rounded-xl p-4">
+                    <div key={i} className="card-stat">
                       <div className="h-4 w-16 skeleton rounded mb-2" />
                       <div className="h-8 w-20 skeleton rounded" />
                     </div>
                   ))}
                 </div>
               ) : stats ? (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-bg-elevated rounded-xl p-4">
+                <div className="stats-grid">
+                  <div className="card-stat">
                     <p className="text-caption text-text-muted mb-1">Calories</p>
                     <p className="text-2xl font-mono font-bold text-macro-calories">
                       {stats.averages.calories}
@@ -223,7 +222,7 @@ export default function StatsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-bg-elevated rounded-xl p-4">
+                  <div className="card-stat">
                     <p className="text-caption text-text-muted mb-1">Protein</p>
                     <p className="text-2xl font-mono font-bold text-macro-protein">
                       {stats.averages.protein}
@@ -235,7 +234,7 @@ export default function StatsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-bg-elevated rounded-xl p-4">
+                  <div className="card-stat">
                     <p className="text-caption text-text-muted mb-1">Carbs</p>
                     <p className="text-2xl font-mono font-bold text-macro-carbs">
                       {stats.averages.carbs}
@@ -247,7 +246,7 @@ export default function StatsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="bg-bg-elevated rounded-xl p-4">
+                  <div className="card-stat">
                     <p className="text-caption text-text-muted mb-1">Fat</p>
                     <p className="text-2xl font-mono font-bold text-macro-fat">
                       {stats.averages.fat}
@@ -289,15 +288,14 @@ export default function StatsPage() {
             </section>
 
             {/* Weight Progress - Enhanced with Trend */}
-            <section className="card animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
+            <section className="card animate-fade-in-up" style={{ '--stagger-index': 4 } as React.CSSProperties}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-card-title text-text-secondary">Weight Progress</h2>
                 <button
                   onClick={() => setIsWeightModalOpen(true)}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-full text-sm transition-colors bg-bg-elevated text-text-secondary hover:bg-bg-primary"
-                  style={{ color: '#60A5FA' }}
+                  className="preset-button text-weight"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 inline mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
                   Log Weight
@@ -307,11 +305,11 @@ export default function StatsPage() {
               {/* Current Weight & Change - Now with Trend */}
               {isLoading ? (
                 <div className="flex gap-4 mb-4">
-                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                  <div className="flex-1 card-stat">
                     <div className="h-4 w-20 skeleton rounded mb-2" />
                     <div className="h-8 w-24 skeleton rounded" />
                   </div>
-                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                  <div className="flex-1 card-stat">
                     <div className="h-4 w-16 skeleton rounded mb-2" />
                     <div className="h-8 w-16 skeleton rounded" />
                   </div>
@@ -319,9 +317,9 @@ export default function StatsPage() {
               ) : weightStats && (weightStats.currentWeight || weightStats.trendWeight) ? (
                 <div className="flex gap-4 mb-4">
                   {/* Trend Weight (Primary) */}
-                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                  <div className="flex-1 card-stat">
                     <p className="text-caption text-text-muted mb-1">Trend Weight</p>
-                    <p className="text-2xl font-mono font-bold" style={{ color: '#60A5FA' }}>
+                    <p className="text-2xl font-mono font-bold text-weight">
                       {formatWeight(weightStats.trendWeight ?? weightStats.currentWeight ?? 0, preferredUnit)}
                     </p>
                     {weightStats.trendWeight && weightStats.currentWeight && weightStats.trendWeight !== weightStats.currentWeight && (
@@ -331,7 +329,7 @@ export default function StatsPage() {
                     )}
                   </div>
                   {/* Weekly Change */}
-                  <div className="flex-1 bg-bg-elevated rounded-xl p-4">
+                  <div className="flex-1 card-stat">
                     <p className="text-caption text-text-muted mb-1">7-Day Change</p>
                     {weightStats.changeFromWeekAgo !== null ? (
                       <p className={`text-2xl font-mono font-bold ${
@@ -354,7 +352,7 @@ export default function StatsPage() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-bg-elevated rounded-xl p-6 mb-4 text-center">
+                <div className="card-stat text-center py-6 mb-4">
                   <p className="text-3xl mb-2">⚖️</p>
                   <p className="text-text-secondary mb-2">No weight data yet</p>
                   <p className="text-caption text-text-muted">

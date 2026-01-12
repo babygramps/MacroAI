@@ -30,9 +30,30 @@ export function normalizeUSDA(food: USDAFood): NormalizedFood {
     carbs: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.CARBS) * 10) / 10,
     fat: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.FAT) * 10) / 10,
     servingSize: 100, // USDA always returns per 100g
+    servingDescription: '100g',
+    servingSizeGrams: 100,
     source: 'USDA',
     originalId: food.fdcId.toString(),
   };
+}
+
+/**
+ * Parse serving size from OFF format (e.g., "30g", "1 cup (240ml)", "2 cookies (30g)")
+ */
+function parseOFFServingSize(servingSize?: string): { description: string; grams: number } | null {
+  if (!servingSize) return null;
+  
+  // Try to extract grams from the string (e.g., "30g", "2 cookies (30g)")
+  const gramsMatch = servingSize.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?/i);
+  if (gramsMatch) {
+    return {
+      description: servingSize.replace(/\s*\(\d+(?:\.\d+)?\s*g(?:rams?)?\)/i, '').trim() || servingSize,
+      grams: parseFloat(gramsMatch[1]),
+    };
+  }
+  
+  // Return the description without grams if we can't parse it
+  return null;
 }
 
 /**
@@ -50,6 +71,9 @@ export function normalizeOFF(product: OFFProduct): NormalizedFood {
     nutriments.carbohydrates_100g ?? nutriments.carbohydrates ?? 0;
   const fat = nutriments.fat_100g ?? nutriments.fat ?? 0;
 
+  // Parse serving size from OFF
+  const parsedServing = parseOFFServingSize(product.serving_size);
+
   return {
     name: product.product_name || 'Unknown Product',
     calories: Math.round(calories),
@@ -57,6 +81,8 @@ export function normalizeOFF(product: OFFProduct): NormalizedFood {
     carbs: Math.round(carbs * 10) / 10,
     fat: Math.round(fat * 10) / 10,
     servingSize: 100, // Normalized to 100g
+    servingDescription: parsedServing?.description || product.serving_size || '100g',
+    servingSizeGrams: parsedServing?.grams || 100,
     source: 'OFF',
     originalId: product.code,
   };
@@ -67,13 +93,16 @@ export function normalizeOFF(product: OFFProduct): NormalizedFood {
  * API Ninjas returns calories, protein_g, carbohydrates_total_g, fat_total_g
  */
 export function normalizeAPINinjas(food: APINinjasFood): NormalizedFood {
+  const servingGrams = Math.round(food.serving_size_g || 100);
   return {
     name: food.name ? food.name.charAt(0).toUpperCase() + food.name.slice(1) : 'Unknown',
     calories: Math.round(food.calories || 0),
     protein: Math.round((food.protein_g || 0) * 10) / 10,
     carbs: Math.round((food.carbohydrates_total_g || 0) * 10) / 10,
     fat: Math.round((food.fat_total_g || 0) * 10) / 10,
-    servingSize: Math.round(food.serving_size_g || 100),
+    servingSize: servingGrams,
+    servingDescription: `${servingGrams}g`,
+    servingSizeGrams: servingGrams,
     source: 'API_NINJAS',
   };
 }
@@ -90,6 +119,9 @@ export function normalizeGemini(food: any): NormalizedFood {
   const carbs = food.carbs_g ?? food.carbohydrates_g ?? food.carbs ?? food.carbohydrates ?? 0;
   const fat = food.fat_g ?? food.fats_g ?? food.fat ?? food.fats ?? 0;
   const weight = food.estimated_weight_g ?? food.weight_g ?? food.serving_size_g ?? food.weight ?? food.servingSize ?? 100;
+  const servingDescription = food.serving_description ?? food.servingDescription ?? food.portion ?? null;
+
+  const weightNum = Math.round(Number(weight) || 100);
 
   return {
     name: food.name || 'Unknown',
@@ -97,7 +129,9 @@ export function normalizeGemini(food: any): NormalizedFood {
     protein: Math.round((Number(protein) || 0) * 10) / 10,
     carbs: Math.round((Number(carbs) || 0) * 10) / 10,
     fat: Math.round((Number(fat) || 0) * 10) / 10,
-    servingSize: Math.round(Number(weight) || 100),
+    servingSize: weightNum,
+    servingDescription: servingDescription || `${weightNum}g`,
+    servingSizeGrams: weightNum,
     source: 'GEMINI',
   };
 }

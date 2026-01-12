@@ -16,6 +16,7 @@ interface SearchTabProps {
 }
 
 type View = 'search' | 'scanner' | 'detail';
+type InputMode = 'grams' | 'servings';
 
 export function SearchTab({ onSuccess }: SearchTabProps) {
   const [query, setQuery] = useState('');
@@ -23,6 +24,8 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFood, setSelectedFood] = useState<NormalizedFood | null>(null);
   const [weight, setWeight] = useState('100');
+  const [servings, setServings] = useState('1');
+  const [inputMode, setInputMode] = useState<InputMode>('grams');
   const [view, setView] = useState<View>('search');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -56,16 +59,34 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
 
   const handleSelectFood = (food: NormalizedFood) => {
     setSelectedFood(food);
-    setWeight(food.servingSize.toString());
+    // Reset input mode based on available serving info
+    if (food.servingSizeGrams && food.servingDescription && food.servingDescription !== `${food.servingSizeGrams}g`) {
+      // Food has meaningful serving info (not just "100g")
+      setInputMode('servings');
+      setServings('1');
+      setWeight(food.servingSizeGrams.toString());
+    } else {
+      setInputMode('grams');
+      setWeight(food.servingSize.toString());
+      setServings('1');
+    }
     setView('detail');
   };
+
+  // Calculate effective weight based on input mode
+  const getEffectiveWeight = useCallback((): number => {
+    if (inputMode === 'servings' && selectedFood?.servingSizeGrams) {
+      return Math.round((parseFloat(servings) || 0) * selectedFood.servingSizeGrams);
+    }
+    return parseInt(weight) || 0;
+  }, [inputMode, servings, selectedFood?.servingSizeGrams, weight]);
 
   const handleLog = async () => {
     if (!selectedFood) return;
 
     setIsSaving(true);
     try {
-      const weightNum = parseInt(weight) || 100;
+      const weightNum = getEffectiveWeight();
       const scaled = scaleNutrition(selectedFood, weightNum);
 
       await client.models.FoodLog.create({
@@ -77,6 +98,9 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         fat: scaled.fat,
         source: scaled.source,
         eatenAt: new Date().toISOString(),
+        // Store serving info for future editing
+        servingDescription: selectedFood.servingDescription || null,
+        servingSizeGrams: selectedFood.servingSizeGrams || null,
       });
 
       showToast(`${scaled.name} logged!`, 'success');
@@ -89,8 +113,9 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
     }
   };
 
+  const effectiveWeight = getEffectiveWeight();
   const scaledFood = selectedFood
-    ? scaleNutrition(selectedFood, parseInt(weight) || 0)
+    ? scaleNutrition(selectedFood, effectiveWeight)
     : null;
 
   // Scanner view
@@ -113,6 +138,10 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
 
   // Detail view
   if (view === 'detail' && selectedFood && scaledFood) {
+    const hasServingInfo = selectedFood.servingSizeGrams && 
+      selectedFood.servingDescription && 
+      selectedFood.servingDescription !== `${selectedFood.servingSizeGrams}g`;
+
     return (
       <div className="p-4 pb-safe">
         <button
@@ -130,38 +159,100 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
             <span className="text-4xl">🍽️</span>
           </div>
           <h3 className="text-section-title">{selectedFood.name}</h3>
-          <p className="text-caption">per {selectedFood.servingSize}g from {selectedFood.source}</p>
+          <p className="text-caption">
+            per {selectedFood.servingDescription || `${selectedFood.servingSize}g`} from {selectedFood.source}
+          </p>
         </div>
 
-        <div className="mb-6">
-          <label className="text-caption block mb-2">How much? (grams)</label>
-          <input
-            type="number"
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            className="input-field text-center text-2xl font-mono"
-            min="1"
-          />
+        {/* Input mode toggle */}
+        <div className="flex rounded-xl bg-bg-elevated p-1 mb-4">
+          <button
+            onClick={() => setInputMode('grams')}
+            className={`tab-button rounded-lg ${inputMode === 'grams' ? 'active bg-macro-calories text-white' : ''}`}
+          >
+            Grams
+          </button>
+          <button
+            onClick={() => setInputMode('servings')}
+            className={`tab-button rounded-lg ${inputMode === 'servings' ? 'active bg-macro-calories text-white' : ''}`}
+          >
+            Servings
+          </button>
         </div>
 
-        <div className="flex gap-2 mb-6">
-          {[50, 100, 150, 200].map((preset) => (
-            <button
-              key={preset}
-              onClick={() => setWeight(preset.toString())}
-              className={`flex-1 py-2 rounded-xl text-sm transition-colors ${
-                weight === preset.toString()
-                  ? 'bg-macro-calories text-white'
-                  : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
-              }`}
-            >
-              {preset}g
-            </button>
-          ))}
-        </div>
+        {/* Grams input mode */}
+        {inputMode === 'grams' && (
+          <>
+            <div className="mb-4">
+              <label className="text-caption block mb-2">Weight (grams)</label>
+              <input
+                type="number"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                className="input-field text-center text-2xl font-mono"
+                min="1"
+              />
+            </div>
+
+            <div className="flex gap-2 mb-6">
+              {[50, 100, 150, 200].map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setWeight(preset.toString())}
+                  className={`preset-button flex-1 ${weight === preset.toString() ? 'active' : ''}`}
+                >
+                  {preset}g
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* Servings input mode */}
+        {inputMode === 'servings' && (
+          <>
+            <div className="mb-4">
+              <label className="text-caption block mb-2">
+                Number of servings
+                {hasServingInfo && (
+                  <span className="text-text-muted ml-1">
+                    ({selectedFood.servingDescription} = {selectedFood.servingSizeGrams}g)
+                  </span>
+                )}
+              </label>
+              <input
+                type="number"
+                value={servings}
+                onChange={(e) => setServings(e.target.value)}
+                className="input-field text-center text-2xl font-mono"
+                min="0.1"
+                step="0.25"
+              />
+            </div>
+
+            <div className="flex gap-2 mb-6">
+              {[0.5, 1, 1.5, 2].map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => setServings(preset.toString())}
+                  className={`preset-button flex-1 ${servings === preset.toString() ? 'active' : ''}`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            {/* Show calculated weight */}
+            <p className="text-caption text-center mb-4">
+              = {effectiveWeight}g
+            </p>
+          </>
+        )}
 
         <div className="card mb-6">
-          <h4 className="text-card-title mb-4">Nutrition ({weight}g)</h4>
+          <h4 className="text-card-title mb-4">
+            Nutrition ({inputMode === 'servings' ? `${servings} serving${parseFloat(servings) !== 1 ? 's' : ''}` : `${weight}g`})
+          </h4>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-caption">Calories</p>
@@ -192,12 +283,12 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
 
         <button
           onClick={handleLog}
-          disabled={isSaving || !weight || parseInt(weight) <= 0}
+          disabled={isSaving || effectiveWeight <= 0}
           className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {isSaving ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="spinner" />
               Logging...
             </>
           ) : (
@@ -260,7 +351,7 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
             <button
               key={`${food.source}-${food.originalId || food.name}-${index}`}
               onClick={() => handleSelectFood(food)}
-              className="card text-left hover:bg-bg-elevated transition-colors"
+              className="card-interactive text-left"
             >
               <p className="font-medium text-text-primary truncate">{food.name}</p>
               <p className="text-caption">

@@ -46,7 +46,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="modal-backdrop"
         onClick={onClose}
       />
 
@@ -55,11 +55,10 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
                       sm:max-w-md sm:w-full sm:max-h-[90vh] sm:rounded-2xl
                       bg-bg-primary flex flex-col animate-slide-up">
         {/* Header */}
-        <div className="flex items-center h-14 px-4 border-b border-border-subtle shrink-0">
+        <div className="modal-header">
           <button
             onClick={onClose}
-            className="w-10 h-10 -ml-2 rounded-full flex items-center justify-center 
-                       hover:bg-bg-elevated transition-colors"
+            className="icon-button -ml-2"
             aria-label="Close"
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -75,14 +74,12 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 text-center transition-colors relative ${
-                activeTab === tab.id ? 'text-text-primary' : 'text-text-muted'
-              }`}
+              className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
             >
               <span className="mr-1">{tab.icon}</span>
               <span className="text-sm font-medium">{tab.label}</span>
               {activeTab === tab.id && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-macro-calories" />
+                <div className="tab-button-indicator" />
               )}
             </button>
           ))}

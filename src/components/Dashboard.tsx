@@ -116,6 +116,9 @@ export function Dashboard() {
           fat: log.fat ?? 0,
           source: log.source ?? '',
           eatenAt: log.eatenAt ?? new Date().toISOString(),
+          // Include serving info for editing
+          servingDescription: log.servingDescription ?? null,
+          servingSizeGrams: log.servingSizeGrams ?? null,
         }));
 
         // Sort by time descending (most recent first)
@@ -211,7 +214,7 @@ export function Dashboard() {
   // Redirect to onboarding if needed
   if (needsOnboarding && !isLoading) {
     return (
-      <div className="min-h-screen bg-bg-primary flex items-center justify-center p-6">
+      <div className="page-container flex items-center justify-center p-6">
         <div className="card max-w-md text-center">
           <h1 className="text-page-title mb-4">Welcome to MacroAI!</h1>
           <p className="text-body text-text-secondary mb-6">
@@ -226,10 +229,10 @@ export function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-primary pb-24">
+    <div className="page-container">
       {/* Header */}
-      <header className="sticky top-0 z-40 bg-bg-primary/80 backdrop-blur-lg border-b border-border-subtle">
-        <div className="max-w-lg mx-auto px-4 py-4 flex items-center justify-between">
+      <header className="page-header">
+        <div className="content-wrapper flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-xl font-bold text-macro-calories">MacroAI</span>
           </div>
@@ -239,7 +242,7 @@ export function Dashboard() {
             </span>
             <a
               href="/stats"
-              className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface transition-colors"
+              className="icon-button"
               aria-label="View statistics"
             >
               <svg
@@ -258,7 +261,7 @@ export function Dashboard() {
             </a>
             <a
               href="/settings"
-              className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface transition-colors"
+              className="icon-button"
               aria-label="Settings"
             >
               <svg
@@ -286,7 +289,7 @@ export function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-lg mx-auto px-4">
+      <main className="content-wrapper">
         {/* Date Navigator */}
         <div className="flex justify-center mt-6 mb-6">
           <DateNavigator 
@@ -338,19 +341,15 @@ export function Dashboard() {
         <div className="mb-8">
           <button
             onClick={() => setIsWeightModalOpen(true)}
-            className="w-full card flex items-center justify-between hover:bg-bg-elevated transition-colors group"
+            className="w-full card-interactive flex items-center justify-between group"
           >
             <div className="flex items-center gap-3">
-              <div 
-                className="w-10 h-10 rounded-full flex items-center justify-center"
-                style={{ backgroundColor: 'rgba(96, 165, 250, 0.15)' }}
-              >
+              <div className="icon-button bg-weight-subtle">
                 <svg 
-                  className="w-5 h-5" 
+                  className="w-5 h-5 text-weight" 
                   fill="none" 
                   stroke="currentColor" 
                   viewBox="0 0 24 24"
-                  style={{ color: '#60A5FA' }}
                 >
                   <path 
                     strokeLinecap="round" 
@@ -365,7 +364,7 @@ export function Dashboard() {
                 {isLoading ? (
                   <div className="h-6 w-16 skeleton rounded mt-1" />
                 ) : latestWeight ? (
-                  <p className="text-lg font-mono font-bold" style={{ color: '#60A5FA' }}>
+                  <p className="text-lg font-mono font-bold text-weight">
                     {formatWeight(latestWeight.weightKg, preferredUnit)}
                   </p>
                 ) : (
@@ -409,7 +408,7 @@ export function Dashboard() {
                 />
               ))
             ) : (
-              <div className="card text-center py-12">
+              <div className="card-empty">
                 <p className="text-4xl mb-4">🍽️</p>
                 <p className="text-body text-text-secondary">
                   {canAddFood ? 'No meals logged yet today' : 'No meals were logged this day'}
@@ -427,9 +426,7 @@ export function Dashboard() {
       {canAddFood && (
         <button
           onClick={() => setIsModalOpen(true)}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-macro-calories 
-                     flex items-center justify-center shadow-lg shadow-macro-calories/30
-                     hover:scale-105 active:scale-95 transition-transform z-50"
+          className="fab"
           aria-label="Log food"
         >
           <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

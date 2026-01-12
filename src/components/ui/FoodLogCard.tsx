@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import type { FoodLogEntry } from '@/lib/types';
 
 interface FoodLogCardProps {
@@ -9,6 +9,8 @@ interface FoodLogCardProps {
   onDelete?: (id: string) => void;
   onUpdate?: (id: string, updates: Partial<FoodLogEntry>) => void;
 }
+
+type InputMode = 'grams' | 'servings';
 
 // Map common food names to emojis
 function getFoodEmoji(name: string): string {
@@ -79,6 +81,13 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
   // Edit form state - weight is the primary input, macros are calculated
   const [editName, setEditName] = useState(entry.name);
   const [editWeight, setEditWeight] = useState(entry.weightG);
+  const [editServings, setEditServings] = useState('1');
+  const [inputMode, setInputMode] = useState<InputMode>('grams');
+
+  // Check if entry has serving info
+  const hasServingInfo = entry.servingSizeGrams && 
+    entry.servingDescription && 
+    entry.servingDescription !== `${entry.servingSizeGrams}g`;
 
   // Store the original per-gram ratios for scaling
   const originalWeight = entry.weightG || 100;
@@ -87,16 +96,37 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
   const carbsPerGram = entry.carbs / originalWeight;
   const fatPerGram = entry.fat / originalWeight;
 
-  // Calculated macros based on current weight
-  const calculatedCalories = Math.round(editWeight * caloriesPerGram);
-  const calculatedProtein = Math.round(editWeight * proteinPerGram * 10) / 10;
-  const calculatedCarbs = Math.round(editWeight * carbsPerGram * 10) / 10;
-  const calculatedFat = Math.round(editWeight * fatPerGram * 10) / 10;
+  // Calculate effective weight based on input mode
+  const getEffectiveWeight = useCallback((): number => {
+    if (inputMode === 'servings' && entry.servingSizeGrams) {
+      return Math.round((parseFloat(editServings) || 0) * entry.servingSizeGrams);
+    }
+    return editWeight;
+  }, [inputMode, editServings, entry.servingSizeGrams, editWeight]);
+
+  const effectiveWeight = getEffectiveWeight();
+
+  // Calculated macros based on effective weight
+  const calculatedCalories = Math.round(effectiveWeight * caloriesPerGram);
+  const calculatedProtein = Math.round(effectiveWeight * proteinPerGram * 10) / 10;
+  const calculatedCarbs = Math.round(effectiveWeight * carbsPerGram * 10) / 10;
+  const calculatedFat = Math.round(effectiveWeight * fatPerGram * 10) / 10;
 
   const handleStartEdit = () => {
     // Reset form to current values
     setEditName(entry.name);
     setEditWeight(entry.weightG);
+    
+    // Set initial input mode and servings based on entry
+    if (hasServingInfo && entry.servingSizeGrams) {
+      setInputMode('servings');
+      // Calculate servings from current weight
+      const calculatedServings = entry.weightG / entry.servingSizeGrams;
+      setEditServings(calculatedServings.toFixed(2).replace(/\.?0+$/, ''));
+    } else {
+      setInputMode('grams');
+      setEditServings('1');
+    }
     setIsEditing(true);
   };
 
@@ -108,14 +138,19 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
     setEditWeight(newWeight);
   };
 
+  const handleServingsChange = (newServings: string) => {
+    setEditServings(newServings);
+  };
+
   const handleSave = async () => {
     if (!onUpdate) return;
     
     setIsSaving(true);
     try {
+      const finalWeight = getEffectiveWeight();
       await onUpdate(entry.id, {
         name: editName,
-        weightG: editWeight,
+        weightG: finalWeight,
         calories: calculatedCalories,
         protein: calculatedProtein,
         carbs: calculatedCarbs,
@@ -131,9 +166,8 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
   if (isEditing) {
     return (
       <div
-        className="bg-bg-surface rounded-xl p-4 border border-macro-calories/30
-                   animate-fade-in-up"
-        style={{ animationDelay: `${index * 0.05}s` }}
+        className="card-editing animate-fade-in-up"
+        style={{ '--stagger-index': index } as React.CSSProperties}
       >
         {/* Name input */}
         <div className="flex items-center gap-3 mb-4">
@@ -148,39 +182,92 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
           />
         </div>
 
-        {/* Weight input with quick buttons */}
-        <div className="mb-4">
-          <div className="flex items-center gap-2 mb-2">
-            <label className="text-caption text-text-muted w-16">Weight:</label>
-            <input
-              type="number"
-              value={editWeight}
-              onChange={(e) => handleWeightChange(Number(e.target.value) || 0)}
-              className="w-24 bg-bg-elevated rounded-lg px-3 py-2 text-text-primary text-center
-                         font-mono focus:outline-none focus:ring-2 focus:ring-macro-calories/50"
-            />
-            <span className="text-caption text-text-muted">g</span>
-          </div>
-          {/* Quick weight buttons */}
-          <div className="flex gap-2 ml-16">
-            {[50, 100, 150, 200, 250].map((w) => (
-              <button
-                key={w}
-                onClick={() => handleWeightChange(w)}
-                className={`px-2 py-1 rounded text-xs font-mono transition-colors ${
-                  editWeight === w 
-                    ? 'bg-macro-calories text-white' 
-                    : 'bg-bg-elevated text-text-muted hover:bg-bg-primary'
-                }`}
-              >
-                {w}g
-              </button>
-            ))}
-          </div>
+        {/* Input mode toggle */}
+        <div className="flex rounded-lg bg-bg-elevated p-0.5 mb-4">
+          <button
+            onClick={() => setInputMode('grams')}
+            className={`tab-button rounded-md text-xs ${inputMode === 'grams' ? 'active bg-macro-calories text-white' : ''}`}
+          >
+            Grams
+          </button>
+          <button
+            onClick={() => setInputMode('servings')}
+            className={`tab-button rounded-md text-xs ${inputMode === 'servings' ? 'active bg-macro-calories text-white' : ''}`}
+          >
+            Servings
+          </button>
         </div>
 
+        {/* Grams input mode */}
+        {inputMode === 'grams' && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-caption text-text-muted w-16">Weight:</label>
+              <input
+                type="number"
+                value={editWeight}
+                onChange={(e) => handleWeightChange(Number(e.target.value) || 0)}
+                className="w-24 bg-bg-elevated rounded-lg px-3 py-2 text-text-primary text-center
+                           font-mono focus:outline-none focus:ring-2 focus:ring-macro-calories/50"
+              />
+              <span className="text-caption text-text-muted">g</span>
+            </div>
+            {/* Quick weight buttons */}
+            <div className="flex gap-2 ml-16">
+              {[50, 100, 150, 200, 250].map((w) => (
+                <button
+                  key={w}
+                  onClick={() => handleWeightChange(w)}
+                  className={`preset-button-weight ${editWeight === w ? 'active' : ''}`}
+                >
+                  {w}g
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Servings input mode */}
+        {inputMode === 'servings' && (
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-caption text-text-muted w-16">Servings:</label>
+              <input
+                type="number"
+                value={editServings}
+                onChange={(e) => handleServingsChange(e.target.value)}
+                className="w-24 bg-bg-elevated rounded-lg px-3 py-2 text-text-primary text-center
+                           font-mono focus:outline-none focus:ring-2 focus:ring-macro-calories/50"
+                min="0.1"
+                step="0.25"
+              />
+              {hasServingInfo && (
+                <span className="text-caption text-text-muted truncate">
+                  × {entry.servingDescription}
+                </span>
+              )}
+            </div>
+            {/* Quick serving buttons */}
+            <div className="flex gap-2 ml-16">
+              {[0.5, 1, 1.5, 2, 3].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => handleServingsChange(s.toString())}
+                  className={`preset-button-weight ${editServings === s.toString() ? 'active' : ''}`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            {/* Show calculated weight */}
+            <p className="text-caption text-text-muted text-center mt-2">
+              = {effectiveWeight}g
+            </p>
+          </div>
+        )}
+
         {/* Calculated macros display (read-only, updates with weight) */}
-        <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="macro-grid mb-4">
           <div className="flex flex-col items-center p-2 bg-bg-elevated rounded-lg">
             <span className="text-caption text-macro-calories mb-1">Calories</span>
             <span className="font-mono font-bold text-text-primary">{calculatedCalories}</span>
@@ -211,14 +298,14 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
           </button>
           <button
             onClick={handleSave}
-            disabled={isSaving}
+            disabled={isSaving || effectiveWeight <= 0}
             className="flex-1 py-2 rounded-lg bg-macro-calories text-white font-medium
                        hover:bg-macro-calories/80 transition-colors disabled:opacity-50
                        flex items-center justify-center gap-2"
           >
             {isSaving ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <div className="spinner" style={{ width: '1rem', height: '1rem' }} />
                 Saving...
               </>
             ) : (
@@ -233,10 +320,8 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
   // Normal display mode
   return (
     <div
-      className="bg-bg-surface rounded-xl p-4 flex items-center gap-4 
-                 hover:bg-bg-elevated transition-colors duration-200
-                 animate-fade-in-up"
-      style={{ animationDelay: `${index * 0.05}s` }}
+      className="card-interactive flex items-center gap-4 animate-fade-in-up"
+      style={{ '--stagger-index': index } as React.CSSProperties}
     >
       <span className="text-2xl">{emoji}</span>
       
@@ -258,8 +343,7 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
         {onUpdate && (
           <button
             onClick={handleStartEdit}
-            className="w-8 h-8 rounded-full bg-bg-elevated hover:bg-macro-calories/20 
-                       flex items-center justify-center transition-colors"
+            className="icon-button-sm hover:bg-macro-calories/20"
             aria-label="Edit entry"
           >
             <svg
@@ -282,8 +366,7 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
         {onDelete && (
           <button
             onClick={() => onDelete(entry.id)}
-            className="w-8 h-8 rounded-full bg-bg-elevated hover:bg-red-500/20 
-                       flex items-center justify-center transition-colors"
+            className="icon-button-sm hover:bg-red-500/20"
             aria-label="Delete entry"
           >
             <svg
@@ -310,8 +393,8 @@ export function FoodLogCard({ entry, index, onDelete, onUpdate }: FoodLogCardPro
 export function FoodLogCardSkeleton({ index }: { index: number }) {
   return (
     <div
-      className="bg-bg-surface rounded-xl p-4 flex items-center gap-4 animate-fade-in-up"
-      style={{ animationDelay: `${index * 0.05}s` }}
+      className="card-interactive flex items-center gap-4 animate-fade-in-up"
+      style={{ '--stagger-index': index } as React.CSSProperties}
     >
       <div className="w-10 h-10 skeleton rounded-full" />
       <div className="flex-1 space-y-2">

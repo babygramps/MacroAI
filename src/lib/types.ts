@@ -6,7 +6,9 @@ export interface NormalizedFood {
   protein: number; // grams
   carbs: number; // grams
   fat: number; // grams
-  servingSize: number; // grams
+  servingSize: number; // grams (base for scaling)
+  servingDescription?: string; // e.g., "1 cup", "1 slice", "1 medium"
+  servingSizeGrams?: number; // grams per serving (for serving-based input)
   source: 'USDA' | 'OFF' | 'API_NINJAS' | 'GEMINI';
   originalId?: string; // Original ID from the source API
 }
@@ -132,6 +134,9 @@ export interface FoodLogEntry {
   fat: number;
   source: string;
   eatenAt: string;
+  // Serving info for editing
+  servingDescription?: string | null;
+  servingSizeGrams?: number | null;
 }
 
 // Daily summary

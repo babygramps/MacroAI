@@ -147,12 +147,7 @@ function WeightLogForm({
               key={w}
               type="button"
               onClick={() => setWeight(w.toString())}
-              className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                weight === w.toString()
-                  ? 'text-white'
-                  : 'bg-bg-elevated text-text-secondary hover:bg-bg-primary'
-              }`}
-              style={{ backgroundColor: weight === w.toString() ? '#60A5FA' : undefined }}
+              className={`preset-button ${weight === w.toString() ? 'bg-weight text-white' : ''}`}
             >
               {w}
             </button>
@@ -205,12 +200,11 @@ function WeightLogForm({
         <button
           type="submit"
           disabled={isSaving || !weight}
-          className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
-          style={{ backgroundColor: '#60A5FA' }}
+          className="btn-weight flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {isSaving ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="spinner" />
               Saving...
             </>
           ) : (
@@ -246,7 +240,7 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="modal-backdrop"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -264,8 +258,7 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
           <h2 id="weight-modal-title" className="text-section-title">Log Weight</h2>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-bg-elevated flex items-center justify-center 
-                       hover:bg-bg-primary transition-colors"
+            className="icon-button-sm"
             aria-label="Close"
           >
             <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">

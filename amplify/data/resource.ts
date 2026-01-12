@@ -44,6 +44,9 @@ const schema = a.schema({
       fat: a.float(),
       source: a.string(), // "USDA", "OFF", "API_NINJAS", "GEMINI"
       eatenAt: a.datetime(),
+      // Serving info for editing (optional for backwards compatibility)
+      servingDescription: a.string(), // e.g., "1 cup", "1 slice", "1 medium"
+      servingSizeGrams: a.integer(), // grams per serving
     })
     .authorization((allow) => [allow.owner()]),
 

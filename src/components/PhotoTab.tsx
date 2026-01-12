@@ -173,7 +173,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         {/* Totals */}
         <div className="card mb-6">
           <h4 className="text-card-title mb-3">Total ({selectedItems.size} items)</h4>
-          <div className="grid grid-cols-4 gap-2 text-center">
+          <div className="macro-grid text-center">
             <div>
               <p className="text-lg font-mono font-bold text-macro-calories">{Math.round(totals.calories)}</p>
               <p className="text-caption">kcal</p>
@@ -200,7 +200,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         >
           {isSaving ? (
             <>
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              <div className="spinner" />
               Logging...
             </>
           ) : (
