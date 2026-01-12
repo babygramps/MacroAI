@@ -74,7 +74,10 @@ export default function StatsPage() {
     loadStats();
   };
 
-  const preferredUnit = goals?.preferredWeightUnit || 'kg';
+  // Determine weight unit from unit system (new) or legacy field
+  const preferredUnit = goals?.preferredUnitSystem === 'imperial' 
+    ? 'lbs' 
+    : goals?.preferredWeightUnit || 'kg';
 
   return (
     <div className="min-h-screen bg-bg-primary pb-8">

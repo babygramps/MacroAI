@@ -311,6 +311,10 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
     const { data: profiles } = await client.models.UserProfile.list();
     if (profiles && profiles.length > 0) {
       const profile = profiles[0];
+      // Determine unit system - prefer new field, fall back to legacy
+      const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ?? 
+        (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
+      
       return {
         calorieGoal: profile.calorieGoal ?? 2000,
         proteinGoal: profile.proteinGoal ?? 150,
@@ -318,6 +322,7 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
         fatGoal: profile.fatGoal ?? 65,
         targetWeightKg: profile.targetWeightKg ?? undefined,
         preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
+        preferredUnitSystem: unitSystem,
         // Metabolic modeling fields
         heightCm: profile.heightCm ?? undefined,
         birthDate: profile.birthDate ?? undefined,

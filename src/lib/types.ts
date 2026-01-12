@@ -82,6 +82,9 @@ export interface GeminiParsedFood {
   fat_g: number;
 }
 
+// Unit system type
+export type UnitSystem = 'metric' | 'imperial';
+
 // User profile for goals
 export interface UserGoals {
   calorieGoal: number;
@@ -89,7 +92,8 @@ export interface UserGoals {
   carbsGoal: number;
   fatGoal: number;
   targetWeightKg?: number;
-  preferredWeightUnit?: 'kg' | 'lbs';
+  preferredWeightUnit?: 'kg' | 'lbs'; // legacy, use preferredUnitSystem
+  preferredUnitSystem?: UnitSystem;
   // Metabolic modeling additions
   heightCm?: number;
   birthDate?: string;
@@ -99,7 +103,7 @@ export interface UserGoals {
   startDate?: string;
   athleteStatus?: boolean;
   goalType?: 'lose' | 'gain' | 'maintain';
-  goalRate?: number; // kg per week
+  goalRate?: number; // kg per week (always stored in kg)
 }
 
 // Weight tracking

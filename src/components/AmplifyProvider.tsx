@@ -5,6 +5,7 @@ import { Amplify } from 'aws-amplify';
 import { Authenticator } from '@aws-amplify/ui-react';
 import '@aws-amplify/ui-react/styles.css';
 import { ToastContainer } from './ui/Toast';
+import { UnitProvider } from '@/lib/UnitContext';
 
 interface AmplifyProviderProps {
   children: ReactNode;
@@ -82,7 +83,9 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
           },
         }}
       >
-        {children}
+        <UnitProvider>
+          {children}
+        </UnitProvider>
       </Authenticator>
       <ToastContainer />
     </>

@@ -1,9 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
+import type { UnitSystem } from '@/lib/types';
+import {
+  kgToLbs,
+  lbsToKg,
+  cmToFeetInches,
+  feetInchesToCm,
+  getWeightUnit,
+} from '@/lib/unitConversions';
 
 const client = generateClient<Schema>();
 
@@ -42,127 +50,29 @@ interface ToggleStep extends BaseStep {
   description: string;
 }
 
-type Step = NumberStep | SelectStep | DateStep | ToggleStep;
+interface HeightStep extends BaseStep {
+  type: 'height';
+  defaultValue: number; // stored in cm
+}
 
-const STEPS: Step[] = [
-  // Profile Setup
-  {
-    emoji: '📏',
-    title: "What's your height?",
-    subtitle: 'Used for accurate metabolic calculations',
-    field: 'heightCm',
-    type: 'number',
-    unit: 'cm',
-    defaultValue: 170,
-    presets: [160, 170, 180],
-    step: 1,
-    min: 100,
-    max: 250,
-  },
-  {
-    emoji: '⚧️',
-    title: 'Biological sex?',
-    subtitle: 'Affects your basal metabolic rate calculation',
-    field: 'sex',
-    type: 'select',
-    options: [
-      { value: 'male', label: 'Male', emoji: '♂️' },
-      { value: 'female', label: 'Female', emoji: '♀️' },
-    ],
-    defaultValue: 'male',
-  },
-  {
-    emoji: '🎂',
-    title: 'When were you born?',
-    subtitle: 'Age impacts your metabolism',
-    field: 'birthDate',
-    type: 'date',
-    defaultValue: '1990-01-01',
-  },
-  // Goal Setup
-  {
-    emoji: '🎯',
-    title: "What's your goal?",
-    subtitle: 'This determines your calorie adjustments',
-    field: 'goalType',
-    type: 'select',
-    options: [
-      { value: 'lose', label: 'Lose Weight', emoji: '📉' },
-      { value: 'maintain', label: 'Maintain Weight', emoji: '⚖️' },
-      { value: 'gain', label: 'Build Muscle', emoji: '💪' },
-    ],
-    defaultValue: 'maintain',
-  },
-  {
-    emoji: '⏱️',
-    title: 'How fast?',
-    subtitle: 'Weekly weight change target',
-    field: 'goalRate',
-    type: 'number',
-    unit: 'kg/week',
-    defaultValue: 0.5,
-    presets: [0.25, 0.5, 0.75],
-    step: 0.05,
-    min: 0.1,
-    max: 1.0,
-  },
-  {
-    emoji: '🏋️',
-    title: 'Are you an athlete?',
-    subtitle: 'Training 7+ hours/week? Athletes have higher metabolism',
-    field: 'athleteStatus',
-    type: 'toggle',
-    defaultValue: false,
-    description: 'I train intensely 7+ hours per week',
-  },
-  // Macro Goals
-  {
-    emoji: '🔥',
-    title: "What's your daily calorie target?",
-    subtitle: 'This will be refined based on your actual TDEE',
-    field: 'calorieGoal',
-    type: 'number',
-    unit: 'kcal',
-    defaultValue: 2000,
-    presets: [1500, 2000, 2500],
-    step: 50,
-  },
-  {
-    emoji: '💪',
-    title: 'How much protein?',
-    subtitle: 'Protein helps build and repair muscle',
-    field: 'proteinGoal',
-    type: 'number',
-    unit: 'grams',
-    defaultValue: 150,
-    presets: [100, 150, 200],
-    step: 5,
-  },
-  {
-    emoji: '🍞',
-    title: 'Daily carbohydrates?',
-    subtitle: 'Carbs are your main energy source',
-    field: 'carbsGoal',
-    type: 'number',
-    unit: 'grams',
-    defaultValue: 200,
-    presets: [150, 200, 250],
-    step: 10,
-  },
-  {
-    emoji: '🥑',
-    title: 'Daily fat intake?',
-    subtitle: 'Healthy fats support hormone production',
-    field: 'fatGoal',
-    type: 'number',
-    unit: 'grams',
-    defaultValue: 65,
-    presets: [50, 65, 80],
-    step: 5,
-  },
-];
+type Step = NumberStep | SelectStep | DateStep | ToggleStep | HeightStep;
+
+// Helper function to calculate age
+function calculateAge(birthDate: string): number {
+  const birth = new Date(birthDate);
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age--;
+  }
+  
+  return age;
+}
 
 interface FormValues {
+  preferredUnitSystem: UnitSystem;
   heightCm: number;
   sex: string;
   birthDate: string;
@@ -180,6 +90,7 @@ export default function OnboardingPage() {
   const router = useRouter();
   const [currentStep, setCurrentStep] = useState(0);
   const [values, setValues] = useState<FormValues>({
+    preferredUnitSystem: 'metric',
     heightCm: 170,
     sex: 'male',
     birthDate: '1990-01-01',
@@ -194,6 +105,145 @@ export default function OnboardingPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [existingProfileId, setExistingProfileId] = useState<string | null>(null);
 
+  // Height state for imperial (feet/inches)
+  const [heightFeet, setHeightFeet] = useState(5);
+  const [heightInches, setHeightInches] = useState(7);
+
+  // Derived unit preferences
+  const unitSystem = values.preferredUnitSystem;
+  const weightUnit = getWeightUnit(unitSystem);
+
+  // Build steps dynamically based on unit system
+  const STEPS: Step[] = useMemo(() => [
+    // Unit System Selection (First!)
+    {
+      emoji: '🌍',
+      title: 'Choose your units',
+      subtitle: 'Select your preferred measurement system',
+      field: 'preferredUnitSystem',
+      type: 'select',
+      options: [
+        { value: 'metric', label: 'Metric (kg, cm)', emoji: '🇪🇺' },
+        { value: 'imperial', label: 'Imperial (lbs, ft)', emoji: '🇺🇸' },
+      ],
+      defaultValue: 'metric',
+    } as SelectStep,
+    // Height (special handling for feet/inches)
+    {
+      emoji: '📏',
+      title: "What's your height?",
+      subtitle: 'Used for accurate metabolic calculations',
+      field: 'heightCm',
+      type: 'height',
+      defaultValue: 170,
+    } as HeightStep,
+    // Sex
+    {
+      emoji: '⚧️',
+      title: 'Biological sex?',
+      subtitle: 'Affects your basal metabolic rate calculation',
+      field: 'sex',
+      type: 'select',
+      options: [
+        { value: 'male', label: 'Male', emoji: '♂️' },
+        { value: 'female', label: 'Female', emoji: '♀️' },
+      ],
+      defaultValue: 'male',
+    } as SelectStep,
+    // Birth Date
+    {
+      emoji: '🎂',
+      title: 'When were you born?',
+      subtitle: 'Age impacts your metabolism',
+      field: 'birthDate',
+      type: 'date',
+      defaultValue: '1990-01-01',
+    } as DateStep,
+    // Goal Type
+    {
+      emoji: '🎯',
+      title: "What's your goal?",
+      subtitle: 'This determines your calorie adjustments',
+      field: 'goalType',
+      type: 'select',
+      options: [
+        { value: 'lose', label: 'Lose Weight', emoji: '📉' },
+        { value: 'maintain', label: 'Maintain Weight', emoji: '⚖️' },
+        { value: 'gain', label: 'Build Muscle', emoji: '💪' },
+      ],
+      defaultValue: 'maintain',
+    } as SelectStep,
+    // Goal Rate (unit-aware)
+    {
+      emoji: '⏱️',
+      title: 'How fast?',
+      subtitle: 'Weekly weight change target',
+      field: 'goalRate',
+      type: 'number',
+      unit: unitSystem === 'imperial' ? 'lbs/week' : 'kg/week',
+      defaultValue: unitSystem === 'imperial' ? 1.0 : 0.5,
+      presets: unitSystem === 'imperial' ? [0.5, 1.0, 1.5] : [0.25, 0.5, 0.75],
+      step: unitSystem === 'imperial' ? 0.1 : 0.05,
+      min: unitSystem === 'imperial' ? 0.2 : 0.1,
+      max: unitSystem === 'imperial' ? 2.0 : 1.0,
+    } as NumberStep,
+    // Athlete Status
+    {
+      emoji: '🏋️',
+      title: 'Are you an athlete?',
+      subtitle: 'Training 7+ hours/week? Athletes have higher metabolism',
+      field: 'athleteStatus',
+      type: 'toggle',
+      defaultValue: false,
+      description: 'I train intensely 7+ hours per week',
+    } as ToggleStep,
+    // Macro Goals
+    {
+      emoji: '🔥',
+      title: "What's your daily calorie target?",
+      subtitle: 'This will be refined based on your actual TDEE',
+      field: 'calorieGoal',
+      type: 'number',
+      unit: 'kcal',
+      defaultValue: 2000,
+      presets: [1500, 2000, 2500],
+      step: 50,
+    } as NumberStep,
+    {
+      emoji: '💪',
+      title: 'How much protein?',
+      subtitle: 'Protein helps build and repair muscle',
+      field: 'proteinGoal',
+      type: 'number',
+      unit: 'grams',
+      defaultValue: 150,
+      presets: [100, 150, 200],
+      step: 5,
+    } as NumberStep,
+    {
+      emoji: '🍞',
+      title: 'Daily carbohydrates?',
+      subtitle: 'Carbs are your main energy source',
+      field: 'carbsGoal',
+      type: 'number',
+      unit: 'grams',
+      defaultValue: 200,
+      presets: [150, 200, 250],
+      step: 10,
+    } as NumberStep,
+    {
+      emoji: '🥑',
+      title: 'Daily fat intake?',
+      subtitle: 'Healthy fats support hormone production',
+      field: 'fatGoal',
+      type: 'number',
+      unit: 'grams',
+      defaultValue: 65,
+      presets: [50, 65, 80],
+      step: 5,
+    } as NumberStep,
+  ], [unitSystem]);
+
   // Check for existing profile
   useEffect(() => {
     async function checkProfile() {
@@ -202,7 +252,13 @@ export default function OnboardingPage() {
         if (profiles && profiles.length > 0) {
           const profile = profiles[0];
           setExistingProfileId(profile.id);
+          
+          // Determine unit system from profile
+          const savedUnitSystem = (profile.preferredUnitSystem as UnitSystem) ?? 
+            (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
+          
           setValues({
+            preferredUnitSystem: savedUnitSystem,
             heightCm: profile.heightCm ?? 170,
             sex: profile.sex ?? 'male',
             birthDate: profile.birthDate ?? '1990-01-01',
@@ -214,6 +270,13 @@ export default function OnboardingPage() {
             carbsGoal: profile.carbsGoal ?? 200,
             fatGoal: profile.fatGoal ?? 65,
           });
+
+          // Set imperial height if needed
+          if (profile.heightCm) {
+            const { feet, inches } = cmToFeetInches(profile.heightCm);
+            setHeightFeet(feet);
+            setHeightInches(inches);
+          }
         }
       } catch (error) {
         console.error('Error checking profile:', error);
@@ -238,12 +301,13 @@ export default function OnboardingPage() {
     if (step.type !== 'number') return;
     const numStep = step as NumberStep;
     setValues((prev) => {
-      const newValue = (prev[step.field] as number) + delta;
+      const currentValue = prev[step.field] as number;
+      const newValue = currentValue + delta;
       const min = numStep.min ?? 0;
       const max = numStep.max ?? Infinity;
       return {
         ...prev,
-        [step.field]: Math.max(min, Math.min(max, newValue)),
+        [step.field]: Math.max(min, Math.min(max, Math.round(newValue * 100) / 100)),
       };
     });
   };
@@ -276,25 +340,49 @@ export default function OnboardingPage() {
     }));
   };
 
+  const handleHeightChange = (feet: number, inches: number) => {
+    setHeightFeet(feet);
+    setHeightInches(inches);
+    const cm = feetInchesToCm(feet, inches);
+    setValues((prev) => ({
+      ...prev,
+      heightCm: cm,
+    }));
+  };
+
+  const handleHeightCmChange = (cm: number) => {
+    setValues((prev) => ({
+      ...prev,
+      heightCm: cm,
+    }));
+  };
+
   const handleNext = async () => {
     if (isLastStep) {
       setIsSaving(true);
       try {
         const today = new Date().toISOString().split('T')[0];
+        
+        // Convert goal rate to kg if imperial
+        let goalRateKg = values.goalRate;
+        if (unitSystem === 'imperial') {
+          goalRateKg = lbsToKg(values.goalRate);
+        }
+        
         const profileData = {
           ...values,
+          goalRate: goalRateKg,
+          preferredWeightUnit: weightUnit, // Keep for backwards compatibility
           startDate: existingProfileId ? undefined : today,
           expenditureStrategy: 'dynamic',
         };
         
         if (existingProfileId) {
-          // Update existing profile
           await client.models.UserProfile.update({
             id: existingProfileId,
             ...profileData,
           });
         } else {
-          // Create new profile
           await client.models.UserProfile.create({
             ...profileData,
             startDate: today,
@@ -306,7 +394,6 @@ export default function OnboardingPage() {
         setIsSaving(false);
       }
     } else {
-      // Find next valid step (skip if necessary)
       let nextStep = currentStep + 1;
       while (nextStep < STEPS.length && shouldSkipStep(nextStep)) {
         nextStep++;
@@ -317,7 +404,6 @@ export default function OnboardingPage() {
 
   const handleBack = () => {
     if (currentStep > 0) {
-      // Find previous valid step
       let prevStep = currentStep - 1;
       while (prevStep >= 0 && shouldSkipStep(prevStep)) {
         prevStep--;
@@ -333,14 +419,19 @@ export default function OnboardingPage() {
     switch (step.type) {
       case 'number': {
         const numStep = step as NumberStep;
-        const value = values[step.field] as number;
+        let value = values[step.field] as number;
+        
+        // For goal rate, convert from kg to display unit
+        if (step.field === 'goalRate' && unitSystem === 'imperial') {
+          value = kgToLbs(value);
+        }
+        
         const displayValue = numStep.step < 1 
           ? value.toFixed(2) 
-          : value.toString();
+          : Math.round(value).toString();
         
         return (
           <>
-            {/* Value input */}
             <div className="bg-bg-surface rounded-2xl p-6 mb-4 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
               <div className="text-center">
                 <span className="text-[48px] font-mono font-bold text-text-primary min-w-[150px] inline-block">
@@ -350,7 +441,6 @@ export default function OnboardingPage() {
               </div>
             </div>
 
-            {/* Stepper buttons */}
             <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ animationDelay: '0.25s' }}>
               <button
                 onClick={() => handleValueChange(-numStep.step)}
@@ -374,14 +464,13 @@ export default function OnboardingPage() {
               </button>
             </div>
 
-            {/* Quick presets */}
             <div className="flex gap-2 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
               {numStep.presets.map((preset) => (
                 <button
                   key={preset}
                   onClick={() => handlePresetClick(preset)}
                   className={`px-4 py-2 rounded-full transition-colors ${
-                    value === preset
+                    Math.abs(value - preset) < 0.01
                       ? 'bg-macro-calories text-white'
                       : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
                   }`}
@@ -392,6 +481,138 @@ export default function OnboardingPage() {
             </div>
           </>
         );
+      }
+
+      case 'height': {
+        if (unitSystem === 'imperial') {
+          // Feet/Inches picker
+          return (
+            <div className="animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+              <div className="bg-bg-surface rounded-2xl p-6 mb-4">
+                <div className="text-center">
+                  <span className="text-[48px] font-mono font-bold text-text-primary">
+                    {heightFeet}&apos;{heightInches}&quot;
+                  </span>
+                </div>
+              </div>
+              
+              <div className="flex gap-4 justify-center mb-6">
+                {/* Feet selector */}
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => handleHeightChange(Math.min(7, heightFeet + 1), heightInches)}
+                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                  >
+                    <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </button>
+                  <div className="text-2xl font-mono font-bold text-text-primary">{heightFeet}</div>
+                  <div className="text-sm text-text-muted">feet</div>
+                  <button
+                    onClick={() => handleHeightChange(Math.max(4, heightFeet - 1), heightInches)}
+                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                  >
+                    <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* Inches selector */}
+                <div className="flex flex-col items-center gap-2">
+                  <button
+                    onClick={() => handleHeightChange(heightFeet, (heightInches + 1) % 12)}
+                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                  >
+                    <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                    </svg>
+                  </button>
+                  <div className="text-2xl font-mono font-bold text-text-primary">{heightInches}</div>
+                  <div className="text-sm text-text-muted">inches</div>
+                  <button
+                    onClick={() => handleHeightChange(heightFeet, (heightInches - 1 + 12) % 12)}
+                    className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center hover:bg-bg-surface"
+                  >
+                    <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick presets */}
+              <div className="flex gap-2 justify-center">
+                {[{ ft: 5, in: 4 }, { ft: 5, in: 8 }, { ft: 6, in: 0 }].map((preset) => (
+                  <button
+                    key={`${preset.ft}-${preset.in}`}
+                    onClick={() => handleHeightChange(preset.ft, preset.in)}
+                    className={`px-4 py-2 rounded-full transition-colors ${
+                      heightFeet === preset.ft && heightInches === preset.in
+                        ? 'bg-macro-calories text-white'
+                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
+                    }`}
+                  >
+                    {preset.ft}&apos;{preset.in}&quot;
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        } else {
+          // Metric cm picker
+          const heightCm = values.heightCm as number;
+          return (
+            <>
+              <div className="bg-bg-surface rounded-2xl p-6 mb-4 animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+                <div className="text-center">
+                  <span className="text-[48px] font-mono font-bold text-text-primary min-w-[150px] inline-block">
+                    {Math.round(heightCm)}
+                  </span>
+                  <span className="text-body text-text-muted ml-2">cm</span>
+                </div>
+              </div>
+
+              <div className="flex gap-4 mb-6 animate-fade-in-up" style={{ animationDelay: '0.25s' }}>
+                <button
+                  onClick={() => handleHeightCmChange(Math.max(100, heightCm - 1))}
+                  className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
+                             hover:bg-bg-surface active:scale-95 transition-all"
+                >
+                  <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={() => handleHeightCmChange(Math.min(250, heightCm + 1))}
+                  className="w-12 h-12 rounded-full bg-bg-elevated flex items-center justify-center 
+                             hover:bg-bg-surface active:scale-95 transition-all"
+                >
+                  <svg className="w-6 h-6 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="flex gap-2 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
+                {[160, 170, 180].map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => handleHeightCmChange(preset)}
+                    className={`px-4 py-2 rounded-full transition-colors ${
+                      Math.round(heightCm) === preset
+                        ? 'bg-macro-calories text-white'
+                        : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </>
+          );
+        }
       }
 
       case 'select': {
@@ -575,18 +796,4 @@ export default function OnboardingPage() {
       </div>
     </div>
   );
-}
-
-// Helper function to calculate age
-function calculateAge(birthDate: string): number {
-  const birth = new Date(birthDate);
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const monthDiff = today.getMonth() - birth.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age--;
-  }
-  
-  return age;
 }

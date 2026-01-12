@@ -9,9 +9,10 @@ const schema = a.schema({
       carbsGoal: a.integer(),
       fatGoal: a.integer(),
       targetWeightKg: a.float(), // optional target weight in kg
-      preferredWeightUnit: a.string(), // "kg" | "lbs"
+      preferredWeightUnit: a.string(), // "kg" | "lbs" (legacy, use preferredUnitSystem)
+      preferredUnitSystem: a.string(), // "metric" | "imperial"
       // Metabolic modeling additions
-      heightCm: a.float(), // height in centimeters
+      heightCm: a.float(), // height in centimeters (stored in metric)
       birthDate: a.date(), // for age calculation in BMR
       sex: a.string(), // "male" | "female" for BMR calculation
       initialBodyFatPct: a.float(), // optional, helps with initial BMR guess
@@ -19,7 +20,7 @@ const schema = a.schema({
       startDate: a.date(), // when tracking began
       athleteStatus: a.boolean(), // for BMR correction (+10-12%)
       goalType: a.string(), // "lose" | "gain" | "maintain"
-      goalRate: a.float(), // kg per week (e.g., 0.5 for lose, 0.25 for gain)
+      goalRate: a.float(), // kg per week (stored in metric)
     })
     .authorization((allow) => [allow.owner()]),
 
