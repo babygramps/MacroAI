@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 
 export type ToastType = 'success' | 'error' | 'info';
@@ -16,16 +16,31 @@ interface ToastContextValue {
 }
 
 // Simple toast store
-let toastListeners: ((toasts: Toast[]) => void)[] = [];
+let toastListeners: (() => void)[] = [];
 let toasts: Toast[] = [];
 
 function notifyListeners() {
-  toastListeners.forEach((listener) => listener([...toasts]));
+  toastListeners.forEach((listener) => listener());
+}
+
+function subscribeToToasts(callback: () => void) {
+  toastListeners.push(callback);
+  return () => {
+    toastListeners = toastListeners.filter((l) => l !== callback);
+  };
+}
+
+function getToastsSnapshot() {
+  return toasts;
+}
+
+function getServerToastsSnapshot() {
+  return [];
 }
 
 export function showToast(message: string, type: ToastType = 'info') {
   const id = Math.random().toString(36).substring(7);
-  toasts.push({ id, message, type });
+  toasts = [...toasts, { id, message, type }];
   notifyListeners();
 
   // Auto remove after 3 seconds
@@ -35,17 +50,14 @@ export function showToast(message: string, type: ToastType = 'info') {
   }, 3000);
 }
 
-export function ToastContainer() {
-  const [mounted, setMounted] = useState(false);
-  const [currentToasts, setCurrentToasts] = useState<Toast[]>([]);
+// SSR-safe way to check if mounted (React 19 compatible)
+const subscribeMounted = () => () => {};
+const getMountedSnapshot = () => true;
+const getServerMountedSnapshot = () => false;
 
-  useEffect(() => {
-    setMounted(true);
-    toastListeners.push(setCurrentToasts);
-    return () => {
-      toastListeners = toastListeners.filter((l) => l !== setCurrentToasts);
-    };
-  }, []);
+export function ToastContainer() {
+  const mounted = useSyncExternalStore(subscribeMounted, getMountedSnapshot, getServerMountedSnapshot);
+  const currentToasts = useSyncExternalStore(subscribeToToasts, getToastsSnapshot, getServerToastsSnapshot);
 
   const removeToast = useCallback((id: string) => {
     toasts = toasts.filter((t) => t.id !== id);

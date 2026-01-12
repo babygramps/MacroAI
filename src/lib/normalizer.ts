@@ -3,7 +3,6 @@ import type {
   USDAFood,
   OFFProduct,
   APINinjasFood,
-  GeminiParsedFood,
 } from './types';
 
 // USDA Nutrient IDs

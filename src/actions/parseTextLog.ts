@@ -2,7 +2,7 @@
 
 import type { NormalizedFood, USDASearchResponse } from '@/lib/types';
 import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
-import { generateCacheKey, createCacheEntry, isExpired, type CacheSource } from '@/lib/cache';
+import { generateCacheKey, createCacheEntry, isExpired } from '@/lib/cache';
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
 import type { Schema } from '@/amplify/data/resource';
 import { cookies } from 'next/headers';

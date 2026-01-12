@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { SearchTab } from './SearchTab';
 import { TextTab } from './TextTab';
@@ -14,13 +14,14 @@ interface FoodLogModalProps {
 
 type Tab = 'search' | 'type' | 'photo';
 
+// SSR-safe way to check if mounted (React 19 compatible)
+const subscribe = () => () => {};
+const getSnapshot = () => true;
+const getServerSnapshot = () => false;
+
 export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   useEffect(() => {
     if (isOpen) {
