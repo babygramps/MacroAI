@@ -1,0 +1,277 @@
+/* Font imports - must come first */
+@import url('https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+@import "tailwindcss";
+
+/* Neon Vitality Design System */
+:root {
+  /* Dark Foundation */
+  --bg-primary: #0A0A0F;
+  --bg-surface: #141419;
+  --bg-elevated: #1E1E26;
+  --border-subtle: #2A2A35;
+  
+  /* Macro Accent Colors */
+  --color-calories: #FF6B35;
+  --color-protein: #00E5A0;
+  --color-carbs: #FFD23F;
+  --color-fat: #A855F7;
+  
+  /* Text */
+  --text-primary: #FFFFFF;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+  
+  /* Semantic */
+  --color-success: #10B981;
+  --color-error: #EF4444;
+  --color-warning: #F59E0B;
+}
+
+@theme inline {
+  /* Colors */
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-border-subtle: var(--border-subtle);
+  
+  --color-macro-calories: var(--color-calories);
+  --color-macro-protein: var(--color-protein);
+  --color-macro-carbs: var(--color-carbs);
+  --color-macro-fat: var(--color-fat);
+  
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  
+  --color-success: var(--color-success);
+  --color-error: var(--color-error);
+  --color-warning: var(--color-warning);
+  
+  /* Fonts */
+  --font-satoshi: 'Satoshi', sans-serif;
+  --font-mono: 'Space Mono', monospace;
+  
+  /* Animations */
+  --animate-ring-fill: ring-fill 1.2s ease-out forwards;
+  --animate-count-up: count-up 0.8s ease-out forwards;
+  --animate-fade-in-up: fade-in-up 0.3s ease-out forwards;
+  --animate-slide-up: slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Keyframes */
+@keyframes ring-fill {
+  0% { stroke-dashoffset: 100; }
+  100% { stroke-dashoffset: var(--progress, 0); }
+}
+
+@keyframes count-up {
+  0% { opacity: 0; transform: translateY(10px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-in-up {
+  0% { opacity: 0; transform: translateY(8px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-up {
+  0% { transform: translateY(100%); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Base styles */
+html {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Satoshi', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  background: var(--bg-primary);
+}
+
+/* Safe area for mobile notches */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 24px);
+}
+
+/* Button styles */
+.btn-primary {
+  background: var(--color-calories);
+  color: white;
+  font-weight: 500;
+  padding: 1rem 1.5rem;
+  border-radius: 0.75rem;
+  transition: transform 0.1s ease;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-primary:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--color-calories);
+}
+
+.btn-secondary {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: 500;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.75rem;
+  transition: all 0.1s ease;
+}
+
+.btn-secondary:hover {
+  background: var(--bg-surface);
+}
+
+.btn-secondary:active {
+  transform: scale(0.97);
+}
+
+/* Input styles */
+.input-field {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  border-radius: 0.75rem;
+  padding: 0.75rem 1rem;
+  width: 100%;
+  border: none;
+  outline: none;
+}
+
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.input-field:focus {
+  box-shadow: 0 0 0 2px rgba(255, 107, 53, 0.5);
+}
+
+/* Card styles */
+.card {
+  background: var(--bg-surface);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  border: 1px solid rgba(42, 42, 53, 0.5);
+}
+
+/* Glow utilities */
+.glow-calories {
+  filter: drop-shadow(0 0 20px rgba(255, 107, 53, 0.4));
+}
+
+.glow-protein {
+  filter: drop-shadow(0 0 20px rgba(0, 229, 160, 0.4));
+}
+
+.glow-carbs {
+  filter: drop-shadow(0 0 20px rgba(255, 210, 63, 0.4));
+}
+
+.glow-fat {
+  filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.4));
+}
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 25%,
+    var(--bg-surface) 50%,
+    var(--bg-elevated) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+  border-radius: 0.75rem;
+}
+
+/* Typography utilities */
+.text-page-title {
+  font-family: 'Satoshi', sans-serif;
+  font-weight: 700;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.text-section-title {
+  font-family: 'Satoshi', sans-serif;
+  font-weight: 600;
+  font-size: 20px;
+}
+
+.text-card-title {
+  font-family: 'Satoshi', sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.text-body {
+  font-family: 'Satoshi', sans-serif;
+  font-size: 14px;
+}
+
+.text-caption {
+  font-family: 'Satoshi', sans-serif;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.text-macro-number {
+  font-family: 'Space Mono', monospace;
+  font-weight: 700;
+  font-size: 32px;
+}
+
+/* Text balance */
+.text-balance {
+  text-wrap: balance;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Amplify Authenticator overrides */
+[data-amplify-authenticator] {
+  --amplify-colors-background-primary: var(--bg-primary);
+  --amplify-colors-background-secondary: var(--bg-surface);
+  --amplify-colors-brand-primary-10: var(--color-calories);
+  --amplify-colors-brand-primary-80: var(--color-calories);
+  --amplify-colors-brand-primary-90: var(--color-calories);
+  --amplify-colors-brand-primary-100: var(--color-calories);
+  --amplify-colors-font-primary: var(--text-primary);
+  --amplify-colors-font-secondary: var(--text-secondary);
+  --amplify-colors-border-primary: var(--border-subtle);
+  --amplify-components-button-primary-background-color: var(--color-calories);
+  --amplify-components-fieldcontrol-border-color: var(--border-subtle);
+  --amplify-components-fieldcontrol-background-color: var(--bg-elevated);
+  --amplify-components-tabs-item-active-color: var(--color-calories);
+  --amplify-components-tabs-item-active-border-color: var(--color-calories);
+  --amplify-radii-small: 0.75rem;
+  --amplify-radii-medium: 0.75rem;
+}
