@@ -12,6 +12,8 @@ frontend:
         - npm ci --cache .npm --prefer-offline
     build:
       commands:
+        - echo "USDA_API_KEY=$USDA_API_KEY" >> .env
+        - echo "GEMINI_API_KEY=$GEMINI_API_KEY" >> .env
         - npm run build
   artifacts:
     baseDirectory: .next
