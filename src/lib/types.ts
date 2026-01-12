@@ -22,11 +22,37 @@ export interface USDAFoodNutrient {
   value: number;
 }
 
+// Food portion from USDA (available in full food details)
+export interface USDAFoodPortion {
+  id: number;
+  gramWeight: number;
+  amount: number;
+  modifier?: string; // e.g., "item 7.6 oz", "1 cup", "1 slice"
+  measureUnit?: {
+    id: number;
+    name: string;
+    abbreviation: string;
+  };
+  portionDescription?: string;
+  sequenceNumber?: number;
+}
+
 export interface USDAFood {
   fdcId: number;
   description: string;
   dataType: string;
   foodNutrients: USDAFoodNutrient[];
+  // Extended fields for better matching
+  brandOwner?: string;
+  brandName?: string;
+  ingredients?: string;
+  servingSize?: number;
+  servingSizeUnit?: string;
+  foodCategory?: string;
+  score?: number; // USDA relevance score
+  // Portion data (from full food details endpoint)
+  foodPortions?: USDAFoodPortion[];
+  householdServingFullText?: string; // e.g., "1 item" for Branded foods
 }
 
 export interface USDASearchResponse {

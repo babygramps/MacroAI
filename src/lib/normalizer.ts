@@ -14,27 +14,128 @@ const USDA_NUTRIENT_IDS = {
 };
 
 /**
- * Normalize USDA food response to our standard format
- * USDA returns nutrients in an array with nutrient IDs
+ * Extract the best serving size from USDA food data
+ * Priority: foodPortions > servingSize > householdServingFullText > default 100g
  */
-export function normalizeUSDA(food: USDAFood): NormalizedFood {
+function extractUSDAServingInfo(food: USDAFood): { grams: number; description: string } {
+  // 1. Check foodPortions (SR Legacy and Foundation foods)
+  if (food.foodPortions && food.foodPortions.length > 0) {
+    // Find the first portion with a gram weight (usually the primary serving)
+    const portion = food.foodPortions[0];
+    if (portion.gramWeight && portion.gramWeight > 0) {
+      // Build a description from the portion data
+      let description = '';
+      if (portion.amount && portion.amount !== 1) {
+        description = `${portion.amount} `;
+      }
+      if (portion.modifier) {
+        description += portion.modifier;
+      } else if (portion.portionDescription) {
+        description += portion.portionDescription;
+      } else if (portion.measureUnit?.name && portion.measureUnit.name !== 'undetermined') {
+        description += portion.measureUnit.name;
+      } else {
+        description = `${Math.round(portion.gramWeight)}g`;
+      }
+      
+      return {
+        grams: portion.gramWeight,
+        description: description.trim() || `${Math.round(portion.gramWeight)}g`,
+      };
+    }
+  }
+  
+  // 2. Check servingSize (Branded foods from search results)
+  if (food.servingSize && food.servingSize > 0) {
+    const unit = food.servingSizeUnit || 'g';
+    // If it's already in grams, use directly
+    if (unit.toLowerCase() === 'g' || unit.toLowerCase() === 'gram' || unit.toLowerCase() === 'grams') {
+      return {
+        grams: food.servingSize,
+        description: food.householdServingFullText || `${Math.round(food.servingSize)}g`,
+      };
+    }
+    // For ml, approximate as grams (close enough for most foods)
+    if (unit.toLowerCase() === 'ml' || unit.toLowerCase() === 'milliliter') {
+      return {
+        grams: food.servingSize,
+        description: food.householdServingFullText || `${Math.round(food.servingSize)}ml`,
+      };
+    }
+  }
+  
+  // 3. Check householdServingFullText (Branded foods)
+  if (food.householdServingFullText) {
+    // Try to parse grams from text like "1 cup (240g)" or "2 cookies (30g)"
+    const gramsMatch = food.householdServingFullText.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?/i);
+    if (gramsMatch) {
+      return {
+        grams: parseFloat(gramsMatch[1]),
+        description: food.householdServingFullText,
+      };
+    }
+  }
+  
+  // 4. Default to 100g (USDA standard reference)
+  return {
+    grams: 100,
+    description: '100g',
+  };
+}
+
+/**
+ * Normalize USDA food response to our standard format
+ * USDA returns nutrients per 100g, we scale to serving size
+ * 
+ * @param food - The USDA food data
+ * @param scaleToServing - If true (default), scale nutrients to serving size. If false, keep per 100g.
+ */
+export function normalizeUSDA(food: USDAFood, scaleToServing: boolean = true): NormalizedFood {
   const getNutrientValue = (nutrientId: number): number => {
     const nutrient = food.foodNutrients.find((n) => n.nutrientId === nutrientId);
     return nutrient?.value ?? 0;
   };
 
-  return {
-    name: food.description,
-    calories: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.CALORIES)),
-    protein: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.PROTEIN) * 10) / 10,
-    carbs: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.CARBS) * 10) / 10,
-    fat: Math.round(getNutrientValue(USDA_NUTRIENT_IDS.FAT) * 10) / 10,
-    servingSize: 100, // USDA always returns per 100g
-    servingDescription: '100g',
-    servingSizeGrams: 100,
-    source: 'USDA',
-    originalId: food.fdcId.toString(),
-  };
+  // Get serving info
+  const servingInfo = extractUSDAServingInfo(food);
+  
+  // Get per-100g values
+  const caloriesPer100g = getNutrientValue(USDA_NUTRIENT_IDS.CALORIES);
+  const proteinPer100g = getNutrientValue(USDA_NUTRIENT_IDS.PROTEIN);
+  const carbsPer100g = getNutrientValue(USDA_NUTRIENT_IDS.CARBS);
+  const fatPer100g = getNutrientValue(USDA_NUTRIENT_IDS.FAT);
+
+  if (scaleToServing) {
+    // Scale to actual serving size
+    const scaleFactor = servingInfo.grams / 100;
+    
+    return {
+      name: food.description,
+      calories: Math.round(caloriesPer100g * scaleFactor),
+      protein: Math.round(proteinPer100g * scaleFactor * 10) / 10,
+      carbs: Math.round(carbsPer100g * scaleFactor * 10) / 10,
+      fat: Math.round(fatPer100g * scaleFactor * 10) / 10,
+      servingSize: servingInfo.grams,
+      servingDescription: servingInfo.description,
+      servingSizeGrams: servingInfo.grams,
+      source: 'USDA',
+      originalId: food.fdcId.toString(),
+    };
+  } else {
+    // Keep per 100g (for ingredient scaling)
+    return {
+      name: food.description,
+      calories: Math.round(caloriesPer100g),
+      protein: Math.round(proteinPer100g * 10) / 10,
+      carbs: Math.round(carbsPer100g * 10) / 10,
+      fat: Math.round(fatPer100g * 10) / 10,
+      servingSize: 100,
+      servingDescription: '100g',
+      servingSizeGrams: 100,
+      source: 'USDA',
+      originalId: food.fdcId.toString(),
+    };
+  }
 }
 
 /**
