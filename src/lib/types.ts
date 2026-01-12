@@ -111,3 +111,21 @@ export interface DailySummary {
   totalFat: number;
   entries: FoodLogEntry[];
 }
+
+// Day data for history views
+export interface DayData {
+  date: string; // ISO date string (YYYY-MM-DD)
+  summary: DailySummary;
+}
+
+// Weekly statistics for stats page
+export interface WeeklyStats {
+  days: DayData[];
+  averages: {
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  streak: number;
+}
