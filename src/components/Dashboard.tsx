@@ -5,12 +5,14 @@ import { useAuthenticator } from '@aws-amplify/ui-react';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { ProgressRing } from './ui/ProgressRing';
-import { FoodLogCard, FoodLogCardSkeleton } from './ui/FoodLogCard';
+import { MealCard, MealCardSkeleton } from './ui/MealCard';
 import { FoodLogModal } from './FoodLogModal';
+import { MealEditModal } from './MealEditModal';
 import { DateNavigator } from './ui/DateNavigator';
-import type { FoodLogEntry, UserGoals, DailySummary, WeightLogEntry } from '@/lib/types';
+import type { MealEntry, IngredientEntry, UserGoals, DailySummary, WeightLogEntry, MealCategory } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
 import { formatWeight } from '@/lib/statsHelpers';
+import { showToast } from './ui/Toast';
 
 // Helper to check if a date is today
 function isToday(date: Date): boolean {
@@ -51,11 +53,14 @@ export function Dashboard() {
     totalProtein: 0,
     totalCarbs: 0,
     totalFat: 0,
+    meals: [],
     entries: [],
   });
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<MealEntry | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
@@ -124,60 +129,119 @@ export function Dashboard() {
       
       setLatestWeight(todayWeight);
 
-      // Fetch food logs for the selected date
+      // Fetch meals for the selected date
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(startOfDay);
       endOfDay.setDate(endOfDay.getDate() + 1);
 
-      const { data: logs } = await client.models.FoodLog.list({
-        filter: {
-          eatenAt: {
-            between: [startOfDay.toISOString(), endOfDay.toISOString()],
+      // Fetch both new Meals and legacy FoodLogs in parallel
+      const [mealsResult, legacyLogsResult] = await Promise.all([
+        client.models.Meal.list({
+          filter: {
+            eatenAt: {
+              between: [startOfDay.toISOString(), endOfDay.toISOString()],
+            },
           },
-        },
-      });
+        }),
+        client.models.FoodLog.list({
+          filter: {
+            eatenAt: {
+              between: [startOfDay.toISOString(), endOfDay.toISOString()],
+            },
+          },
+        }),
+      ]);
 
-      if (logs) {
-        const entries: FoodLogEntry[] = logs.map((log) => ({
+      const mealsData = mealsResult.data || [];
+      const legacyLogs = legacyLogsResult.data || [];
+
+      // Process new meals with ingredients
+      const mealsWithIngredients: MealEntry[] = await Promise.all(
+        mealsData.map(async (meal) => {
+          const { data: ingredientsData } = await client.models.MealIngredient.listMealIngredientByMealId({
+            mealId: meal.id,
+          });
+
+          const ingredients: IngredientEntry[] = (ingredientsData || []).map((ing) => ({
+            id: ing.id,
+            mealId: ing.mealId,
+            name: ing.name,
+            weightG: ing.weightG,
+            calories: ing.calories,
+            protein: ing.protein,
+            carbs: ing.carbs,
+            fat: ing.fat,
+            source: ing.source,
+            servingDescription: ing.servingDescription ?? null,
+            servingSizeGrams: ing.servingSizeGrams ?? null,
+            sortOrder: ing.sortOrder ?? 0,
+          }));
+
+          // Sort ingredients by sortOrder
+          ingredients.sort((a, b) => a.sortOrder - b.sortOrder);
+
+          return {
+            id: meal.id,
+            name: meal.name,
+            category: meal.category as MealCategory,
+            eatenAt: meal.eatenAt,
+            totalCalories: meal.totalCalories,
+            totalProtein: meal.totalProtein,
+            totalCarbs: meal.totalCarbs,
+            totalFat: meal.totalFat,
+            totalWeightG: meal.totalWeightG,
+            ingredients,
+          };
+        })
+      );
+
+      // Convert legacy FoodLog entries to MealEntry format
+      // Each legacy entry becomes a single-ingredient "snack"
+      const legacyMeals: MealEntry[] = legacyLogs.map((log) => ({
+        id: `legacy-${log.id}`,
+        name: log.name ?? 'Unknown Food',
+        category: 'snack' as MealCategory,
+        eatenAt: log.eatenAt ?? new Date().toISOString(),
+        totalCalories: log.calories ?? 0,
+        totalProtein: log.protein ?? 0,
+        totalCarbs: log.carbs ?? 0,
+        totalFat: log.fat ?? 0,
+        totalWeightG: log.weightG ?? 0,
+        ingredients: [{
           id: log.id,
-          name: log.name ?? '',
+          mealId: `legacy-${log.id}`,
+          name: log.name ?? 'Unknown Food',
           weightG: log.weightG ?? 0,
           calories: log.calories ?? 0,
           protein: log.protein ?? 0,
           carbs: log.carbs ?? 0,
           fat: log.fat ?? 0,
-          source: log.source ?? '',
-          eatenAt: log.eatenAt ?? new Date().toISOString(),
-          // Include serving info for editing
+          source: log.source ?? 'USDA',
           servingDescription: log.servingDescription ?? null,
           servingSizeGrams: log.servingSizeGrams ?? null,
-        }));
+          sortOrder: 0,
+        }],
+      }));
 
-        // Sort by time descending (most recent first)
-        entries.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
+      // Combine and sort all meals
+      const allMeals = [...mealsWithIngredients, ...legacyMeals];
+      allMeals.sort((a, b) => 
+        new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime()
+      );
 
-        const totals = entries.reduce(
-          (acc, entry) => ({
-            totalCalories: acc.totalCalories + entry.calories,
-            totalProtein: acc.totalProtein + entry.protein,
-            totalCarbs: acc.totalCarbs + entry.carbs,
-            totalFat: acc.totalFat + entry.fat,
-          }),
-          { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
-        );
+      // Calculate totals
+      const totals = allMeals.reduce(
+        (acc, meal) => ({
+          totalCalories: acc.totalCalories + meal.totalCalories,
+          totalProtein: acc.totalProtein + meal.totalProtein,
+          totalCarbs: acc.totalCarbs + meal.totalCarbs,
+          totalFat: acc.totalFat + meal.totalFat,
+        }),
+        { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
+      );
 
-        setSummary({ ...totals, entries });
-      } else {
-        // No logs for this date
-        setSummary({
-          totalCalories: 0,
-          totalProtein: 0,
-          totalCarbs: 0,
-          totalFat: 0,
-          entries: [],
-        });
-      }
+      setSummary({ ...totals, meals: allMeals, entries: [] });
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -193,31 +257,116 @@ export function Dashboard() {
     setSelectedDate(newDate);
   };
 
-  const handleDeleteEntry = async (id: string) => {
+  const handleEditMeal = (meal: MealEntry) => {
+    // Legacy FoodLog entries can't be edited in the new modal
+    // They need to be deleted and re-logged with the new system
+    if (meal.id.startsWith('legacy-')) {
+      showToast('Legacy entries cannot be edited. Delete and re-log to use new features.', 'error');
+      return;
+    }
+    setEditingMeal(meal);
+    setIsEditModalOpen(true);
+  };
+
+  const handleSaveMeal = async (updatedMeal: MealEntry) => {
     try {
-      await client.models.FoodLog.delete({ id });
-      // Refresh data
+      // Update the meal record
+      await client.models.Meal.update({
+        id: updatedMeal.id,
+        name: updatedMeal.name,
+        category: updatedMeal.category,
+        totalCalories: updatedMeal.totalCalories,
+        totalProtein: updatedMeal.totalProtein,
+        totalCarbs: updatedMeal.totalCarbs,
+        totalFat: updatedMeal.totalFat,
+        totalWeightG: updatedMeal.totalWeightG,
+      });
+
+      // Get existing ingredients
+      const { data: existingIngredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+        mealId: updatedMeal.id,
+      });
+
+      const existingIds = new Set((existingIngredients || []).map((i) => i.id));
+      const updatedIds = new Set(updatedMeal.ingredients.filter((i) => !i.id.startsWith('temp-')).map((i) => i.id));
+
+      // Delete removed ingredients
+      for (const existing of existingIngredients || []) {
+        if (!updatedIds.has(existing.id)) {
+          await client.models.MealIngredient.delete({ id: existing.id });
+        }
+      }
+
+      // Update existing and create new ingredients
+      for (let i = 0; i < updatedMeal.ingredients.length; i++) {
+        const ingredient = updatedMeal.ingredients[i];
+        
+        if (ingredient.id.startsWith('temp-')) {
+          // New ingredient - create it
+          await client.models.MealIngredient.create({
+            mealId: updatedMeal.id,
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            source: ingredient.source,
+            servingDescription: ingredient.servingDescription ?? undefined,
+            servingSizeGrams: ingredient.servingSizeGrams ?? undefined,
+            sortOrder: i,
+          });
+        } else if (existingIds.has(ingredient.id)) {
+          // Existing ingredient - update it
+          await client.models.MealIngredient.update({
+            id: ingredient.id,
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            sortOrder: i,
+          });
+        }
+      }
+
+      showToast('Meal updated!', 'success');
       fetchData(selectedDate);
     } catch (error) {
-      console.error('Error deleting entry:', error);
+      console.error('Error saving meal:', error);
+      showToast('Failed to save meal', 'error');
     }
   };
 
-  const handleUpdateEntry = async (id: string, updates: Partial<FoodLogEntry>) => {
+  const handleDeleteMeal = async (mealId: string) => {
     try {
-      await client.models.FoodLog.update({
-        id,
-        name: updates.name,
-        weightG: updates.weightG,
-        calories: updates.calories,
-        protein: updates.protein,
-        carbs: updates.carbs,
-        fat: updates.fat,
+      // Check if this is a legacy FoodLog entry
+      if (mealId.startsWith('legacy-')) {
+        const realId = mealId.replace('legacy-', '');
+        await client.models.FoodLog.delete({ id: realId });
+        showToast('Entry deleted', 'success');
+        fetchData(selectedDate);
+        return;
+      }
+
+      // Delete all ingredients first
+      const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+        mealId,
       });
-      // Refresh data
+
+      for (const ingredient of ingredients || []) {
+        await client.models.MealIngredient.delete({ id: ingredient.id });
+      }
+
+      // Delete the meal
+      await client.models.Meal.delete({ id: mealId });
+      
+      showToast('Meal deleted', 'success');
       fetchData(selectedDate);
     } catch (error) {
-      console.error('Error updating entry:', error);
+      console.error('Error deleting meal:', error);
+      showToast('Failed to delete meal', 'error');
     }
   };
 
@@ -429,7 +578,7 @@ export function Dashboard() {
           </button>
         </div>
 
-        {/* Food Log */}
+        {/* Meal Log */}
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-section-title">{formatLogHeader(selectedDate)}</h2>
@@ -441,18 +590,18 @@ export function Dashboard() {
           <div className="flex flex-col gap-3">
             {isLoading ? (
               <>
-                <FoodLogCardSkeleton index={0} />
-                <FoodLogCardSkeleton index={1} />
-                <FoodLogCardSkeleton index={2} />
+                <MealCardSkeleton index={0} />
+                <MealCardSkeleton index={1} />
+                <MealCardSkeleton index={2} />
               </>
-            ) : summary.entries.length > 0 ? (
-              summary.entries.map((entry, index) => (
-                <FoodLogCard
-                  key={entry.id}
-                  entry={entry}
+            ) : summary.meals.length > 0 ? (
+              summary.meals.map((meal, index) => (
+                <MealCard
+                  key={meal.id}
+                  meal={meal}
                   index={index}
-                  onDelete={handleDeleteEntry}
-                  onUpdate={handleUpdateEntry}
+                  onEdit={handleEditMeal}
+                  onDelete={handleDeleteMeal}
                 />
               ))
             ) : (
@@ -488,6 +637,18 @@ export function Dashboard() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleLogSuccess}
+      />
+
+      {/* Meal Edit Modal */}
+      <MealEditModal
+        isOpen={isEditModalOpen}
+        meal={editingMeal}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingMeal(null);
+        }}
+        onSave={handleSaveMeal}
+        onDelete={handleDeleteMeal}
       />
 
       {/* Weight Log Modal */}

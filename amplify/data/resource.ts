@@ -34,6 +34,7 @@ const schema = a.schema({
     .authorization((allow) => [allow.owner()])
     .secondaryIndexes((index) => [index('recordedAt')]),
 
+  // Legacy FoodLog - kept for backward compatibility during migration
   FoodLog: a
     .model({
       name: a.string(),
@@ -49,6 +50,42 @@ const schema = a.schema({
       servingSizeGrams: a.integer(), // grams per serving
     })
     .authorization((allow) => [allow.owner()]),
+
+  // Meal - Parent container for logged food items
+  // Can be a full meal with multiple ingredients or a single snack/drink
+  Meal: a
+    .model({
+      name: a.string().required(), // "Tom Kha Soup with Rice", "Protein Bar"
+      category: a.string().required(), // "meal" | "snack" | "drink"
+      eatenAt: a.datetime().required(), // When consumed
+      // Aggregated totals (computed from ingredients for fast loading)
+      totalCalories: a.integer().required(),
+      totalProtein: a.float().required(),
+      totalCarbs: a.float().required(),
+      totalFat: a.float().required(),
+      totalWeightG: a.integer().required(),
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('eatenAt')]),
+
+  // MealIngredient - Individual ingredients within a meal
+  MealIngredient: a
+    .model({
+      mealId: a.string().required(), // Reference to parent Meal
+      name: a.string().required(), // "Chicken breast", "Rice"
+      weightG: a.integer().required(),
+      calories: a.integer().required(),
+      protein: a.float().required(),
+      carbs: a.float().required(),
+      fat: a.float().required(),
+      source: a.string().required(), // "USDA" | "OFF" | "GEMINI"
+      // Serving info for editing
+      servingDescription: a.string(), // e.g., "1 cup", "1 slice"
+      servingSizeGrams: a.integer(), // grams per serving
+      sortOrder: a.integer(), // For consistent ordering within meal
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('mealId')]),
 
   // Shared cache for API responses (reduces duplicate API calls)
   FoodCache: a

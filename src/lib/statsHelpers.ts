@@ -134,6 +134,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       const summary: DailySummary = {
         ...totals,
         entries,
+        meals: [], // Legacy stats view uses entries, not meals
       };
 
       result.push({

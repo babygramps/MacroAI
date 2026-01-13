@@ -4,7 +4,9 @@ import { useState, useRef, useCallback } from 'react';
 import { analyzeImage } from '@/actions/analyzeImage';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
-import type { NormalizedFood } from '@/lib/types';
+import type { NormalizedFood, MealCategory } from '@/lib/types';
+import { MEAL_CATEGORY_INFO, calculateMealTotals } from '@/lib/types';
+import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 
 const client = generateClient<Schema>();
@@ -13,14 +15,20 @@ interface PhotoTabProps {
   onSuccess: () => void;
 }
 
+type View = 'input' | 'loading' | 'review' | 'category';
+
 export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const [image, setImage] = useState<string | null>(null);
   const [results, setResults] = useState<NormalizedFood[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
+  const [view, setView] = useState<View>('input');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  
+  // Category selection state
+  const [category, setCategory] = useState<MealCategory>('meal');
+  const [mealName, setMealName] = useState('');
 
   const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -34,17 +42,17 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     reader.readAsDataURL(file);
 
     // Analyze image
-    setIsLoading(true);
+    setView('loading');
     try {
       const formData = new FormData();
       formData.append('image', file);
       const foods = await analyzeImage(formData);
       setResults(foods);
       setSelectedItems(new Set(foods.map((_, i) => i)));
+      setView('review');
     } catch (error) {
       console.error('Image analysis error:', error);
-    } finally {
-      setIsLoading(false);
+      setView('input');
     }
   }, []);
 
@@ -60,31 +68,82 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     });
   };
 
-  const handleLogAll = async () => {
+  const handleContinueToCategory = () => {
+    if (selectedItems.size === 0) return;
+    
+    // Generate a default meal name
+    const selectedFoods = results.filter((_, i) => selectedItems.has(i));
+    const defaultName = selectedFoods.length === 1 
+      ? selectedFoods[0].name
+      : selectedFoods.map(f => f.name).slice(0, 2).join(' & ');
+    
+    setMealName(defaultName);
+    // Default to meal for multi-ingredient, snack for single
+    setCategory(selectedFoods.length > 1 ? 'meal' : 'snack');
+    setView('category');
+  };
+
+  const handleLogMeal = async () => {
     if (selectedItems.size === 0) return;
 
     setIsSaving(true);
     try {
       const selectedFoods = results.filter((_, i) => selectedItems.has(i));
+      
+      // Calculate totals
+      const ingredients = selectedFoods.map((food) => ({
+        name: food.name,
+        weightG: food.servingSize || 100,
+        calories: food.calories || 0,
+        protein: food.protein || 0,
+        carbs: food.carbs || 0,
+        fat: food.fat || 0,
+        source: food.source,
+      }));
+      
+      const totals = calculateMealTotals(ingredients);
+      const now = new Date().toISOString();
 
-      for (const food of selectedFoods) {
-        await client.models.FoodLog.create({
+      // Create the meal
+      const { data: meal } = await client.models.Meal.create({
+        name: mealName || 'Meal',
+        category,
+        eatenAt: now,
+        totalCalories: totals.totalCalories,
+        totalProtein: totals.totalProtein,
+        totalCarbs: totals.totalCarbs,
+        totalFat: totals.totalFat,
+        totalWeightG: totals.totalWeightG,
+      });
+
+      if (!meal) {
+        throw new Error('Failed to create meal');
+      }
+
+      // Create all ingredients
+      for (let i = 0; i < selectedFoods.length; i++) {
+        const food = selectedFoods[i];
+        await client.models.MealIngredient.create({
+          mealId: meal.id,
           name: food.name,
-          weightG: food.servingSize,
-          calories: food.calories,
-          protein: food.protein,
-          carbs: food.carbs,
-          fat: food.fat,
+          weightG: food.servingSize || 100,
+          calories: food.calories || 0,
+          protein: food.protein || 0,
+          carbs: food.carbs || 0,
+          fat: food.fat || 0,
           source: food.source,
-          eatenAt: new Date().toISOString(),
+          servingDescription: food.servingDescription || undefined,
+          servingSizeGrams: food.servingSizeGrams || undefined,
+          sortOrder: i,
         });
       }
 
-      showToast(`${selectedFoods.length} item${selectedFoods.length > 1 ? 's' : ''} logged!`, 'success');
+      const categoryInfo = MEAL_CATEGORY_INFO[category];
+      showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
       onSuccess();
     } catch (error) {
-      console.error('Error logging foods:', error);
-      showToast('Failed to log foods. Please try again.', 'error');
+      console.error('Error logging meal:', error);
+      showToast('Failed to log meal. Please try again.', 'error');
     } finally {
       setIsSaving(false);
     }
@@ -94,6 +153,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setImage(null);
     setResults([]);
     setSelectedItems(new Set());
+    setView('input');
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (cameraInputRef.current) cameraInputRef.current.value = '';
   };
@@ -106,12 +166,110 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         protein: acc.protein + (food.protein || 0),
         carbs: acc.carbs + (food.carbs || 0),
         fat: acc.fat + (food.fat || 0),
+        weight: acc.weight + (food.servingSize || 0),
       }),
-      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      { calories: 0, protein: 0, carbs: 0, fat: 0, weight: 0 }
     );
 
-  // Results view
-  if (results.length > 0 && image) {
+  // Category selection view
+  if (view === 'category' && image) {
+    const selectedFoods = results.filter((_, i) => selectedItems.has(i));
+    
+    return (
+      <div className="p-4 pb-safe">
+        <button
+          onClick={() => setView('review')}
+          className="mb-4 text-text-secondary flex items-center gap-2 hover:text-text-primary transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+
+        <h3 className="text-section-title text-center mb-6">What is this?</h3>
+
+        {/* Category picker */}
+        <div className="mb-6">
+          <CategoryPicker value={category} onChange={setCategory} />
+        </div>
+
+        {/* Meal name input */}
+        <div className="mb-6">
+          <label className="text-caption block mb-2">Name</label>
+          <input
+            type="text"
+            value={mealName}
+            onChange={(e) => setMealName(e.target.value)}
+            className="input-field"
+            placeholder="e.g., Breakfast, Lunch, Afternoon Snack"
+          />
+        </div>
+
+        {/* Summary card */}
+        <div className="card mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-2xl">{MEAL_CATEGORY_INFO[category].emoji}</span>
+            <div>
+              <p className="font-medium text-text-primary">{mealName}</p>
+              <p className="text-caption">{selectedFoods.length} item{selectedFoods.length !== 1 ? 's' : ''}</p>
+            </div>
+          </div>
+          
+          {/* Items preview */}
+          <div className="space-y-1 mb-4 pl-9">
+            {selectedFoods.slice(0, 3).map((food, i) => (
+              <p key={i} className="text-xs text-text-muted truncate">
+                • {food.name} (~{food.servingSize}g)
+              </p>
+            ))}
+            {selectedFoods.length > 3 && (
+              <p className="text-xs text-text-muted">
+                + {selectedFoods.length - 3} more
+              </p>
+            )}
+          </div>
+
+          <div className="macro-grid text-center">
+            <div>
+              <p className="font-mono font-bold text-macro-calories">{Math.round(totals.calories)}</p>
+              <p className="text-caption">kcal</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-protein">{Math.round(totals.protein)}g</p>
+              <p className="text-caption">protein</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-carbs">{Math.round(totals.carbs)}g</p>
+              <p className="text-caption">carbs</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-fat">{Math.round(totals.fat)}g</p>
+              <p className="text-caption">fat</p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handleLogMeal}
+          disabled={isSaving || !mealName.trim()}
+          className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {isSaving ? (
+            <>
+              <div className="spinner" />
+              Logging...
+            </>
+          ) : (
+            `Log ${MEAL_CATEGORY_INFO[category].label}`
+          )}
+        </button>
+      </div>
+    );
+  }
+
+  // Review view
+  if (view === 'review' && results.length > 0 && image) {
     return (
       <div className="p-4 pb-safe">
         <button
@@ -194,25 +352,18 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         </div>
 
         <button
-          onClick={handleLogAll}
-          disabled={isSaving || selectedItems.size === 0}
+          onClick={handleContinueToCategory}
+          disabled={selectedItems.size === 0}
           className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          {isSaving ? (
-            <>
-              <div className="spinner" />
-              Logging...
-            </>
-          ) : (
-            `Log ${selectedItems.size} Item${selectedItems.size !== 1 ? 's' : ''}`
-          )}
+          Continue
         </button>
       </div>
     );
   }
 
   // Loading state
-  if (isLoading && image) {
+  if (view === 'loading' && image) {
     return (
       <div className="p-4 pb-safe">
         <div className="aspect-video rounded-xl overflow-hidden bg-bg-elevated mb-4 relative">

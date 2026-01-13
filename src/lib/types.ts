@@ -149,7 +149,7 @@ export interface WeightStats {
   changeFromMonthAgo: number | null;
 }
 
-// Food log entry
+// Food log entry (legacy - kept for backward compatibility)
 export interface FoodLogEntry {
   id: string;
   name: string;
@@ -165,12 +165,78 @@ export interface FoodLogEntry {
   servingSizeGrams?: number | null;
 }
 
-// Daily summary
+// ============================================
+// Meal Hierarchy Types
+// ============================================
+
+// Category for logged items
+export type MealCategory = 'meal' | 'snack' | 'drink';
+
+// Display info for meal categories
+export const MEAL_CATEGORY_INFO: Record<MealCategory, { label: string; emoji: string }> = {
+  meal: { label: 'Meal', emoji: '🍽️' },
+  snack: { label: 'Snack', emoji: '🍪' },
+  drink: { label: 'Drink', emoji: '🥤' },
+};
+
+// Single ingredient within a meal
+export interface IngredientEntry {
+  id: string;
+  mealId: string;
+  name: string;
+  weightG: number;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  source: string;
+  servingDescription?: string | null;
+  servingSizeGrams?: number | null;
+  sortOrder: number;
+}
+
+// Meal entry with ingredients
+export interface MealEntry {
+  id: string;
+  name: string;
+  category: MealCategory;
+  eatenAt: string;
+  totalCalories: number;
+  totalProtein: number;
+  totalCarbs: number;
+  totalFat: number;
+  totalWeightG: number;
+  ingredients: IngredientEntry[];
+}
+
+// Helper to calculate meal totals from ingredients
+export function calculateMealTotals(ingredients: Omit<IngredientEntry, 'id' | 'mealId' | 'sortOrder'>[]): {
+  totalCalories: number;
+  totalProtein: number;
+  totalCarbs: number;
+  totalFat: number;
+  totalWeightG: number;
+} {
+  return ingredients.reduce(
+    (acc, ing) => ({
+      totalCalories: acc.totalCalories + ing.calories,
+      totalProtein: acc.totalProtein + ing.protein,
+      totalCarbs: acc.totalCarbs + ing.carbs,
+      totalFat: acc.totalFat + ing.fat,
+      totalWeightG: acc.totalWeightG + ing.weightG,
+    }),
+    { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0, totalWeightG: 0 }
+  );
+}
+
+// Daily summary (updated to support both legacy and new meal structure)
 export interface DailySummary {
   totalCalories: number;
   totalProtein: number;
   totalCarbs: number;
   totalFat: number;
+  meals: MealEntry[];
+  // Legacy support - will be empty for new data
   entries: FoodLogEntry[];
 }
 

@@ -4,9 +4,11 @@ import { useState, useCallback } from 'react';
 import { searchFoods } from '@/actions/searchFoods';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
-import type { NormalizedFood } from '@/lib/types';
+import type { NormalizedFood, MealCategory } from '@/lib/types';
+import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { BarcodeScanner } from './BarcodeScanner';
+import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 
 const client = generateClient<Schema>();
@@ -15,7 +17,7 @@ interface SearchTabProps {
   onSuccess: () => void;
 }
 
-type View = 'search' | 'scanner' | 'detail';
+type View = 'search' | 'scanner' | 'detail' | 'category';
 type InputMode = 'grams' | 'servings';
 
 export function SearchTab({ onSuccess }: SearchTabProps) {
@@ -28,6 +30,10 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
   const [inputMode, setInputMode] = useState<InputMode>('grams');
   const [view, setView] = useState<View>('search');
   const [isSaving, setIsSaving] = useState(false);
+  
+  // Category selection state
+  const [category, setCategory] = useState<MealCategory>('snack');
+  const [mealName, setMealName] = useState('');
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
@@ -61,7 +67,6 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
     setSelectedFood(food);
     // Reset input mode based on available serving info
     if (food.servingSizeGrams && food.servingDescription && food.servingDescription !== `${food.servingSizeGrams}g`) {
-      // Food has meaningful serving info (not just "100g")
       setInputMode('servings');
       setServings('1');
       setWeight(food.servingSizeGrams.toString());
@@ -81,6 +86,15 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
     return parseInt(weight) || 0;
   }, [inputMode, servings, selectedFood?.servingSizeGrams, weight]);
 
+  const handleContinueToCategory = () => {
+    if (!selectedFood) return;
+    
+    // Set default meal name and category
+    setMealName(selectedFood.name);
+    setCategory('snack'); // Default to snack for single items
+    setView('category');
+  };
+
   const handleLog = async () => {
     if (!selectedFood) return;
 
@@ -88,8 +102,27 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
     try {
       const weightNum = getEffectiveWeight();
       const scaled = scaleNutrition(selectedFood, weightNum);
+      const now = new Date().toISOString();
 
-      await client.models.FoodLog.create({
+      // Create the meal
+      const { data: meal } = await client.models.Meal.create({
+        name: mealName || scaled.name,
+        category,
+        eatenAt: now,
+        totalCalories: scaled.calories,
+        totalProtein: scaled.protein,
+        totalCarbs: scaled.carbs,
+        totalFat: scaled.fat,
+        totalWeightG: weightNum,
+      });
+
+      if (!meal) {
+        throw new Error('Failed to create meal');
+      }
+
+      // Create the ingredient
+      await client.models.MealIngredient.create({
+        mealId: meal.id,
         name: scaled.name,
         weightG: weightNum,
         calories: scaled.calories,
@@ -97,13 +130,13 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         carbs: scaled.carbs,
         fat: scaled.fat,
         source: scaled.source,
-        eatenAt: new Date().toISOString(),
-        // Store serving info for future editing
-        servingDescription: selectedFood.servingDescription || null,
-        servingSizeGrams: selectedFood.servingSizeGrams || null,
+        servingDescription: selectedFood.servingDescription || undefined,
+        servingSizeGrams: selectedFood.servingSizeGrams || undefined,
+        sortOrder: 0,
       });
 
-      showToast(`${scaled.name} logged!`, 'success');
+      const categoryInfo = MEAL_CATEGORY_INFO[category];
+      showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
       onSuccess();
     } catch (error) {
       console.error('Error logging food:', error);
@@ -132,6 +165,86 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
           Back to search
         </button>
         <BarcodeScanner onScan={handleBarcodeScanned} />
+      </div>
+    );
+  }
+
+  // Category selection view
+  if (view === 'category' && selectedFood && scaledFood) {
+    return (
+      <div className="p-4 pb-safe">
+        <button
+          onClick={() => setView('detail')}
+          className="mb-4 text-text-secondary flex items-center gap-2 hover:text-text-primary transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+
+        <h3 className="text-section-title text-center mb-6">What is this?</h3>
+
+        {/* Category picker */}
+        <div className="mb-6">
+          <CategoryPicker value={category} onChange={setCategory} />
+        </div>
+
+        {/* Meal name input */}
+        <div className="mb-6">
+          <label className="text-caption block mb-2">Name</label>
+          <input
+            type="text"
+            value={mealName}
+            onChange={(e) => setMealName(e.target.value)}
+            className="input-field"
+            placeholder="e.g., Afternoon Snack"
+          />
+        </div>
+
+        {/* Summary card */}
+        <div className="card mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-2xl">{MEAL_CATEGORY_INFO[category].emoji}</span>
+            <div>
+              <p className="font-medium text-text-primary">{mealName || scaledFood.name}</p>
+              <p className="text-caption">{effectiveWeight}g</p>
+            </div>
+          </div>
+          <div className="macro-grid text-center">
+            <div>
+              <p className="font-mono font-bold text-macro-calories">{scaledFood.calories}</p>
+              <p className="text-caption">kcal</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-protein">{scaledFood.protein}g</p>
+              <p className="text-caption">protein</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-carbs">{scaledFood.carbs}g</p>
+              <p className="text-caption">carbs</p>
+            </div>
+            <div>
+              <p className="font-mono font-bold text-macro-fat">{scaledFood.fat}g</p>
+              <p className="text-caption">fat</p>
+            </div>
+          </div>
+        </div>
+
+        <button
+          onClick={handleLog}
+          disabled={isSaving}
+          className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
+        >
+          {isSaving ? (
+            <>
+              <div className="spinner" />
+              Logging...
+            </>
+          ) : (
+            `Log ${MEAL_CATEGORY_INFO[category].label}`
+          )}
+        </button>
       </div>
     );
   }
@@ -282,18 +395,11 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         </div>
 
         <button
-          onClick={handleLog}
-          disabled={isSaving || effectiveWeight <= 0}
+          onClick={handleContinueToCategory}
+          disabled={effectiveWeight <= 0}
           className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          {isSaving ? (
-            <>
-              <div className="spinner" />
-              Logging...
-            </>
-          ) : (
-            'Log Food'
-          )}
+          Continue
         </button>
       </div>
     );
