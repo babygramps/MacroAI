@@ -10,7 +10,8 @@ import { FoodLogModal } from './FoodLogModal';
 import { DateNavigator } from './ui/DateNavigator';
 import type { FoodLogEntry, UserGoals, DailySummary, WeightLogEntry } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
-import { getLatestWeight, formatWeight } from '@/lib/statsHelpers';
+import { formatWeight, fetchWeightHistory } from '@/lib/statsHelpers';
+import { WeightLogCard, WeightLogCardSkeleton } from './ui/WeightLogCard';
 
 // Helper to check if a date is today
 function isToday(date: Date): boolean {
@@ -58,6 +59,8 @@ export function Dashboard() {
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
+  const [recentWeights, setRecentWeights] = useState<WeightLogEntry[]>([]);
+  const [showWeightHistory, setShowWeightHistory] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -68,21 +71,38 @@ export function Dashboard() {
   const fetchData = useCallback(async (date: Date) => {
     setIsLoading(true);
     try {
-      // Fetch user profile and latest weight in parallel
-      const [profilesResult, weightResult] = await Promise.all([
+      // Fetch user profile and weight history in parallel
+      const [profilesResult, weightHistory] = await Promise.all([
         client.models.UserProfile.list(),
-        getLatestWeight(),
+        fetchWeightHistory(7), // Get last 7 days of weight entries
       ]);
-      
+
+      // Set weight data
+      setRecentWeights(weightHistory);
+      const weightResult = weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null;
+
       const { data: profiles } = profilesResult;
       if (profiles && profiles.length > 0) {
         const profile = profiles[0];
+
+        // Determine weight unit from preferredUnitSystem first, then fall back to legacy field
+        const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ??
+          (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
+        const weightUnit = unitSystem === 'imperial' ? 'lbs' : 'kg';
+
+        console.log('[Dashboard] Profile loaded:', {
+          preferredUnitSystem: profile.preferredUnitSystem,
+          preferredWeightUnit: profile.preferredWeightUnit,
+          derivedUnitSystem: unitSystem,
+          derivedWeightUnit: weightUnit,
+        });
+
         setGoals({
           calorieGoal: profile.calorieGoal ?? DEFAULT_GOALS.calorieGoal,
           proteinGoal: profile.proteinGoal ?? DEFAULT_GOALS.proteinGoal,
           carbsGoal: profile.carbsGoal ?? DEFAULT_GOALS.carbsGoal,
           fatGoal: profile.fatGoal ?? DEFAULT_GOALS.fatGoal,
-          preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
+          preferredWeightUnit: weightUnit,
           targetWeightKg: profile.targetWeightKg ?? undefined,
         });
       } else {
@@ -202,9 +222,38 @@ export function Dashboard() {
 
   const handleWeightLogSuccess = async () => {
     setIsWeightModalOpen(false);
-    // Refresh latest weight
-    const weight = await getLatestWeight();
-    setLatestWeight(weight);
+    // Refresh weight history
+    const weightHistory = await fetchWeightHistory(7);
+    setRecentWeights(weightHistory);
+    setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
+  };
+
+  const handleDeleteWeight = async (id: string) => {
+    try {
+      await client.models.WeightLog.delete({ id });
+      // Refresh weight history
+      const weightHistory = await fetchWeightHistory(7);
+      setRecentWeights(weightHistory);
+      setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
+    } catch (error) {
+      console.error('Error deleting weight:', error);
+    }
+  };
+
+  const handleUpdateWeight = async (id: string, updates: { weightKg: number; note?: string }) => {
+    try {
+      await client.models.WeightLog.update({
+        id,
+        weightKg: updates.weightKg,
+        note: updates.note,
+      });
+      // Refresh weight history
+      const weightHistory = await fetchWeightHistory(7);
+      setRecentWeights(weightHistory);
+      setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
+    } catch (error) {
+      console.error('Error updating weight:', error);
+    }
   };
 
   // Check if we can add food (only for today)
@@ -337,11 +386,35 @@ export function Dashboard() {
           />
         </div>
 
-        {/* Weight Card */}
-        <div className="mb-8">
-          <button
-            onClick={() => setIsWeightModalOpen(true)}
-            className="w-full card-interactive flex items-center justify-between group"
+        {/* Weight Section */}
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-section-title">Weight</h2>
+            <div className="flex items-center gap-2">
+              {recentWeights.length > 0 && (
+                <button
+                  onClick={() => setShowWeightHistory(!showWeightHistory)}
+                  className="text-caption text-text-muted hover:text-text-secondary transition-colors"
+                >
+                  {showWeightHistory ? 'Hide history' : `${recentWeights.length} entries`}
+                </button>
+              )}
+              <button
+                onClick={() => setIsWeightModalOpen(true)}
+                className="icon-button-sm bg-weight-subtle hover:bg-weight/20"
+                aria-label="Log weight"
+              >
+                <svg className="w-4 h-4 text-weight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Current Weight Summary Card */}
+          <div
+            className="card-interactive flex items-center justify-between group mb-3 cursor-pointer"
+            onClick={() => setShowWeightHistory(!showWeightHistory)}
           >
             <div className="flex items-center gap-3">
               <div className="icon-button bg-weight-subtle">
@@ -373,13 +446,45 @@ export function Dashboard() {
               </div>
             </div>
             <div className="flex items-center gap-2 text-text-muted group-hover:text-text-secondary transition-colors">
-              <span className="text-caption">Log</span>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              <svg
+                className={`w-4 h-4 transition-transform ${showWeightHistory ? 'rotate-180' : ''}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
-          </button>
-        </div>
+          </div>
+
+          {/* Weight History (expandable) */}
+          {showWeightHistory && (
+            <div className="flex flex-col gap-2 animate-fade-in-up">
+              {isLoading ? (
+                <>
+                  <WeightLogCardSkeleton />
+                  <WeightLogCardSkeleton />
+                </>
+              ) : recentWeights.length > 0 ? (
+                [...recentWeights].reverse().map((entry) => (
+                  <WeightLogCard
+                    key={entry.id}
+                    entry={entry}
+                    preferredUnit={preferredUnit}
+                    onDelete={handleDeleteWeight}
+                    onUpdate={handleUpdateWeight}
+                  />
+                ))
+              ) : (
+                <div className="card-empty py-6">
+                  <p className="text-4xl mb-2">⚖️</p>
+                  <p className="text-body text-text-secondary">No weight entries yet</p>
+                  <p className="text-caption mt-1">Tap + to log your weight</p>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         {/* Food Log */}
         <section>

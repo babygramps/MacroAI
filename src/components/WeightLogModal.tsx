@@ -32,6 +32,12 @@ function WeightLogForm({
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Log on mount only (not on every state change)
+  useEffect(() => {
+    console.log('[WeightLogForm] Mounted with preferredUnit:', preferredUnit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Focus input on mount
   useEffect(() => {
     const timer = setTimeout(() => inputRef.current?.focus(), 100);
@@ -50,6 +56,15 @@ function WeightLogForm({
 
     // Convert to kg if needed
     const weightKg = unit === 'lbs' ? lbsToKg(weightNum) : weightNum;
+
+    console.log('[WeightLogModal] Weight conversion:', {
+      inputValue: weight,
+      inputUnit: unit,
+      preferredUnit,
+      weightNum,
+      convertedWeightKg: weightKg,
+      willConvert: unit === 'lbs',
+    });
 
     // Validate reasonable weight range (20kg - 500kg)
     if (weightKg < 20 || weightKg > 500) {
@@ -267,8 +282,9 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
           </button>
         </div>
 
-        {/* Form - recreated each time modal opens since we return null when closed */}
+        {/* Form - key ensures it remounts when preferredUnit changes */}
         <WeightLogForm
+          key={preferredUnit}
           onClose={onClose}
           onSuccess={onSuccess}
           preferredUnit={preferredUnit}
