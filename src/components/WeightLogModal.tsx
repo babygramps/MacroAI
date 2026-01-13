@@ -15,13 +15,13 @@ interface WeightLogModalProps {
 }
 
 // Inner form component that resets when key changes
-function WeightLogForm({ 
-  onClose, 
-  onSuccess, 
+function WeightLogForm({
+  onClose,
+  onSuccess,
   preferredUnit,
-}: { 
-  onClose: () => void; 
-  onSuccess: () => void; 
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
   preferredUnit: 'kg' | 'lbs';
 }) {
   const [weight, setWeight] = useState('');
@@ -29,20 +29,65 @@ function WeightLogForm({
   const [note, setNote] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [existingEntryId, setExistingEntryId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Log on mount only (not on every state change)
+  // Check for existing entry when date changes
   useEffect(() => {
-    console.log('[WeightLogForm] Mounted with preferredUnit:', preferredUnit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const checkExistingEntry = async () => {
+      setIsLoading(true);
+      setExistingEntryId(null);
 
-  // Focus input on mount
+      try {
+        // Query for entries on the selected date
+        const startOfDay = new Date(`${date}T00:00:00`).toISOString();
+        const endOfDay = new Date(`${date}T23:59:59`).toISOString();
+
+        const { data: entries } = await client.models.WeightLog.list({
+          filter: {
+            recordedAt: {
+              between: [startOfDay, endOfDay],
+            },
+          },
+        });
+
+        if (entries && entries.length > 0) {
+          const existing = entries[0];
+          setExistingEntryId(existing.id);
+
+          // Pre-fill the form with existing data
+          const displayWeight = preferredUnit === 'lbs'
+            ? kgToLbs(existing.weightKg)
+            : Math.round(existing.weightKg * 10) / 10;
+          setWeight(displayWeight.toString());
+          setNote(existing.note || '');
+
+          console.log('[WeightLogForm] Found existing entry for date:', date, existing.id);
+        } else {
+          // No existing entry, clear form
+          setWeight('');
+          setNote('');
+          console.log('[WeightLogForm] No existing entry for date:', date);
+        }
+      } catch (err) {
+        console.error('[WeightLogForm] Error checking existing entry:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    checkExistingEntry();
+  }, [date, preferredUnit]);
+
+  // Focus input after loading
   useEffect(() => {
-    const timer = setTimeout(() => inputRef.current?.focus(), 100);
-    return () => clearTimeout(timer);
-  }, []);
+    if (!isLoading) {
+      const timer = setTimeout(() => inputRef.current?.focus(), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,19 +118,35 @@ function WeightLogForm({
     }
 
     setIsSaving(true);
-    console.log('[WeightLogModal] Saving weight:', { weightKg, date, note });
+    console.log('[WeightLogModal] Saving weight:', {
+      weightKg,
+      date,
+      note,
+      isUpdate: !!existingEntryId,
+    });
 
     try {
       // Create datetime for the selected date at noon (to avoid timezone issues)
       const recordedAt = new Date(`${date}T12:00:00`).toISOString();
 
-      await client.models.WeightLog.create({
-        weightKg,
-        recordedAt,
-        note: note.trim() || undefined,
-      });
+      if (existingEntryId) {
+        // Update existing entry
+        await client.models.WeightLog.update({
+          id: existingEntryId,
+          weightKg,
+          note: note.trim() || undefined,
+        });
+        console.log('[WeightLogModal] Weight updated successfully');
+      } else {
+        // Create new entry
+        await client.models.WeightLog.create({
+          weightKg,
+          recordedAt,
+          note: note.trim() || undefined,
+        });
+        console.log('[WeightLogModal] Weight created successfully');
+      }
 
-      console.log('[WeightLogModal] Weight saved successfully');
       onSuccess();
     } catch (err) {
       console.error('[WeightLogModal] Error saving weight:', err);
@@ -119,22 +180,35 @@ function WeightLogForm({
 
   return (
     <form onSubmit={handleSubmit} className="p-6">
+      {/* Existing entry indicator */}
+      {existingEntryId && !isLoading && (
+        <div className="mb-4 p-3 bg-weight/10 border border-weight/30 rounded-lg">
+          <p className="text-sm text-weight">
+            ✏️ Editing existing entry for this date
+          </p>
+        </div>
+      )}
+
       {/* Weight input with unit toggle */}
       <div className="mb-4">
         <label className="text-caption block mb-2">Weight</label>
         <div className="flex gap-2">
           <div className="flex-1 relative">
-            <input
-              ref={inputRef}
-              type="number"
-              step="0.1"
-              min="0"
-              value={weight}
-              onChange={(e) => setWeight(e.target.value)}
-              placeholder={unit === 'kg' ? '70.0' : '154.0'}
-              className="input-field text-2xl font-mono pr-14 text-center"
-              required
-            />
+            {isLoading ? (
+              <div className="input-field text-2xl font-mono text-center skeleton h-12" />
+            ) : (
+              <input
+                ref={inputRef}
+                type="number"
+                step="0.1"
+                min="0"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder={unit === 'kg' ? '70.0' : '154.0'}
+                className="input-field text-2xl font-mono pr-14 text-center"
+                required
+              />
+            )}
             <span className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted font-mono">
               {unit}
             </span>
@@ -142,11 +216,12 @@ function WeightLogForm({
           <button
             type="button"
             onClick={handleUnitToggle}
+            disabled={isLoading}
             className="btn-secondary px-4 flex items-center gap-1"
             aria-label={`Switch to ${unit === 'kg' ? 'pounds' : 'kilograms'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                     d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
             </svg>
             {unit === 'kg' ? 'lbs' : 'kg'}
@@ -208,13 +283,13 @@ function WeightLogForm({
           type="button"
           onClick={onClose}
           className="btn-secondary flex-1"
-          disabled={isSaving}
+          disabled={isSaving || isLoading}
         >
           Cancel
         </button>
         <button
           type="submit"
-          disabled={isSaving || !weight}
+          disabled={isSaving || isLoading || !weight}
           className="btn-weight flex-1 flex items-center justify-center gap-2 disabled:opacity-50"
         >
           {isSaving ? (
@@ -227,7 +302,7 @@ function WeightLogForm({
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Save Weight
+              {existingEntryId ? 'Update Weight' : 'Save Weight'}
             </>
           )}
         </button>

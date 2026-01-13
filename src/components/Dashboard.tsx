@@ -10,8 +10,7 @@ import { FoodLogModal } from './FoodLogModal';
 import { DateNavigator } from './ui/DateNavigator';
 import type { FoodLogEntry, UserGoals, DailySummary, WeightLogEntry } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
-import { formatWeight, fetchWeightHistory } from '@/lib/statsHelpers';
-import { WeightLogCard, WeightLogCardSkeleton } from './ui/WeightLogCard';
+import { formatWeight } from '@/lib/statsHelpers';
 
 // Helper to check if a date is today
 function isToday(date: Date): boolean {
@@ -59,8 +58,6 @@ export function Dashboard() {
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
-  const [recentWeights, setRecentWeights] = useState<WeightLogEntry[]>([]);
-  const [showWeightHistory, setShowWeightHistory] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -71,15 +68,31 @@ export function Dashboard() {
   const fetchData = useCallback(async (date: Date) => {
     setIsLoading(true);
     try {
-      // Fetch user profile and weight history in parallel
-      const [profilesResult, weightHistory] = await Promise.all([
+      // Fetch user profile and today's weight in parallel
+      const today = new Date();
+      const todayStart = new Date(`${today.toISOString().split('T')[0]}T00:00:00`).toISOString();
+      const todayEnd = new Date(`${today.toISOString().split('T')[0]}T23:59:59`).toISOString();
+
+      const [profilesResult, weightResult] = await Promise.all([
         client.models.UserProfile.list(),
-        fetchWeightHistory(7), // Get last 7 days of weight entries
+        client.models.WeightLog.list({
+          filter: {
+            recordedAt: {
+              between: [todayStart, todayEnd],
+            },
+          },
+        }),
       ]);
 
-      // Set weight data
-      setRecentWeights(weightHistory);
-      const weightResult = weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null;
+      // Set today's weight if exists
+      const todayWeight = weightResult.data && weightResult.data.length > 0
+        ? {
+            id: weightResult.data[0].id,
+            weightKg: weightResult.data[0].weightKg,
+            recordedAt: weightResult.data[0].recordedAt,
+            note: weightResult.data[0].note ?? undefined,
+          }
+        : null;
 
       const { data: profiles } = profilesResult;
       if (profiles && profiles.length > 0) {
@@ -109,7 +122,7 @@ export function Dashboard() {
         setNeedsOnboarding(true);
       }
       
-      setLatestWeight(weightResult);
+      setLatestWeight(todayWeight);
 
       // Fetch food logs for the selected date
       const startOfDay = new Date(date);
@@ -220,40 +233,10 @@ export function Dashboard() {
     }
   };
 
-  const handleWeightLogSuccess = async () => {
+  const handleWeightLogSuccess = () => {
     setIsWeightModalOpen(false);
-    // Refresh weight history
-    const weightHistory = await fetchWeightHistory(7);
-    setRecentWeights(weightHistory);
-    setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
-  };
-
-  const handleDeleteWeight = async (id: string) => {
-    try {
-      await client.models.WeightLog.delete({ id });
-      // Refresh weight history
-      const weightHistory = await fetchWeightHistory(7);
-      setRecentWeights(weightHistory);
-      setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
-    } catch (error) {
-      console.error('Error deleting weight:', error);
-    }
-  };
-
-  const handleUpdateWeight = async (id: string, updates: { weightKg: number; note?: string }) => {
-    try {
-      await client.models.WeightLog.update({
-        id,
-        weightKg: updates.weightKg,
-        note: updates.note,
-      });
-      // Refresh weight history
-      const weightHistory = await fetchWeightHistory(7);
-      setRecentWeights(weightHistory);
-      setLatestWeight(weightHistory.length > 0 ? weightHistory[weightHistory.length - 1] : null);
-    } catch (error) {
-      console.error('Error updating weight:', error);
-    }
+    // Refresh data to get updated weight
+    fetchData(selectedDate);
   };
 
   // Check if we can add food (only for today)
@@ -386,54 +369,30 @@ export function Dashboard() {
           />
         </div>
 
-        {/* Weight Section */}
-        <section className="mb-8">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-section-title">Weight</h2>
-            <div className="flex items-center gap-2">
-              {recentWeights.length > 0 && (
-                <button
-                  onClick={() => setShowWeightHistory(!showWeightHistory)}
-                  className="text-caption text-text-muted hover:text-text-secondary transition-colors"
-                >
-                  {showWeightHistory ? 'Hide history' : `${recentWeights.length} entries`}
-                </button>
-              )}
-              <button
-                onClick={() => setIsWeightModalOpen(true)}
-                className="icon-button-sm bg-weight-subtle hover:bg-weight/20"
-                aria-label="Log weight"
-              >
-                <svg className="w-4 h-4 text-weight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          {/* Current Weight Summary Card */}
-          <div
-            className="card-interactive flex items-center justify-between group mb-3 cursor-pointer"
-            onClick={() => setShowWeightHistory(!showWeightHistory)}
+        {/* Weight Card */}
+        <div className="mb-8">
+          <button
+            onClick={() => setIsWeightModalOpen(true)}
+            className="w-full card-interactive flex items-center justify-between group"
           >
             <div className="flex items-center gap-3">
               <div className="icon-button bg-weight-subtle">
-                <svg 
-                  className="w-5 h-5 text-weight" 
-                  fill="none" 
-                  stroke="currentColor" 
+                <svg
+                  className="w-5 h-5 text-weight"
+                  fill="none"
+                  stroke="currentColor"
                   viewBox="0 0 24 24"
                 >
-                  <path 
-                    strokeLinecap="round" 
-                    strokeLinejoin="round" 
-                    strokeWidth={2} 
-                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" 
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"
                   />
                 </svg>
               </div>
               <div className="text-left">
-                <p className="text-caption text-text-muted">Current Weight</p>
+                <p className="text-caption text-text-muted">Today&apos;s Weight</p>
                 {isLoading ? (
                   <div className="h-6 w-16 skeleton rounded mt-1" />
                 ) : latestWeight ? (
@@ -441,50 +400,34 @@ export function Dashboard() {
                     {formatWeight(latestWeight.weightKg, preferredUnit)}
                   </p>
                 ) : (
-                  <p className="text-body text-text-secondary">Not logged</p>
+                  <p className="text-body text-text-secondary">Tap to log</p>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-2 text-text-muted group-hover:text-text-secondary transition-colors">
-              <svg
-                className={`w-4 h-4 transition-transform ${showWeightHistory ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Weight History (expandable) */}
-          {showWeightHistory && (
-            <div className="flex flex-col gap-2 animate-fade-in-up">
-              {isLoading ? (
+              {latestWeight ? (
                 <>
-                  <WeightLogCardSkeleton />
-                  <WeightLogCardSkeleton />
+                  <span className="text-caption">Edit</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                    />
+                  </svg>
                 </>
-              ) : recentWeights.length > 0 ? (
-                [...recentWeights].reverse().map((entry) => (
-                  <WeightLogCard
-                    key={entry.id}
-                    entry={entry}
-                    preferredUnit={preferredUnit}
-                    onDelete={handleDeleteWeight}
-                    onUpdate={handleUpdateWeight}
-                  />
-                ))
               ) : (
-                <div className="card-empty py-6">
-                  <p className="text-4xl mb-2">⚖️</p>
-                  <p className="text-body text-text-secondary">No weight entries yet</p>
-                  <p className="text-caption mt-1">Tap + to log your weight</p>
-                </div>
+                <>
+                  <span className="text-caption">Log</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                </>
               )}
             </div>
-          )}
-        </section>
+          </button>
+        </div>
 
         {/* Food Log */}
         <section>
