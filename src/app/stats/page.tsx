@@ -51,7 +51,7 @@ export default function StatsPage() {
           isInColdStart: insights.isInColdStart,
         } : null,
       });
-      
+
       setStats(weeklyStats);
       setGoals(userGoals);
       setWeightStats(weightData);

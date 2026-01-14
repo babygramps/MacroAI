@@ -66,15 +66,29 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
   });
 
   try {
-    const { data: logs } = await client.models.FoodLog.list({
-      filter: {
-        eatenAt: {
-          between: [start.toISOString(), end.toISOString()],
+    // Fetch from BOTH FoodLog (legacy) and Meal (new) tables
+    const [foodLogResult, mealResult] = await Promise.all([
+      client.models.FoodLog.list({
+        filter: {
+          eatenAt: {
+            between: [start.toISOString(), end.toISOString()],
+          },
         },
-      },
-    });
+      }),
+      client.models.Meal.list({
+        filter: {
+          eatenAt: {
+            between: [start.toISOString(), end.toISOString()],
+          },
+        },
+      }),
+    ]);
+
+    const logs = foodLogResult.data;
+    const meals = mealResult.data;
 
     console.log('[statsHelpers] Fetched logs count:', logs?.length ?? 0);
+    console.log('[statsHelpers] Fetched meals count:', meals?.length ?? 0);
 
     // Group logs by date
     const logsByDate: Map<string, FoodLogEntry[]> = new Map();
@@ -87,7 +101,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       logsByDate.set(dateKey, []);
     }
 
-    // Populate with actual logs
+    // Populate with actual legacy FoodLog entries
     if (logs) {
       for (const log of logs) {
         if (!log.eatenAt) continue;
@@ -104,6 +118,33 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
           fat: log.fat ?? 0,
           source: log.source ?? '',
           eatenAt: log.eatenAt,
+        };
+
+        const dayLogs = logsByDate.get(dateKey);
+        if (dayLogs) {
+          dayLogs.push(entry);
+        }
+      }
+    }
+
+    // Populate with new Meal entries (convert to FoodLogEntry format for stats)
+    if (meals) {
+      for (const meal of meals) {
+        if (!meal.eatenAt) continue;
+        const mealDate = new Date(meal.eatenAt);
+        const dateKey = formatDateKey(mealDate);
+        
+        // Convert Meal to FoodLogEntry format for consistent handling
+        const entry: FoodLogEntry = {
+          id: meal.id,
+          name: meal.name ?? '',
+          weightG: meal.totalWeightG ?? 0,
+          calories: meal.totalCalories ?? 0,
+          protein: meal.totalProtein ?? 0,
+          carbs: meal.totalCarbs ?? 0,
+          fat: meal.totalFat ?? 0,
+          source: 'MEAL', // Mark as coming from Meal table
+          eatenAt: meal.eatenAt,
         };
 
         const dayLogs = logsByDate.get(dateKey);
