@@ -18,6 +18,8 @@ export async function analyzeImage(formData: FormData): Promise<NormalizedFood[]
   }
 
   const imageFile = formData.get('image') as File | null;
+  const userDescription = formData.get('description') as string | null;
+  
   if (!imageFile) {
     console.error('No image provided');
     return [];
@@ -30,8 +32,22 @@ export async function analyzeImage(formData: FormData): Promise<NormalizedFood[]
 
     const client = new GoogleGenAI({ apiKey });
 
-    const prompt = `You are a nutrition expert analyzing a food photo. Identify each food item visible and provide accurate USDA-based nutrition data.
+    // Build context section if user provided a description
+    const userContextSection = userDescription 
+      ? `
+USER-PROVIDED CONTEXT:
+The user has described this meal as: "${userDescription}"
+Use this information to:
+- Identify specific restaurants/brands mentioned and use their actual nutrition data
+- Use any portion sizes mentioned (e.g., "6oz steak", "large fries")
+- Account for hidden ingredients the user mentions (sauces, dressings, cooking oil)
+- Correct any visual misidentifications based on the description
 
+`
+      : '';
+
+    const prompt = `You are a nutrition expert analyzing a food photo. Identify each food item visible and provide accurate USDA-based nutrition data.
+${userContextSection}
 INSTRUCTIONS:
 1. Identify ALL distinct food items in the image
 2. Estimate portion sizes using visual cues:
@@ -40,8 +56,8 @@ INSTRUCTIONS:
    - Palm-sized meat ≈ 3-4 oz (85-115g)
    - Thumb-sized fat portion ≈ 1 tbsp
 3. Use standard USDA nutrition values per 100g, then scale to estimated weight
-4. For branded/restaurant items you recognize, use known nutrition data
-5. Include sauces, dressings, and toppings as separate items if visible
+4. For branded/restaurant items you recognize (or mentioned by the user), use known nutrition data
+5. Include sauces, dressings, and toppings as separate items if visible or mentioned
 
 For each item, provide:
 - name: Descriptive food name (e.g., "Grilled Chicken Breast" not just "chicken")

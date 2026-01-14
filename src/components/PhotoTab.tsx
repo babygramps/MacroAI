@@ -15,7 +15,7 @@ interface PhotoTabProps {
   onSuccess: () => void;
 }
 
-type View = 'input' | 'loading' | 'review' | 'category';
+type View = 'input' | 'describe' | 'loading' | 'review' | 'category';
 
 export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const [image, setImage] = useState<string | null>(null);
@@ -26,35 +26,47 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   
+  // Description to help AI understand the meal
+  const [description, setDescription] = useState('');
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('meal');
   const [mealName, setMealName] = useState('');
 
-  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Show preview
+    // Show preview and store file for later
     const reader = new FileReader();
     reader.onload = () => {
       setImage(reader.result as string);
     };
     reader.readAsDataURL(file);
+    setPendingFile(file);
+    setView('describe');
+  }, []);
 
-    // Analyze image
+  const handleAnalyze = useCallback(async () => {
+    if (!pendingFile || !image) return;
+
     setView('loading');
     try {
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('image', pendingFile);
+      if (description.trim()) {
+        formData.append('description', description.trim());
+      }
       const foods = await analyzeImage(formData);
       setResults(foods);
       setSelectedItems(new Set(foods.map((_, i) => i)));
       setView('review');
     } catch (error) {
       console.error('Image analysis error:', error);
-      setView('input');
+      setView('describe');
     }
-  }, []);
+  }, [pendingFile, image, description]);
 
   const toggleItem = (index: number) => {
     setSelectedItems((prev) => {
@@ -153,6 +165,8 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setImage(null);
     setResults([]);
     setSelectedItems(new Set());
+    setDescription('');
+    setPendingFile(null);
     setView('input');
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -264,6 +278,71 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
             `Log ${MEAL_CATEGORY_INFO[category].label}`
           )}
         </button>
+      </div>
+    );
+  }
+
+  // Describe view - add context before analysis
+  if (view === 'describe' && image) {
+    return (
+      <div className="p-4 pb-safe">
+        <button
+          onClick={handleReset}
+          className="mb-4 text-text-secondary flex items-center gap-2 hover:text-text-primary transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Take another photo
+        </button>
+
+        {/* Image preview */}
+        <div className="aspect-video rounded-xl overflow-hidden bg-bg-elevated mb-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image} alt="Food" className="w-full h-full object-cover" />
+        </div>
+
+        <h3 className="text-section-title mb-2">Add Details (Optional)</h3>
+        <p className="text-caption text-text-muted mb-4">
+          Describe your meal to help AI identify foods and estimate portions more accurately.
+        </p>
+
+        {/* Description input */}
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="e.g., Chipotle burrito bowl with double chicken, white rice, black beans, mild salsa, cheese, and guac"
+          className="input-field w-full h-24 resize-none mb-4"
+          maxLength={500}
+        />
+
+        {/* Character count */}
+        <p className="text-caption text-text-muted text-right mb-4">
+          {description.length}/500
+        </p>
+
+        {/* Tips */}
+        <div className="card mb-6">
+          <h4 className="text-card-title mb-2">💡 Tips for better results</h4>
+          <ul className="text-caption text-text-muted space-y-1">
+            <li>• Mention restaurant or brand names</li>
+            <li>• Include portion sizes if known (e.g., &quot;6oz steak&quot;)</li>
+            <li>• Note cooking methods (grilled, fried, etc.)</li>
+            <li>• Describe hidden ingredients (sauces, dressings)</li>
+          </ul>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={handleAnalyze}
+            className="btn-primary flex-1 flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+            </svg>
+            Analyze Photo
+          </button>
+        </div>
       </div>
     );
   }
