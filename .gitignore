@@ -31,6 +31,7 @@ amplify_outputs.d.ts
 *.swp
 *.swo
 *~
+.gitattributes
 
 # OS
 .DS_Store

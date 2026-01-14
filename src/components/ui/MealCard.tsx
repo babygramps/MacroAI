@@ -144,7 +144,7 @@ export function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
       >
         <div className="border-t border-border-subtle pt-3">
           {/* Ingredients list */}
-          <div className="space-y-1 mb-3">
+          <div className="space-y-1 mb-3 max-h-56 overflow-y-auto pr-1">
             {meal.ingredients.map((ingredient) => (
               <IngredientListItem key={ingredient.id} ingredient={ingredient} />
             ))}
