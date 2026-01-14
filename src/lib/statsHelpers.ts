@@ -735,10 +735,12 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
   
   try {
     // Fetch all required data in parallel
-    const [userGoals, weightStatsWithTrend, computedStates, dailyLogs] = await Promise.all([
+    // Note: We need 30 days of dailyLogs for accurate daysTracked calculation
+    const [userGoals, weightStatsWithTrend, computedStates, dailyLogs30, dailyLogs7] = await Promise.all([
       fetchUserGoals(),
       fetchWeightStatsWithTrend(),
       fetchComputedStates(30),
+      fetchDailyLogs(30), // Full 30 days for daysTracked calculation
       fetchDailyLogs(7), // Last 7 days for weekly check-in
     ]);
     
@@ -747,8 +749,11 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       return null;
     }
     
-    // Determine days tracked
-    const daysTracked = computedStates.filter(s => s.estimatedTdeeKcal > 0).length;
+    // Determine days tracked - count days where user actually logged weight OR food
+    // A day is "tracked" if it has real data, not just interpolated values
+    const daysTracked = dailyLogs30.filter(d => 
+      d.logStatus !== 'skipped' || d.scaleWeightKg !== null
+    ).length;
     const isInColdStart = daysTracked < METABOLIC_CONSTANTS.COLD_START_DAYS;
     
     // Get current TDEE
@@ -770,8 +775,8 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
     // Calculate weekly weight change
     const weeklyWeightChange = getWeeklyWeightChange(weightStatsWithTrend.trendData);
     
-    // Determine confidence level
-    const recentMissingDays = dailyLogs.filter(d => d.logStatus === 'skipped').length;
+    // Determine confidence level (use last 7 days for recent missing days)
+    const recentMissingDays = dailyLogs7.filter(d => d.logStatus === 'skipped').length;
     const confidenceLevel = determineConfidenceLevel(daysTracked, recentMissingDays);
     
     // Calculate suggested calories
@@ -787,7 +792,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       weeklyCheckIn = buildWeeklyCheckIn(
         weekStart,
         weekEnd,
-        dailyLogs,
+        dailyLogs7,
         computedStates.slice(-7),
         userGoals
       );
