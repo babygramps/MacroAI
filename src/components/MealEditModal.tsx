@@ -14,7 +14,7 @@ interface MealEditModalProps {
   meal: MealEntry | null;
   onClose: () => void;
   onSave: (meal: MealEntry) => Promise<void>;
-  onDelete?: (mealId: string) => Promise<void>;
+  onDelete?: (mealId: string) => void;
 }
 
 // SSR-safe way to check if mounted

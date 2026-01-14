@@ -13,6 +13,7 @@ import type { MealEntry, IngredientEntry, UserGoals, DailySummary, WeightLogEntr
 import { WeightLogModal } from './WeightLogModal';
 import { formatWeight } from '@/lib/statsHelpers';
 import { showToast } from './ui/Toast';
+import { ConfirmModal } from './ui/ConfirmModal';
 
 // Helper to check if a date is today
 function isToday(date: Date): boolean {
@@ -67,6 +68,11 @@ export function Dashboard() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     return today;
+  });
+  const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; mealId: string | null; mealName: string }>({
+    isOpen: false,
+    mealId: null,
+    mealName: '',
   });
 
   // Fetch user profile and logs for the selected date
@@ -339,7 +345,19 @@ export function Dashboard() {
     }
   };
 
-  const handleDeleteMeal = async (mealId: string) => {
+  const handleDeleteMeal = (mealId: string) => {
+    // Find the meal to get its name for the confirmation dialog
+    const meal = summary.meals.find((m) => m.id === mealId);
+    const mealName = meal?.name || 'this item';
+    setDeleteConfirm({ isOpen: true, mealId, mealName });
+  };
+
+  const confirmDeleteMeal = async () => {
+    const mealId = deleteConfirm.mealId;
+    if (!mealId) return;
+
+    setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
+
     try {
       // Check if this is a legacy FoodLog entry
       if (mealId.startsWith('legacy-')) {
@@ -368,6 +386,10 @@ export function Dashboard() {
       console.error('Error deleting meal:', error);
       showToast('Failed to delete meal', 'error');
     }
+  };
+
+  const cancelDeleteMeal = () => {
+    setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
   };
 
   const handleLogSuccess = () => {
@@ -658,6 +680,18 @@ export function Dashboard() {
         onSuccess={handleWeightLogSuccess}
         preferredUnit={preferredUnit}
         selectedDate={selectedDate}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal
+        isOpen={deleteConfirm.isOpen}
+        title="Delete Entry"
+        message={`Are you sure you want to delete "${deleteConfirm.mealName}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={confirmDeleteMeal}
+        onCancel={cancelDeleteMeal}
       />
     </div>
   );
