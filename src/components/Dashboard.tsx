@@ -73,24 +73,24 @@ export function Dashboard() {
   const fetchData = useCallback(async (date: Date) => {
     setIsLoading(true);
     try {
-      // Fetch user profile and today's weight in parallel
-      const today = new Date();
-      const todayStart = new Date(`${today.toISOString().split('T')[0]}T00:00:00`).toISOString();
-      const todayEnd = new Date(`${today.toISOString().split('T')[0]}T23:59:59`).toISOString();
+      // Fetch user profile and weight for the SELECTED date (not always today)
+      // Use LOCAL date boundaries, not UTC
+      const selectedDateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).toISOString();
+      const selectedDateEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).toISOString();
 
       const [profilesResult, weightResult] = await Promise.all([
         client.models.UserProfile.list(),
         client.models.WeightLog.list({
           filter: {
             recordedAt: {
-              between: [todayStart, todayEnd],
+              between: [selectedDateStart, selectedDateEnd],
             },
           },
         }),
       ]);
 
-      // Set today's weight if exists
-      const todayWeight = weightResult.data && weightResult.data.length > 0
+      // Set the weight for the selected date if exists
+      const selectedDateWeight = weightResult.data && weightResult.data.length > 0
         ? {
             id: weightResult.data[0].id,
             weightKg: weightResult.data[0].weightKg,
@@ -127,7 +127,7 @@ export function Dashboard() {
         setNeedsOnboarding(true);
       }
       
-      setLatestWeight(todayWeight);
+      setLatestWeight(selectedDateWeight);
 
       // Fetch meals for the selected date
       const startOfDay = new Date(date);
@@ -541,7 +541,7 @@ export function Dashboard() {
                 </svg>
               </div>
               <div className="text-left">
-                <p className="text-caption text-text-muted">Today&apos;s Weight</p>
+                <p className="text-caption text-text-muted">{isToday(selectedDate) ? "Today's Weight" : "Weight"}</p>
                 {isLoading ? (
                   <div className="h-6 w-16 skeleton rounded mt-1" />
                 ) : latestWeight ? (
@@ -657,6 +657,7 @@ export function Dashboard() {
         onClose={() => setIsWeightModalOpen(false)}
         onSuccess={handleWeightLogSuccess}
         preferredUnit={preferredUnit}
+        selectedDate={selectedDate}
       />
     </div>
   );

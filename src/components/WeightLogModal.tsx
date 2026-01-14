@@ -12,6 +12,12 @@ interface WeightLogModalProps {
   onClose: () => void;
   onSuccess: () => void;
   preferredUnit?: 'kg' | 'lbs';
+  selectedDate?: Date; // The date selected in the Dashboard
+}
+
+// Helper to format Date to YYYY-MM-DD in local timezone
+function formatLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // Inner form component that resets when key changes
@@ -19,15 +25,20 @@ function WeightLogForm({
   onClose,
   onSuccess,
   preferredUnit,
+  initialDate,
 }: {
   onClose: () => void;
   onSuccess: () => void;
   preferredUnit: 'kg' | 'lbs';
+  initialDate: Date;
 }) {
   const [weight, setWeight] = useState('');
   const [unit, setUnit] = useState<'kg' | 'lbs'>(preferredUnit);
   const [note, setNote] = useState('');
-  const [date, setDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => {
+    // Use the provided initialDate (from Dashboard's selectedDate)
+    return formatLocalDate(initialDate);
+  });
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +52,13 @@ function WeightLogForm({
       setExistingEntryId(null);
 
       try {
-        // Query for entries on the selected date
-        const startOfDay = new Date(`${date}T00:00:00`).toISOString();
-        const endOfDay = new Date(`${date}T23:59:59`).toISOString();
+        // Query for entries on the selected date using LOCAL timezone boundaries
+        // We need to convert local date boundaries to UTC for the query
+        const [year, month, day] = date.split('-').map(Number);
+        const startOfDayLocal = new Date(year, month - 1, day, 0, 0, 0);
+        const endOfDayLocal = new Date(year, month - 1, day, 23, 59, 59);
+        const startOfDay = startOfDayLocal.toISOString();
+        const endOfDay = endOfDayLocal.toISOString();
 
         const { data: entries } = await client.models.WeightLog.list({
           filter: {
@@ -63,13 +78,10 @@ function WeightLogForm({
             : Math.round(existing.weightKg * 10) / 10;
           setWeight(displayWeight.toString());
           setNote(existing.note || '');
-
-          console.log('[WeightLogForm] Found existing entry for date:', date, existing.id);
         } else {
           // No existing entry, clear form
           setWeight('');
           setNote('');
-          console.log('[WeightLogForm] No existing entry for date:', date);
         }
       } catch (err) {
         console.error('[WeightLogForm] Error checking existing entry:', err);
@@ -252,7 +264,7 @@ function WeightLogForm({
           type="date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          max={new Date().toISOString().split('T')[0]}
+          max={(() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`; })()}
           className="input-field"
         />
       </div>
@@ -311,7 +323,9 @@ function WeightLogForm({
   );
 }
 
-export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg' }: WeightLogModalProps) {
+export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg', selectedDate }: WeightLogModalProps) {
+  // Default to today if no date is provided
+  const initialDate = selectedDate ?? new Date();
   // Handle escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -357,12 +371,13 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
           </button>
         </div>
 
-        {/* Form - key ensures it remounts when preferredUnit changes */}
+        {/* Form - key ensures it remounts when preferredUnit or date changes */}
         <WeightLogForm
-          key={preferredUnit}
+          key={`${preferredUnit}-${formatLocalDate(initialDate)}`}
           onClose={onClose}
           onSuccess={onSuccess}
           preferredUnit={preferredUnit}
+          initialDate={initialDate}
         />
       </div>
     </div>
