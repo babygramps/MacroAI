@@ -116,11 +116,9 @@ async function enrichWithPortionData(food: USDAFood): Promise<USDAFood> {
                          (food.foodPortions && food.foodPortions.length > 0);
   
   if (hasServingInfo) {
-    console.log(`  ${food.description.substring(0, 40)}... already has serving info`);
     return food;
   }
   
-  console.log(`  Fetching portion data for: ${food.description.substring(0, 40)}...`);
   const fullDetails = await fetchFoodDetails(food.fdcId);
   
   if (fullDetails) {
@@ -169,7 +167,6 @@ async function getCachedResults(
     if (data && data.length > 0) {
       const entry = data[0];
       if (entry.expiresAt && !isExpired(entry.expiresAt)) {
-        console.log('Returning cached search results for:', query);
         return entry.results as NormalizedFood[];
       }
     }
@@ -223,7 +220,6 @@ interface GeminiQueryAnalysis {
 async function analyzeQueryWithGemini(userQuery: string): Promise<GeminiQueryAnalysis> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    console.log('GEMINI_API_KEY not configured, using direct search');
     return {
       has_brand: false,
       brand_name: null,
@@ -296,7 +292,6 @@ Return ONLY a valid JSON object:
       };
     }
 
-    console.log('Gemini query analysis:', responseText);
     return JSON.parse(responseText) as GeminiQueryAnalysis;
   } catch (error) {
     console.error('Gemini query analysis error:', error);
@@ -327,10 +322,6 @@ async function searchBrandedProducts(
   }
 
   try {
-    console.log(`\n========== BRAND SEARCH (ALL DATA TYPES) ==========`);
-    console.log(`Brand: "${brandName}" (Owner: ${brandOwner || 'N/A'})`);
-    console.log(`Product keywords: ${productKeywords.join(', ')}`);
-    
     // Generate keyword variants (singular/plural)
     const keywordVariants = generateWordVariants(productKeywords);
     
@@ -347,8 +338,6 @@ async function searchBrandedProducts(
       searchQueries.push(productKeywords.join(' ')); // e.g., "big mac"
     }
     
-    console.log(`Running ${searchQueries.length} parallel searches...`);
-    
     const searchPromises = searchQueries.map(async (query) => {
       const response = await fetch(
         `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(query)}&dataType=Foundation,SR%20Legacy,Branded&pageSize=25`,
@@ -361,7 +350,6 @@ async function searchBrandedProducts(
       }
       
       const data: USDASearchResponse = await response.json();
-      console.log(`  "${query}" → ${data.foods?.length || 0} results`);
       return data.foods || [];
     });
     
@@ -380,10 +368,7 @@ async function searchBrandedProducts(
       }
     }
     
-    console.log(`Combined: ${allFoods.length} unique foods`);
-    
     if (allFoods.length === 0) {
-      console.log('No products found');
       return [];
     }
 
@@ -418,8 +403,6 @@ async function searchBrandedProducts(
       return isBrandMatch && hasKeywordMatch;
     });
 
-    console.log(`Filtered to ${matchingProducts.length} products matching brand + keywords`);
-
     // Score and sort the matching products
     const scoredProducts = matchingProducts.map(food => ({
       food,
@@ -427,19 +410,10 @@ async function searchBrandedProducts(
     }));
 
     scoredProducts.sort((a, b) => b.score - a.score);
-
-    // Log top matches
-    console.log('\nTop matches:');
-    scoredProducts.slice(0, 5).forEach((item, i) => {
-      console.log(`  ${i + 1}. "${item.food.description}" [${item.food.dataType}] (score: ${item.score})`);
-    });
     
     // Enrich top results with portion data (fetch full details for accurate serving sizes)
-    console.log('\nFetching portion data for top results...');
     const topFoods = scoredProducts.slice(0, 5).map(item => item.food);
     const enrichedFoods = await Promise.all(topFoods.map(enrichWithPortionData));
-    
-    console.log('===================================================\n');
 
     // Return enriched and normalized results
     return enrichedFoods.map(food => normalizeUSDA(food));
@@ -473,41 +447,17 @@ async function searchUSDAForTerm(searchTerm: string, displayName: string, origin
     
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
-      console.log(`\nScoring ${data.foods.length} USDA results for "${searchTerm}"${originalQuery ? ` (original: "${originalQuery}")` : ''}:`);
       const { food: usdaFood, score } = findBestMatch(data.foods, searchTerm, originalQuery);
 
       if (!usdaFood) {
-        console.log(`Score too low (${score}), considering this a miss`);
         return null;
       }
-      console.log(`Best match: "${usdaFood.description}" (${usdaFood.brandOwner || 'N/A'}) with score ${score}`);
+      void score;
       
       // Enrich with portion data for accurate serving sizes
       const enrichedFood = await enrichWithPortionData(usdaFood);
       
-      // Log full USDA response details
-      console.log('\n========== USDA FOOD DETAILS (SELECTED) ==========');
-      console.log('Search term:', searchTerm);
-      console.log('FDC ID:', enrichedFood.fdcId);
-      console.log('Description:', enrichedFood.description);
-      console.log('Data Type:', enrichedFood.dataType);
-      console.log('Brand Owner:', enrichedFood.brandOwner || 'N/A');
-      console.log('Brand Name:', enrichedFood.brandName || 'N/A');
-      console.log('Serving Size:', enrichedFood.servingSize, enrichedFood.servingSizeUnit || '');
-      console.log('Food Category:', enrichedFood.foodCategory || 'N/A');
-      if (enrichedFood.foodPortions && enrichedFood.foodPortions.length > 0) {
-        console.log('Food Portions:');
-        enrichedFood.foodPortions.forEach((portion, i) => {
-          console.log(`  ${i + 1}. ${portion.gramWeight}g - ${portion.modifier || portion.portionDescription || 'N/A'}`);
-        });
-      }
-      console.log('\n--- Nutrients (per 100g) ---');
-      if (enrichedFood.foodNutrients) {
-        enrichedFood.foodNutrients.slice(0, 10).forEach((nutrient) => {
-          console.log(`  ${nutrient.nutrientName}: ${nutrient.value} ${nutrient.unitName}`);
-        });
-      }
-      console.log('===================================================\n');
+      void enrichedFood;
       
       const normalized = normalizeUSDA(enrichedFood);
       // Use the friendly display name instead of USDA's verbose name
@@ -544,21 +494,12 @@ async function searchUSDADirect(query: string): Promise<NormalizedFood[]> {
 
     const data: USDASearchResponse = await response.json();
     
-    // Log search results summary
-    console.log('\n========== USDA DIRECT SEARCH RESULTS ==========');
-    console.log('Query:', query);
-    console.log('Total hits:', data.totalHits);
-    console.log('Foods returned:', data.foods?.length || 0);
-    data.foods?.slice(0, 5).forEach((usdaFood, index) => {
-      console.log(`  ${index + 1}. ${usdaFood.description} [${usdaFood.dataType}]`);
-    });
+    void query;
+    void data;
     
-    // Enrich top results with portion data
-    console.log('\nFetching portion data...');
     const enrichedFoods = await Promise.all(
       data.foods.slice(0, 10).map(enrichWithPortionData)
     );
-    console.log('=================================================\n');
     
     return enrichedFoods.map(food => normalizeUSDA(food));
   } catch (error) {
@@ -629,9 +570,6 @@ export async function searchFoods(query: string): Promise<NormalizedFood[]> {
     
     if (analysis.has_brand && analysis.brand_name) {
       // BRANDED SEARCH: Get all products from this brand, then filter
-      console.log(`\nDetected brand search: ${analysis.brand_name} (${analysis.brand_owner || 'N/A'})`);
-      console.log(`Product keywords: ${analysis.product_keywords.join(', ')}`);
-      
       results = await searchBrandedProducts(
         analysis.brand_name,
         analysis.brand_owner,
@@ -641,11 +579,8 @@ export async function searchFoods(query: string): Promise<NormalizedFood[]> {
       
       // If branded search found results, use them
       if (results.length > 0) {
-        console.log(`Branded search returned ${results.length} results`);
       } else {
         // Fallback to generic searches if brand search failed
-        console.log('Branded search found no matches, trying fallback searches...');
-        
         const fallbackPromises = analysis.fallback_searches.map(suggestion =>
           searchUSDAForTerm(suggestion.usda_search_term, suggestion.display_name, trimmedQuery)
         );
@@ -661,12 +596,9 @@ export async function searchFoods(query: string): Promise<NormalizedFood[]> {
           return true;
         });
         
-        console.log(`Fallback search returned ${results.length} results`);
       }
     } else {
       // NON-BRANDED SEARCH: Use the fallback/generic search terms
-      console.log('\nNo brand detected, using generic search...');
-      
       if (analysis.fallback_searches.length === 0) {
         results = await searchUSDADirect(trimmedQuery);
       } else {
@@ -685,10 +617,7 @@ export async function searchFoods(query: string): Promise<NormalizedFood[]> {
           return true;
         });
 
-        console.log(`Found ${results.length} unique results from search`);
-
         if (results.length === 0) {
-          console.log('Search returned no results, falling back to direct search');
           results = await searchUSDADirect(trimmedQuery);
         }
       }

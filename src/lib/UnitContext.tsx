@@ -68,7 +68,6 @@ export function UnitProvider({ children }: UnitProviderProps) {
           preferredUnitSystem: system,
           preferredWeightUnit: getWeightUnit(system),
         });
-        console.log('[UnitContext] Unit system updated to:', system);
       } catch (error) {
         console.error('[UnitContext] Error saving unit preference:', error);
       }
