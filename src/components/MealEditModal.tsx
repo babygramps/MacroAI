@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useEffect, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useEffect } from 'react';
 import type { MealEntry, IngredientEntry, MealCategory, NormalizedFood } from '@/lib/types';
-import { calculateMealTotals } from '@/lib/types';
+import { calculateMealTotals } from '@/lib/meal/totals';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { IngredientCard } from './ui/IngredientCard';
 import { searchFoods } from '@/actions/searchFoods';
 import { scaleNutrition } from '@/lib/normalizer';
+import { ModalShell } from './ui/ModalShell';
+import { logError } from '@/lib/logger';
 
 interface MealEditModalProps {
   isOpen: boolean;
@@ -17,16 +18,9 @@ interface MealEditModalProps {
   onDelete?: (mealId: string) => void;
 }
 
-// SSR-safe way to check if mounted
-const subscribe = () => () => {};
-const getSnapshot = () => true;
-const getServerSnapshot = () => false;
-
 type View = 'edit' | 'add-ingredient';
 
 export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealEditModalProps) {
-  const mounted = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  
   const [view, setView] = useState<View>('edit');
   const [name, setName] = useState('');
   const [category, setCategory] = useState<MealCategory>('meal');
@@ -54,19 +48,7 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
     }
   }, [meal]);
 
-  // Lock body scroll when open
-  useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isOpen]);
-
-  if (!mounted || !isOpen || !meal) return null;
+  if (!isOpen || !meal) return null;
 
   // Calculate totals from current ingredients
   const totals = calculateMealTotals(ingredients);
@@ -89,7 +71,7 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
       const results = await searchFoods(searchQuery);
       setSearchResults(results);
     } catch (error) {
-      console.error('Search error:', error);
+      logError('Search error', { error });
     } finally {
       setIsSearching(false);
     }
@@ -162,47 +144,42 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
     }
   };
 
-  const modalContent = (
-    <div className="fixed inset-0 z-50">
-      {/* Backdrop */}
-      <div className="modal-backdrop" onClick={onClose} />
-
-      {/* Modal */}
-      <div className="absolute inset-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 
+  return (
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      contentClassName="absolute inset-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 
                       sm:max-w-md sm:w-full sm:max-h-[90vh] sm:rounded-2xl
-                      bg-bg-primary flex flex-col animate-slide-up">
-        
-        {/* Header */}
-        <div className="modal-header">
-          <button
-            onClick={view === 'add-ingredient' ? () => setView('edit') : onClose}
-            className="icon-button -ml-2"
-            aria-label={view === 'add-ingredient' ? 'Back' : 'Close'}
-          >
-            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <h2 className="text-card-title flex-1 text-center mr-8">
-            {view === 'add-ingredient' ? 'Add Ingredient' : 'Edit Meal'}
-          </h2>
-        </div>
+                      bg-bg-primary flex flex-col animate-slide-up"
+    >
+      <div className="modal-header">
+        <button
+          onClick={view === 'add-ingredient' ? () => setView('edit') : onClose}
+          className="icon-button -ml-2"
+          aria-label={view === 'add-ingredient' ? 'Back' : 'Close'}
+        >
+          <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <h2 className="text-card-title flex-1 text-center mr-8">
+          {view === 'add-ingredient' ? 'Add Ingredient' : 'Edit Meal'}
+        </h2>
+      </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 pb-safe">
-          {view === 'edit' ? (
-            <>
-              {/* Meal name */}
-              <div className="mb-4">
-                <label className="text-caption block mb-2">Meal Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="input-field"
-                  placeholder="e.g., Tom Kha Soup with Rice"
-                />
-              </div>
+      <div className="flex-1 overflow-y-auto p-4 pb-safe">
+        {view === 'edit' ? (
+          <>
+            <div className="mb-4">
+              <label className="text-caption block mb-2">Meal Name</label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="input-field"
+                placeholder="e.g., Tom Kha Soup with Rice"
+              />
+            </div>
 
               {/* Category picker */}
               <div className="mb-6">
@@ -457,9 +434,6 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
             </>
           )}
         </div>
-      </div>
-    </div>
+    </ModalShell>
   );
-
-  return createPortal(modalContent, document.body);
 }

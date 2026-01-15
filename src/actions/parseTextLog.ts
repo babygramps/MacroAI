@@ -1,115 +1,22 @@
 'use server';
 
-import type { NormalizedFood, USDASearchResponse, USDAFood } from '@/lib/types';
+import type { NormalizedFood, USDASearchResponse } from '@/lib/types';
 import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
 import { generateCacheKey, createCacheEntry, isExpired } from '@/lib/cache';
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
 import type { Schema } from '@/amplify/data/resource';
 import { cookies } from 'next/headers';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { findBestMatch } from '@/lib/search/relevance';
+import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
 
-/**
- * Generate singular/plural word variants for better matching
- */
-function generateWordVariants(words: string[]): Set<string> {
-  const variants = new Set<string>();
-  words.forEach(word => {
-    variants.add(word);
-    if (word.endsWith('e')) {
-      variants.add(word + 's'); // bake -> bakes
-    } else if (!word.endsWith('s')) {
-      variants.add(word + 's'); // chicken -> chickens
-    }
-    if (word.endsWith('s') && word.length > 3) {
-      variants.add(word.slice(0, -1)); // bakes -> bake
-    }
-  });
-  return variants;
-}
+const console = {
+  log: logDebug,
+  info: logInfo,
+  warn: logWarn,
+  error: logError,
+} as const;
 
-/**
- * Calculate a relevance score for a USDA food result based on the search term
- * Higher score = better match
- */
-function calculateRelevanceScore(food: USDAFood, searchTerm: string): number {
-  const searchWords = searchTerm.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  const description = food.description.toLowerCase();
-  const category = (food.foodCategory || '').toLowerCase();
-  const ingredients = (food.ingredients || '').toLowerCase();
-  const brandName = (food.brandName || '').toLowerCase();
-  const brandOwner = (food.brandOwner || '').toLowerCase();
-  
-  let score = 0;
-  
-  // Generate word variants (singular/plural)
-  const wordVariants = generateWordVariants(searchWords);
-  
-  // Check how many search words (or variants) appear in the description
-  const descriptionMatches = Array.from(wordVariants).filter(word => description.includes(word)).length;
-  score += descriptionMatches * 20;
-  
-  // Bonus for exact phrase match in description
-  if (description.includes(searchTerm.toLowerCase())) {
-    score += 50;
-  }
-  
-  // Check if search words appear in food category
-  const categoryMatches = Array.from(wordVariants).filter(word => category.includes(word)).length;
-  score += categoryMatches * 15;
-  
-  // Check ingredients for relevance
-  const ingredientMatches = Array.from(wordVariants).filter(word => ingredients.includes(word)).length;
-  score += ingredientMatches * 10;
-  
-  // Check brand matches (for branded ingredient searches)
-  const brandMatches = Array.from(wordVariants).filter(word => 
-    brandName.includes(word) || brandOwner.includes(word)
-  ).length;
-  score += brandMatches * 15;
-  
-  // Penalize if the description starts with a completely different food
-  const firstWord = description.split(/[,\s]/)[0];
-  const hasFirstWordMatch = Array.from(wordVariants).some(w => firstWord.includes(w) || w.includes(firstWord));
-  if (searchWords.length > 0 && !hasFirstWordMatch) {
-    score -= 30;
-  }
-  
-  // Prefer Foundation and SR Legacy over Branded for ingredient searches
-  // (ingredients are usually generic, not branded)
-  if (food.dataType === 'Foundation') {
-    score += 5;
-  } else if (food.dataType === 'SR Legacy') {
-    score += 3;
-  }
-  
-  return score;
-}
-
-/**
- * Find the best matching food from a list of USDA results
- */
-function findBestMatch(foods: USDAFood[], searchTerm: string): USDAFood | null {
-  if (!foods || foods.length === 0) return null;
-  
-  let bestFood = foods[0];
-  let bestScore = calculateRelevanceScore(foods[0], searchTerm);
-  
-  for (let i = 1; i < foods.length; i++) {
-    const score = calculateRelevanceScore(foods[i], searchTerm);
-    if (score > bestScore) {
-      bestScore = score;
-      bestFood = foods[i];
-    }
-  }
-  
-  // If the best score is too low, the results are probably irrelevant
-  if (bestScore < 10) {
-    console.log(`Relevance score too low (${bestScore}) for "${searchTerm}", treating as miss`);
-    return null;
-  }
-  
-  return bestFood;
-}
 
 // Types for Gemini parsing response
 interface GeminiParsedIngredient {
@@ -212,10 +119,10 @@ async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood 
     
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
-      const usdaFood = findBestMatch(data.foods, searchTerm);
-      
+      const { food: usdaFood, score } = findBestMatch(data.foods, searchTerm);
+
       if (!usdaFood) {
-        console.log(`No relevant USDA match found for ingredient: ${searchTerm}`);
+        console.log(`No relevant USDA match found for ingredient: ${searchTerm} (score: ${score})`);
         return null;
       }
       

@@ -4,8 +4,16 @@ import { useState, useEffect, useRef } from 'react';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import { lbsToKg, kgToLbs } from '@/lib/statsHelpers';
+import { ModalShell } from './ui/ModalShell';
+import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
 
 const client = generateClient<Schema>();
+const console = {
+  log: logDebug,
+  info: logInfo,
+  warn: logWarn,
+  error: logError,
+} as const;
 
 interface WeightLogModalProps {
   isOpen: boolean;
@@ -337,49 +345,39 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
     return () => document.removeEventListener('keydown', handleEscape);
   }, [isOpen, onClose]);
 
-  // Return null when closed - this ensures form state resets when reopened
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
-      {/* Backdrop */}
-      <div
-        className="modal-backdrop"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        className="relative w-full max-w-md bg-bg-surface rounded-t-2xl sm:rounded-2xl 
+    <ModalShell
+      isOpen={isOpen}
+      onClose={onClose}
+      containerClassName="flex items-end justify-center sm:items-center"
+      contentClassName="relative w-full max-w-md bg-bg-surface rounded-t-2xl sm:rounded-2xl 
                    animate-slide-up shadow-xl border border-border-subtle"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="weight-modal-title"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
-          <h2 id="weight-modal-title" className="text-section-title">Log Weight</h2>
-          <button
-            onClick={onClose}
-            className="icon-button-sm"
-            aria-label="Close"
-          >
-            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Form - key ensures it remounts when preferredUnit or date changes */}
-        <WeightLogForm
-          key={`${preferredUnit}-${formatLocalDate(initialDate)}`}
-          onClose={onClose}
-          onSuccess={onSuccess}
-          preferredUnit={preferredUnit}
-          initialDate={initialDate}
-        />
+      contentProps={{
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-labelledby': 'weight-modal-title',
+      }}
+    >
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
+        <h2 id="weight-modal-title" className="text-section-title">Log Weight</h2>
+        <button
+          onClick={onClose}
+          className="icon-button-sm"
+          aria-label="Close"
+        >
+          <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
       </div>
-    </div>
+
+      <WeightLogForm
+        key={`${preferredUnit}-${formatLocalDate(initialDate)}`}
+        onClose={onClose}
+        onSuccess={onSuccess}
+        preferredUnit={preferredUnit}
+        initialDate={initialDate}
+      />
+    </ModalShell>
   );
 }

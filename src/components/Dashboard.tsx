@@ -1,69 +1,29 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
-import { ProgressRing } from './ui/ProgressRing';
-import { MealCard, MealCardSkeleton } from './ui/MealCard';
 import { FoodLogModal } from './FoodLogModal';
 import { MealEditModal } from './MealEditModal';
 import { DateNavigator } from './ui/DateNavigator';
-import type { MealEntry, IngredientEntry, UserGoals, DailySummary, WeightLogEntry, MealCategory } from '@/lib/types';
+import type { MealEntry } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
-import { formatWeight } from '@/lib/statsHelpers';
 import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
-
-// Helper to check if a date is today
-function isToday(date: Date): boolean {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const compareDate = new Date(date);
-  compareDate.setHours(0, 0, 0, 0);
-  return compareDate.getTime() === today.getTime();
-}
-
-// Helper to format date for section header
-function formatLogHeader(date: Date): string {
-  if (isToday(date)) {
-    return "Today's Log";
-  }
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  }) + "'s Log";
-}
-
-const client = generateClient<Schema>();
-
-// Default goals for new users
-const DEFAULT_GOALS: UserGoals = {
-  calorieGoal: 2000,
-  proteinGoal: 150,
-  carbsGoal: 200,
-  fatGoal: 65,
-};
+import { deleteMealEntry, updateMeal } from '@/lib/data/dashboard';
+import { useDashboardData } from '@/lib/hooks/useDashboardData';
+import { DashboardHeader } from './dashboard/DashboardHeader';
+import { DashboardRings } from './dashboard/DashboardRings';
+import { WeightCard } from './dashboard/WeightCard';
+import { MealLogSection } from './dashboard/MealLogSection';
+import { isToday } from '@/lib/date';
+import { logError } from '@/lib/logger';
 
 export function Dashboard() {
   const { user } = useAuthenticator();
-  const [goals, setGoals] = useState<UserGoals>(DEFAULT_GOALS);
-  const [summary, setSummary] = useState<DailySummary>({
-    totalCalories: 0,
-    totalProtein: 0,
-    totalCarbs: 0,
-    totalFat: 0,
-    meals: [],
-    entries: [],
-  });
-  const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingMeal, setEditingMeal] = useState<MealEntry | null>(null);
-  const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date>(() => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -74,190 +34,7 @@ export function Dashboard() {
     mealId: null,
     mealName: '',
   });
-
-  // Fetch user profile and logs for the selected date
-  const fetchData = useCallback(async (date: Date) => {
-    setIsLoading(true);
-    try {
-      // Fetch user profile and weight for the SELECTED date (not always today)
-      // Use LOCAL date boundaries, not UTC
-      const selectedDateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).toISOString();
-      const selectedDateEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).toISOString();
-
-      const [profilesResult, weightResult] = await Promise.all([
-        client.models.UserProfile.list(),
-        client.models.WeightLog.list({
-          filter: {
-            recordedAt: {
-              between: [selectedDateStart, selectedDateEnd],
-            },
-          },
-        }),
-      ]);
-
-      // Set the weight for the selected date if exists
-      const selectedDateWeight = weightResult.data && weightResult.data.length > 0
-        ? {
-            id: weightResult.data[0].id,
-            weightKg: weightResult.data[0].weightKg,
-            recordedAt: weightResult.data[0].recordedAt,
-            note: weightResult.data[0].note ?? undefined,
-          }
-        : null;
-
-      const { data: profiles } = profilesResult;
-      if (profiles && profiles.length > 0) {
-        const profile = profiles[0];
-
-        // Determine weight unit from preferredUnitSystem first, then fall back to legacy field
-        const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ??
-          (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
-        const weightUnit = unitSystem === 'imperial' ? 'lbs' : 'kg';
-
-        console.log('[Dashboard] Profile loaded:', {
-          preferredUnitSystem: profile.preferredUnitSystem,
-          preferredWeightUnit: profile.preferredWeightUnit,
-          derivedUnitSystem: unitSystem,
-          derivedWeightUnit: weightUnit,
-        });
-
-        setGoals({
-          calorieGoal: profile.calorieGoal ?? DEFAULT_GOALS.calorieGoal,
-          proteinGoal: profile.proteinGoal ?? DEFAULT_GOALS.proteinGoal,
-          carbsGoal: profile.carbsGoal ?? DEFAULT_GOALS.carbsGoal,
-          fatGoal: profile.fatGoal ?? DEFAULT_GOALS.fatGoal,
-          preferredWeightUnit: weightUnit,
-          targetWeightKg: profile.targetWeightKg ?? undefined,
-        });
-      } else {
-        setNeedsOnboarding(true);
-      }
-      
-      setLatestWeight(selectedDateWeight);
-
-      // Fetch meals for the selected date
-      const startOfDay = new Date(date);
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setDate(endOfDay.getDate() + 1);
-
-      // Fetch both new Meals and legacy FoodLogs in parallel
-      const [mealsResult, legacyLogsResult] = await Promise.all([
-        client.models.Meal.list({
-          filter: {
-            eatenAt: {
-              between: [startOfDay.toISOString(), endOfDay.toISOString()],
-            },
-          },
-        }),
-        client.models.FoodLog.list({
-          filter: {
-            eatenAt: {
-              between: [startOfDay.toISOString(), endOfDay.toISOString()],
-            },
-          },
-        }),
-      ]);
-
-      const mealsData = mealsResult.data || [];
-      const legacyLogs = legacyLogsResult.data || [];
-
-      // Process new meals with ingredients
-      const mealsWithIngredients: MealEntry[] = await Promise.all(
-        mealsData.map(async (meal) => {
-          const { data: ingredientsData } = await client.models.MealIngredient.listMealIngredientByMealId({
-            mealId: meal.id,
-          });
-
-          const ingredients: IngredientEntry[] = (ingredientsData || []).map((ing) => ({
-            id: ing.id,
-            mealId: ing.mealId,
-            name: ing.name,
-            weightG: ing.weightG,
-            calories: ing.calories,
-            protein: ing.protein,
-            carbs: ing.carbs,
-            fat: ing.fat,
-            source: ing.source,
-            servingDescription: ing.servingDescription ?? null,
-            servingSizeGrams: ing.servingSizeGrams ?? null,
-            sortOrder: ing.sortOrder ?? 0,
-          }));
-
-          // Sort ingredients by sortOrder
-          ingredients.sort((a, b) => a.sortOrder - b.sortOrder);
-
-          return {
-            id: meal.id,
-            name: meal.name,
-            category: meal.category as MealCategory,
-            eatenAt: meal.eatenAt,
-            totalCalories: meal.totalCalories,
-            totalProtein: meal.totalProtein,
-            totalCarbs: meal.totalCarbs,
-            totalFat: meal.totalFat,
-            totalWeightG: meal.totalWeightG,
-            ingredients,
-          };
-        })
-      );
-
-      // Convert legacy FoodLog entries to MealEntry format
-      // Each legacy entry becomes a single-ingredient "snack"
-      const legacyMeals: MealEntry[] = legacyLogs.map((log) => ({
-        id: `legacy-${log.id}`,
-        name: log.name ?? 'Unknown Food',
-        category: 'snack' as MealCategory,
-        eatenAt: log.eatenAt ?? new Date().toISOString(),
-        totalCalories: log.calories ?? 0,
-        totalProtein: log.protein ?? 0,
-        totalCarbs: log.carbs ?? 0,
-        totalFat: log.fat ?? 0,
-        totalWeightG: log.weightG ?? 0,
-        ingredients: [{
-          id: log.id,
-          mealId: `legacy-${log.id}`,
-          name: log.name ?? 'Unknown Food',
-          weightG: log.weightG ?? 0,
-          calories: log.calories ?? 0,
-          protein: log.protein ?? 0,
-          carbs: log.carbs ?? 0,
-          fat: log.fat ?? 0,
-          source: log.source ?? 'USDA',
-          servingDescription: log.servingDescription ?? null,
-          servingSizeGrams: log.servingSizeGrams ?? null,
-          sortOrder: 0,
-        }],
-      }));
-
-      // Combine and sort all meals
-      const allMeals = [...mealsWithIngredients, ...legacyMeals];
-      allMeals.sort((a, b) => 
-        new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime()
-      );
-
-      // Calculate totals
-      const totals = allMeals.reduce(
-        (acc, meal) => ({
-          totalCalories: acc.totalCalories + meal.totalCalories,
-          totalProtein: acc.totalProtein + meal.totalProtein,
-          totalCarbs: acc.totalCarbs + meal.totalCarbs,
-          totalFat: acc.totalFat + meal.totalFat,
-        }),
-        { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
-      );
-
-      setSummary({ ...totals, meals: allMeals, entries: [] });
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData(selectedDate);
-  }, [fetchData, selectedDate]);
+  const { goals, summary, latestWeight, needsOnboarding, isLoading, refresh } = useDashboardData(selectedDate);
 
   const handleDateChange = (newDate: Date) => {
     setSelectedDate(newDate);
@@ -276,71 +53,11 @@ export function Dashboard() {
 
   const handleSaveMeal = async (updatedMeal: MealEntry) => {
     try {
-      // Update the meal record
-      await client.models.Meal.update({
-        id: updatedMeal.id,
-        name: updatedMeal.name,
-        category: updatedMeal.category,
-        totalCalories: updatedMeal.totalCalories,
-        totalProtein: updatedMeal.totalProtein,
-        totalCarbs: updatedMeal.totalCarbs,
-        totalFat: updatedMeal.totalFat,
-        totalWeightG: updatedMeal.totalWeightG,
-      });
-
-      // Get existing ingredients
-      const { data: existingIngredients } = await client.models.MealIngredient.listMealIngredientByMealId({
-        mealId: updatedMeal.id,
-      });
-
-      const existingIds = new Set((existingIngredients || []).map((i) => i.id));
-      const updatedIds = new Set(updatedMeal.ingredients.filter((i) => !i.id.startsWith('temp-')).map((i) => i.id));
-
-      // Delete removed ingredients
-      for (const existing of existingIngredients || []) {
-        if (!updatedIds.has(existing.id)) {
-          await client.models.MealIngredient.delete({ id: existing.id });
-        }
-      }
-
-      // Update existing and create new ingredients
-      for (let i = 0; i < updatedMeal.ingredients.length; i++) {
-        const ingredient = updatedMeal.ingredients[i];
-        
-        if (ingredient.id.startsWith('temp-')) {
-          // New ingredient - create it
-          await client.models.MealIngredient.create({
-            mealId: updatedMeal.id,
-            name: ingredient.name,
-            weightG: ingredient.weightG,
-            calories: ingredient.calories,
-            protein: ingredient.protein,
-            carbs: ingredient.carbs,
-            fat: ingredient.fat,
-            source: ingredient.source,
-            servingDescription: ingredient.servingDescription ?? undefined,
-            servingSizeGrams: ingredient.servingSizeGrams ?? undefined,
-            sortOrder: i,
-          });
-        } else if (existingIds.has(ingredient.id)) {
-          // Existing ingredient - update it
-          await client.models.MealIngredient.update({
-            id: ingredient.id,
-            name: ingredient.name,
-            weightG: ingredient.weightG,
-            calories: ingredient.calories,
-            protein: ingredient.protein,
-            carbs: ingredient.carbs,
-            fat: ingredient.fat,
-            sortOrder: i,
-          });
-        }
-      }
-
+      await updateMeal(updatedMeal);
       showToast('Meal updated!', 'success');
-      fetchData(selectedDate);
+      await refresh();
     } catch (error) {
-      console.error('Error saving meal:', error);
+      logError('Error saving meal', { error });
       showToast('Failed to save meal', 'error');
     }
   };
@@ -359,31 +76,11 @@ export function Dashboard() {
     setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
 
     try {
-      // Check if this is a legacy FoodLog entry
-      if (mealId.startsWith('legacy-')) {
-        const realId = mealId.replace('legacy-', '');
-        await client.models.FoodLog.delete({ id: realId });
-        showToast('Entry deleted', 'success');
-        fetchData(selectedDate);
-        return;
-      }
-
-      // Delete all ingredients first
-      const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
-        mealId,
-      });
-
-      for (const ingredient of ingredients || []) {
-        await client.models.MealIngredient.delete({ id: ingredient.id });
-      }
-
-      // Delete the meal
-      await client.models.Meal.delete({ id: mealId });
-      
+      await deleteMealEntry(mealId);
       showToast('Meal deleted', 'success');
-      fetchData(selectedDate);
+      await refresh();
     } catch (error) {
-      console.error('Error deleting meal:', error);
+      logError('Error deleting meal', { error });
       showToast('Failed to delete meal', 'error');
     }
   };
@@ -400,14 +97,14 @@ export function Dashboard() {
       today.setHours(0, 0, 0, 0);
       setSelectedDate(today);
     } else {
-      fetchData(selectedDate);
+      refresh();
     }
   };
 
   const handleWeightLogSuccess = () => {
     setIsWeightModalOpen(false);
     // Refresh data to get updated weight
-    fetchData(selectedDate);
+    refresh();
   };
 
   // Check if we can add food (only for today)
@@ -433,63 +130,7 @@ export function Dashboard() {
 
   return (
     <div className="page-container">
-      {/* Header */}
-      <header className="page-header">
-        <div className="content-wrapper flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-xl font-bold text-macro-calories">MacroAI</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-caption hidden sm:block mr-1">
-              {user?.signInDetails?.loginId}
-            </span>
-            <a
-              href="/stats"
-              className="icon-button"
-              aria-label="View statistics"
-            >
-              <svg
-                className="w-5 h-5 text-text-secondary"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                />
-              </svg>
-            </a>
-            <a
-              href="/settings"
-              className="icon-button"
-              aria-label="Settings"
-            >
-              <svg
-                className="w-5 h-5 text-text-secondary"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                />
-              </svg>
-            </a>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader userEmail={user?.signInDetails?.loginId} />
 
       {/* Main Content */}
       <main className="content-wrapper">
@@ -501,144 +142,24 @@ export function Dashboard() {
           />
         </div>
 
-        {/* Calorie Ring */}
-        <div className="flex justify-center mb-6">
-          <ProgressRing
-            value={summary.totalCalories}
-            max={goals.calorieGoal}
-            color="calories"
-            size="lg"
-            unit="kcal"
-          />
-        </div>
+        <DashboardRings summary={summary} goals={goals} />
 
-        {/* Macro Rings */}
-        <div className="flex justify-center gap-6 mb-6">
-          <ProgressRing
-            value={summary.totalProtein}
-            max={goals.proteinGoal}
-            color="protein"
-            size="sm"
-            unit="g"
-            label="Protein"
-          />
-          <ProgressRing
-            value={summary.totalCarbs}
-            max={goals.carbsGoal}
-            color="carbs"
-            size="sm"
-            unit="g"
-            label="Carbs"
-          />
-          <ProgressRing
-            value={summary.totalFat}
-            max={goals.fatGoal}
-            color="fat"
-            size="sm"
-            unit="g"
-            label="Fat"
-          />
-        </div>
+        <WeightCard
+          selectedDate={selectedDate}
+          isLoading={isLoading}
+          latestWeight={latestWeight}
+          preferredUnit={preferredUnit}
+          onClick={() => setIsWeightModalOpen(true)}
+        />
 
-        {/* Weight Card */}
-        <div className="mb-8">
-          <button
-            onClick={() => setIsWeightModalOpen(true)}
-            className="w-full card-interactive flex items-center justify-between group"
-          >
-            <div className="flex items-center gap-3">
-              <div className="icon-button bg-weight-subtle">
-                <svg
-                  className="w-5 h-5 text-weight"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"
-                  />
-                </svg>
-              </div>
-              <div className="text-left">
-                <p className="text-caption text-text-muted">{isToday(selectedDate) ? "Today's Weight" : "Weight"}</p>
-                {isLoading ? (
-                  <div className="h-6 w-16 skeleton rounded mt-1" />
-                ) : latestWeight ? (
-                  <p className="text-lg font-mono font-bold text-weight">
-                    {formatWeight(latestWeight.weightKg, preferredUnit)}
-                  </p>
-                ) : (
-                  <p className="text-body text-text-secondary">Tap to log</p>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-text-muted group-hover:text-text-secondary transition-colors">
-              {latestWeight ? (
-                <>
-                  <span className="text-caption">Edit</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                    />
-                  </svg>
-                </>
-              ) : (
-                <>
-                  <span className="text-caption">Log</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                </>
-              )}
-            </div>
-          </button>
-        </div>
-
-        {/* Meal Log */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-section-title">{formatLogHeader(selectedDate)}</h2>
-            <a href="/onboarding" className="text-caption text-macro-calories hover:underline">
-              Edit Goals
-            </a>
-          </div>
-
-          <div className="flex flex-col gap-3">
-            {isLoading ? (
-              <>
-                <MealCardSkeleton index={0} />
-                <MealCardSkeleton index={1} />
-                <MealCardSkeleton index={2} />
-              </>
-            ) : summary.meals.length > 0 ? (
-              summary.meals.map((meal, index) => (
-                <MealCard
-                  key={meal.id}
-                  meal={meal}
-                  index={index}
-                  onEdit={handleEditMeal}
-                  onDelete={handleDeleteMeal}
-                />
-              ))
-            ) : (
-              <div className="card-empty">
-                <p className="text-4xl mb-4">🍽️</p>
-                <p className="text-body text-text-secondary">
-                  {canAddFood ? 'No meals logged yet today' : 'No meals were logged this day'}
-                </p>
-                {canAddFood && (
-                  <p className="text-caption mt-2">Tap the + button to log your first meal</p>
-                )}
-              </div>
-            )}
-          </div>
-        </section>
+        <MealLogSection
+          selectedDate={selectedDate}
+          isLoading={isLoading}
+          meals={summary.meals}
+          canAddFood={canAddFood}
+          onEdit={handleEditMeal}
+          onDelete={handleDeleteMeal}
+        />
       </main>
 
       {/* Floating Action Button - only shown when viewing today */}

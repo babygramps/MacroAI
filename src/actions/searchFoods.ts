@@ -7,6 +7,15 @@ import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/da
 import type { Schema } from '@/amplify/data/resource';
 import { cookies } from 'next/headers';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { calculateRelevanceScore, findBestMatch, generateWordVariants } from '@/lib/search/relevance';
+import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
+
+const console = {
+  log: logDebug,
+  info: logInfo,
+  warn: logWarn,
+  error: logError,
+} as const;
 
 // Check if a string looks like a barcode (8-14 digits)
 function isBarcode(query: string): boolean {
@@ -127,147 +136,6 @@ async function enrichWithPortionData(food: USDAFood): Promise<USDAFood> {
   return food;
 }
 
-/**
- * Generate singular/plural word variants for better matching
- */
-function generateWordVariants(words: string[]): Set<string> {
-  const variants = new Set<string>();
-  words.forEach(word => {
-    variants.add(word);
-    // Add plural variants
-    if (word.endsWith('e')) {
-      variants.add(word + 's'); // bake -> bakes
-    } else if (!word.endsWith('s')) {
-      variants.add(word + 's'); // chicken -> chickens
-    }
-    // Add singular variants
-    if (word.endsWith('s') && word.length > 3) {
-      variants.add(word.slice(0, -1)); // bakes -> bake
-    }
-  });
-  return variants;
-}
-
-/**
- * Extract potential brand names from a query
- * Returns words that might be brand identifiers (capitalized words, known patterns)
- */
-function extractBrandTerms(query: string): string[] {
-  const words = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  // Common brand indicators - these words suggest a branded search
-  // We'll check if any query word appears in brand name/owner
-  return words;
-}
-
-/**
- * Calculate a relevance score for a USDA food result based on the search term
- * Higher score = better match
- */
-function calculateRelevanceScore(food: USDAFood, searchTerm: string, originalQuery?: string): number {
-  const searchWords = searchTerm.toLowerCase().split(/\s+/).filter(w => w.length > 2);
-  const description = food.description.toLowerCase();
-  const category = (food.foodCategory || '').toLowerCase();
-  const ingredients = (food.ingredients || '').toLowerCase();
-  const brandName = (food.brandName || '').toLowerCase();
-  const brandOwner = (food.brandOwner || '').toLowerCase();
-  
-  let score = 0;
-  
-  // Generate word variants (singular/plural)
-  const wordVariants = generateWordVariants(searchWords);
-  
-  // Check how many search words (or variants) appear in the description
-  const descriptionMatches = Array.from(wordVariants).filter(word => description.includes(word)).length;
-  score += descriptionMatches * 20; // 20 points per matching word in description
-  
-  // Bonus for exact phrase match in description
-  if (description.includes(searchTerm.toLowerCase())) {
-    score += 50;
-  }
-  
-  // Check if search words appear in food category (strong signal)
-  const categoryMatches = Array.from(wordVariants).filter(word => category.includes(word)).length;
-  score += categoryMatches * 15;
-  
-  // Check ingredients for relevance
-  const ingredientMatches = Array.from(wordVariants).filter(word => ingredients.includes(word)).length;
-  score += ingredientMatches * 10;
-  
-  // Brand matching: Check if any word from the original query matches brand name/owner
-  // This is general-purpose - works for any brand (Costco, Starbucks, McDonald's, etc.)
-  if (originalQuery) {
-    const queryBrandTerms = extractBrandTerms(originalQuery);
-    const brandText = `${brandName} ${brandOwner}`;
-    
-    // Count how many query words match in the brand
-    const brandMatches = queryBrandTerms.filter(term => brandText.includes(term)).length;
-    if (brandMatches > 0) {
-      score += brandMatches * 25; // Strong bonus for brand match
-      console.log(`    Brand match: ${brandMatches} term(s) found in "${brandOwner || brandName}"`);
-    }
-  }
-  
-  // Also check brand matches from the search term itself
-  const searchBrandMatches = Array.from(wordVariants).filter(word => 
-    brandName.includes(word) || brandOwner.includes(word)
-  ).length;
-  score += searchBrandMatches * 15;
-  
-  // Penalize if the description starts with a completely different food
-  // e.g., searching "chicken bake" but getting "STRAWBERRY SPREAD"
-  const firstWord = description.split(/[,\s]/)[0];
-  const hasFirstWordMatch = Array.from(wordVariants).some(w => firstWord.includes(w) || w.includes(firstWord));
-  if (searchWords.length > 0 && !hasFirstWordMatch) {
-    score -= 30; // Penalty for misleading first word
-  }
-  
-  // Prefer Foundation and SR Legacy for generic searches (no brand in query)
-  // But don't penalize Branded when user is searching for a brand
-  const hasBrandInQuery = originalQuery && extractBrandTerms(originalQuery).some(term => 
-    `${brandName} ${brandOwner}`.includes(term)
-  );
-  
-  if (!hasBrandInQuery) {
-    if (food.dataType === 'Foundation') {
-      score += 5;
-    } else if (food.dataType === 'SR Legacy') {
-      score += 3;
-    }
-  }
-  
-  console.log(`  Relevance score for "${food.description.substring(0, 50)}..." (${food.brandOwner || 'N/A'}): ${score}`);
-  return score;
-}
-
-/**
- * Find the best matching food from a list of USDA results
- */
-function findBestMatch(foods: USDAFood[], searchTerm: string, originalQuery?: string): USDAFood | null {
-  if (!foods || foods.length === 0) return null;
-  
-  console.log(`\nScoring ${foods.length} USDA results for "${searchTerm}"${originalQuery ? ` (original: "${originalQuery}")` : ''}:`);
-  
-  let bestFood = foods[0];
-  let bestScore = calculateRelevanceScore(foods[0], searchTerm, originalQuery);
-  
-  for (let i = 1; i < foods.length; i++) {
-    const score = calculateRelevanceScore(foods[i], searchTerm, originalQuery);
-    if (score > bestScore) {
-      bestScore = score;
-      bestFood = foods[i];
-    }
-  }
-  
-  console.log(`Best match: "${bestFood.description}" (${bestFood.brandOwner || 'N/A'}) with score ${bestScore}`);
-  
-  // If the best score is too low, the results are probably irrelevant
-  if (bestScore < 10) {
-    console.log(`Score too low (${bestScore}), considering this a miss`);
-    return null;
-  }
-  
-  return bestFood;
-}
 
 // Get client with cookies for server-side operations
 async function getServerClient() {
@@ -605,12 +473,14 @@ async function searchUSDAForTerm(searchTerm: string, displayName: string, origin
     
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
-      const usdaFood = findBestMatch(data.foods, searchTerm, originalQuery);
-      
+      console.log(`\nScoring ${data.foods.length} USDA results for "${searchTerm}"${originalQuery ? ` (original: "${originalQuery}")` : ''}:`);
+      const { food: usdaFood, score } = findBestMatch(data.foods, searchTerm, originalQuery);
+
       if (!usdaFood) {
-        console.log(`No relevant USDA match found for: ${searchTerm}`);
+        console.log(`Score too low (${score}), considering this a miss`);
         return null;
       }
+      console.log(`Best match: "${usdaFood.description}" (${usdaFood.brandOwner || 'N/A'}) with score ${score}`);
       
       // Enrich with portion data for accurate serving sizes
       const enrichedFood = await enrichWithPortionData(usdaFood);

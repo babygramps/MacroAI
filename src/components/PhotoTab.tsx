@@ -5,7 +5,8 @@ import { analyzeImage } from '@/actions/analyzeImage';
 import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
-import { MEAL_CATEGORY_INFO, calculateMealTotals } from '@/lib/types';
+import { MEAL_CATEGORY_INFO } from '@/lib/types';
+import { calculateMealTotals } from '@/lib/meal/totals';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 
