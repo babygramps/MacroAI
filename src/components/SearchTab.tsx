@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import { searchFoods } from '@/actions/searchFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
-import { BarcodeScanner } from './BarcodeScanner';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 
@@ -16,6 +16,16 @@ interface SearchTabProps {
 
 type View = 'search' | 'scanner' | 'detail' | 'category';
 type InputMode = 'grams' | 'servings';
+
+const BarcodeScanner = dynamic(
+  () => import('./BarcodeScanner').then((mod) => mod.BarcodeScanner),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="p-4 text-center text-text-secondary">Loading scanner…</div>
+    ),
+  }
+);
 
 export function SearchTab({ onSuccess }: SearchTabProps) {
   const [query, setQuery] = useState('');
@@ -127,6 +137,7 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
       await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
+        eatenAt: now,
         weightG: weightNum,
         calories: scaled.calories,
         protein: scaled.protein,

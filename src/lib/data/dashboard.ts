@@ -60,18 +60,8 @@ function calculateDailyTotals(meals: MealEntry[]): DailySummary {
   return { ...totals, meals, entries: [] };
 }
 
-async function fetchMealIngredients(
-  client: ReturnType<typeof getAmplifyDataClient>,
-  mealId: string
-): Promise<IngredientEntry[]> {
-  if (!client) {
-    return [];
-  }
-  const { data: ingredientsData } = await client.models.MealIngredient.listMealIngredientByMealId({
-    mealId,
-  });
-
-  const ingredients: IngredientEntry[] = (ingredientsData || []).map((ing) => ({
+function mapMealIngredient(ing: Schema['MealIngredient']['type']): IngredientEntry {
+  return {
     id: ing.id,
     mealId: ing.mealId,
     name: ing.name,
@@ -84,36 +74,67 @@ async function fetchMealIngredients(
     servingDescription: ing.servingDescription ?? null,
     servingSizeGrams: ing.servingSizeGrams ?? null,
     sortOrder: ing.sortOrder ?? 0,
-  }));
-
-  ingredients.sort((a, b) => a.sortOrder - b.sortOrder);
-  return ingredients;
+  };
 }
 
-async function fetchMealsWithIngredients(
+function sortIngredientsByOrder(ingredients: IngredientEntry[]): IngredientEntry[] {
+  return ingredients.sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+async function fetchIngredientsByMealForDay(
   client: ReturnType<typeof getAmplifyDataClient>,
-  meals: Schema['Meal']['type'][]
-): Promise<MealEntry[]> {
-  if (!client) {
-    return [];
+  meals: Schema['Meal']['type'][],
+  startIso: string,
+  endIso: string
+): Promise<Map<string, IngredientEntry[]>> {
+  const ingredientsByMeal = new Map<string, IngredientEntry[]>();
+  if (!client || meals.length === 0) {
+    return ingredientsByMeal;
   }
-  return Promise.all(
+
+  const { data: ingredientsData } = await client.models.MealIngredient.list({
+    filter: {
+      eatenAt: {
+        between: [startIso, endIso],
+      },
+    },
+  });
+
+  if (ingredientsData && ingredientsData.length > 0) {
+    for (const ing of ingredientsData) {
+      const mapped = mapMealIngredient(ing);
+      const existing = ingredientsByMeal.get(mapped.mealId);
+      if (existing) {
+        existing.push(mapped);
+      } else {
+        ingredientsByMeal.set(mapped.mealId, [mapped]);
+      }
+    }
+
+    for (const [mealId, ingredients] of ingredientsByMeal.entries()) {
+      ingredientsByMeal.set(mealId, sortIngredientsByOrder(ingredients));
+    }
+
+    return ingredientsByMeal;
+  }
+
+  const ingredientLists = await Promise.all(
     meals.map(async (meal) => {
-      const ingredients = await fetchMealIngredients(client, meal.id);
+      const { data: mealIngredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+        mealId: meal.id,
+      });
       return {
-        id: meal.id,
-        name: meal.name,
-        category: meal.category as MealCategory,
-        eatenAt: meal.eatenAt,
-        totalCalories: meal.totalCalories,
-        totalProtein: meal.totalProtein,
-        totalCarbs: meal.totalCarbs,
-        totalFat: meal.totalFat,
-        totalWeightG: meal.totalWeightG,
-        ingredients,
+        mealId: meal.id,
+        ingredients: sortIngredientsByOrder((mealIngredients || []).map(mapMealIngredient)),
       };
     })
   );
+
+  for (const item of ingredientLists) {
+    ingredientsByMeal.set(item.mealId, item.ingredients);
+  }
+
+  return ingredientsByMeal;
 }
 
 export async function fetchDashboardData(date: Date): Promise<DashboardData> {
@@ -203,7 +224,25 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const mealsData = mealsResult.data || [];
   const legacyLogs = legacyLogsResult.data || [];
 
-  const mealsWithIngredients = await fetchMealsWithIngredients(client, mealsData);
+  const ingredientsByMeal = await fetchIngredientsByMealForDay(
+    client,
+    mealsData,
+    startOfDay.toISOString(),
+    endOfDay.toISOString()
+  );
+
+  const mealsWithIngredients = mealsData.map((meal) => ({
+    id: meal.id,
+    name: meal.name,
+    category: meal.category as MealCategory,
+    eatenAt: meal.eatenAt,
+    totalCalories: meal.totalCalories,
+    totalProtein: meal.totalProtein,
+    totalCarbs: meal.totalCarbs,
+    totalFat: meal.totalFat,
+    totalWeightG: meal.totalWeightG,
+    ingredients: ingredientsByMeal.get(meal.id) ?? [],
+  }));
   const legacyMeals = mapLegacyFoodLogsToMeals(legacyLogs);
 
   const allMeals = [...mealsWithIngredients, ...legacyMeals];
@@ -251,6 +290,7 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
       await client.models.MealIngredient.create({
         mealId: updatedMeal.id,
         name: ingredient.name,
+        eatenAt: updatedMeal.eatenAt,
         weightG: ingredient.weightG,
         calories: ingredient.calories,
         protein: ingredient.protein,

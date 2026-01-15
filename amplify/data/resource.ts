@@ -73,6 +73,7 @@ const schema = a.schema({
     .model({
       mealId: a.string().required(), // Reference to parent Meal
       name: a.string().required(), // "Chicken breast", "Rice"
+      eatenAt: a.datetime(), // Copied from parent Meal for day-based queries
       weightG: a.integer().required(),
       calories: a.integer().required(),
       protein: a.float().required(),
@@ -85,7 +86,7 @@ const schema = a.schema({
       sortOrder: a.integer(), // For consistent ordering within meal
     })
     .authorization((allow) => [allow.owner()])
-    .secondaryIndexes((index) => [index('mealId')]),
+    .secondaryIndexes((index) => [index('mealId'), index('eatenAt')]),
 
   // Shared cache for API responses (reduces duplicate API calls)
   FoodCache: a

@@ -1,9 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { SearchTab } from './SearchTab';
-import { TextTab } from './TextTab';
-import { PhotoTab } from './PhotoTab';
+import { useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { ModalShell } from './ui/ModalShell';
 
 interface FoodLogModalProps {
@@ -16,6 +14,31 @@ type Tab = 'search' | 'type' | 'photo';
 
 export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
+
+  const SearchTab = useMemo(
+    () =>
+      dynamic(() => import('./SearchTab').then((mod) => mod.SearchTab), {
+        ssr: false,
+        loading: () => <div className="p-4 text-text-secondary">Loading search…</div>,
+      }),
+    []
+  );
+  const TextTab = useMemo(
+    () =>
+      dynamic(() => import('./TextTab').then((mod) => mod.TextTab), {
+        ssr: false,
+        loading: () => <div className="p-4 text-text-secondary">Loading input…</div>,
+      }),
+    []
+  );
+  const PhotoTab = useMemo(
+    () =>
+      dynamic(() => import('./PhotoTab').then((mod) => mod.PhotoTab), {
+        ssr: false,
+        loading: () => <div className="p-4 text-text-secondary">Loading camera…</div>,
+      }),
+    []
+  );
 
   const tabs = [
     { id: 'search' as Tab, label: 'Search', icon: '🔍' },

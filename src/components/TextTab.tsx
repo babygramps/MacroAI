@@ -120,6 +120,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
+          eatenAt: now,
           weightG: food.servingSize || 100,
           calories: food.calories || 0,
           protein: food.protein || 0,

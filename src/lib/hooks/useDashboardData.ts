@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DailySummary, UserGoals, WeightLogEntry } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
-import { logError } from '@/lib/logger';
+import { logDebug, logError } from '@/lib/logger';
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -27,9 +27,15 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const fetchStartRef = useRef<number | null>(null);
+  const hasLoadedRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    setIsLoading(true);
+    const shouldShowLoading = !hasLoadedRef.current;
+    if (shouldShowLoading) {
+      setIsLoading(true);
+    }
+    fetchStartRef.current = typeof performance !== 'undefined' ? performance.now() : null;
     try {
       const data = await fetchDashboardData(selectedDate);
       setGoals(data.goals);
@@ -39,7 +45,14 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     } catch (error) {
       logError('Error fetching dashboard data', { error });
     } finally {
-      setIsLoading(false);
+      if (shouldShowLoading) {
+        setIsLoading(false);
+      }
+      hasLoadedRef.current = true;
+      if (fetchStartRef.current !== null && typeof performance !== 'undefined') {
+        const durationMs = Math.round(performance.now() - fetchStartRef.current);
+        logDebug('Dashboard data fetch duration', { durationMs });
+      }
     }
   }, [selectedDate]);
 

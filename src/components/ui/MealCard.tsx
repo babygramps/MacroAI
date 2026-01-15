@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { MealEntry } from '@/lib/types';
 import { CategoryBadge } from './CategoryPicker';
 import { IngredientListItem } from './IngredientCard';
@@ -89,10 +89,11 @@ function formatTime(dateString: string): string {
   });
 }
 
-export function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
+export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const emoji = getMealEmoji(meal.name, meal.category);
+  const emoji = useMemo(() => getMealEmoji(meal.name, meal.category), [meal.name, meal.category]);
   const hasMultipleIngredients = meal.ingredients.length > 1;
+  const formattedTime = useMemo(() => formatTime(meal.eatenAt), [meal.eatenAt]);
 
   return (
     <div
@@ -132,7 +133,7 @@ export function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
         </div>
         
         <span className="text-caption text-text-muted whitespace-nowrap hidden sm:block">
-          {formatTime(meal.eatenAt)}
+          {formattedTime}
         </span>
       </button>
 
@@ -199,7 +200,7 @@ export function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
       )}
     </div>
   );
-}
+});
 
 // Skeleton version for loading state
 export function MealCardSkeleton({ index }: { index: number }) {

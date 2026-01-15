@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { IngredientEntry } from '@/lib/types';
 
 interface IngredientCardProps {
@@ -77,7 +77,7 @@ export function IngredientCard({
   onRemove,
   isEditable = true 
 }: IngredientCardProps) {
-  const emoji = getFoodEmoji(ingredient.name);
+  const emoji = useMemo(() => getFoodEmoji(ingredient.name), [ingredient.name]);
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   
@@ -88,32 +88,46 @@ export function IngredientCard({
   const [inputMode, setInputMode] = useState<InputMode>('grams');
 
   // Check if entry has serving info
-  const hasServingInfo = ingredient.servingSizeGrams && 
-    ingredient.servingDescription && 
-    ingredient.servingDescription !== `${ingredient.servingSizeGrams}g`;
+  const hasServingInfo = useMemo(() => {
+    return Boolean(
+      ingredient.servingSizeGrams &&
+        ingredient.servingDescription &&
+        ingredient.servingDescription !== `${ingredient.servingSizeGrams}g`
+    );
+  }, [ingredient.servingDescription, ingredient.servingSizeGrams]);
 
-  // Store the original per-gram ratios for scaling
-  const originalWeight = ingredient.weightG || 100;
-  const caloriesPerGram = ingredient.calories / originalWeight;
-  const proteinPerGram = ingredient.protein / originalWeight;
-  const carbsPerGram = ingredient.carbs / originalWeight;
-  const fatPerGram = ingredient.fat / originalWeight;
+  const perGram = useMemo(() => {
+    const originalWeight = ingredient.weightG || 100;
+    return {
+      calories: ingredient.calories / originalWeight,
+      protein: ingredient.protein / originalWeight,
+      carbs: ingredient.carbs / originalWeight,
+      fat: ingredient.fat / originalWeight,
+    };
+  }, [ingredient.calories, ingredient.carbs, ingredient.fat, ingredient.protein, ingredient.weightG]);
 
-  // Calculate effective weight based on input mode
-  const getEffectiveWeight = useCallback((): number => {
+  const effectiveWeight = useMemo(() => {
     if (inputMode === 'servings' && ingredient.servingSizeGrams) {
       return Math.round((parseFloat(editServings) || 0) * ingredient.servingSizeGrams);
     }
     return editWeight;
-  }, [inputMode, editServings, ingredient.servingSizeGrams, editWeight]);
+  }, [editServings, editWeight, ingredient.servingSizeGrams, inputMode]);
 
-  const effectiveWeight = getEffectiveWeight();
+  const calculatedCalories = useMemo(() => {
+    return Math.round(effectiveWeight * perGram.calories);
+  }, [effectiveWeight, perGram.calories]);
 
-  // Calculated macros based on effective weight
-  const calculatedCalories = Math.round(effectiveWeight * caloriesPerGram);
-  const calculatedProtein = Math.round(effectiveWeight * proteinPerGram * 10) / 10;
-  const calculatedCarbs = Math.round(effectiveWeight * carbsPerGram * 10) / 10;
-  const calculatedFat = Math.round(effectiveWeight * fatPerGram * 10) / 10;
+  const calculatedProtein = useMemo(() => {
+    return Math.round(effectiveWeight * perGram.protein * 10) / 10;
+  }, [effectiveWeight, perGram.protein]);
+
+  const calculatedCarbs = useMemo(() => {
+    return Math.round(effectiveWeight * perGram.carbs * 10) / 10;
+  }, [effectiveWeight, perGram.carbs]);
+
+  const calculatedFat = useMemo(() => {
+    return Math.round(effectiveWeight * perGram.fat * 10) / 10;
+  }, [effectiveWeight, perGram.fat]);
 
   const handleStartEdit = () => {
     setEditName(ingredient.name);
@@ -139,7 +153,7 @@ export function IngredientCard({
     
     setIsSaving(true);
     try {
-      const finalWeight = getEffectiveWeight();
+      const finalWeight = effectiveWeight;
       await onUpdate(ingredient.id, {
         name: editName,
         weightG: finalWeight,
@@ -354,9 +368,9 @@ export function IngredientCard({
 }
 
 // Compact version for listing (no edit capabilities)
-export function IngredientListItem({ ingredient }: { ingredient: IngredientEntry }) {
-  const emoji = getFoodEmoji(ingredient.name);
-  
+export const IngredientListItem = memo(function IngredientListItem({ ingredient }: { ingredient: IngredientEntry }) {
+  const emoji = useMemo(() => getFoodEmoji(ingredient.name), [ingredient.name]);
+
   return (
     <div className="flex items-center gap-2 py-1.5 text-sm">
       <span className="text-sm">{emoji}</span>
@@ -366,4 +380,4 @@ export function IngredientListItem({ ingredient }: { ingredient: IngredientEntry
       </span>
     </div>
   );
-}
+});

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useAuthenticator } from '@aws-amplify/ui-react';
 import { FoodLogModal } from './FoodLogModal';
 import { MealEditModal } from './MealEditModal';
@@ -36,11 +36,11 @@ export function Dashboard() {
   });
   const { goals, summary, latestWeight, needsOnboarding, isLoading, refresh } = useDashboardData(selectedDate);
 
-  const handleDateChange = (newDate: Date) => {
+  const handleDateChange = useCallback((newDate: Date) => {
     setSelectedDate(newDate);
-  };
+  }, []);
 
-  const handleEditMeal = (meal: MealEntry) => {
+  const handleEditMeal = useCallback((meal: MealEntry) => {
     // Legacy FoodLog entries can't be edited in the new modal
     // They need to be deleted and re-logged with the new system
     if (meal.id.startsWith('legacy-')) {
@@ -49,9 +49,9 @@ export function Dashboard() {
     }
     setEditingMeal(meal);
     setIsEditModalOpen(true);
-  };
+  }, []);
 
-  const handleSaveMeal = async (updatedMeal: MealEntry) => {
+  const handleSaveMeal = useCallback(async (updatedMeal: MealEntry) => {
     try {
       await updateMeal(updatedMeal);
       showToast('Meal updated!', 'success');
@@ -60,16 +60,16 @@ export function Dashboard() {
       logError('Error saving meal', { error });
       showToast('Failed to save meal', 'error');
     }
-  };
+  }, [refresh]);
 
-  const handleDeleteMeal = (mealId: string) => {
+  const handleDeleteMeal = useCallback((mealId: string) => {
     // Find the meal to get its name for the confirmation dialog
     const meal = summary.meals.find((m) => m.id === mealId);
     const mealName = meal?.name || 'this item';
     setDeleteConfirm({ isOpen: true, mealId, mealName });
-  };
+  }, [summary.meals]);
 
-  const confirmDeleteMeal = async () => {
+  const confirmDeleteMeal = useCallback(async () => {
     const mealId = deleteConfirm.mealId;
     if (!mealId) return;
 
@@ -83,13 +83,13 @@ export function Dashboard() {
       logError('Error deleting meal', { error });
       showToast('Failed to delete meal', 'error');
     }
-  };
+  }, [deleteConfirm.mealId, refresh]);
 
-  const cancelDeleteMeal = () => {
+  const cancelDeleteMeal = useCallback(() => {
     setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
-  };
+  }, []);
 
-  const handleLogSuccess = () => {
+  const handleLogSuccess = useCallback(() => {
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
@@ -99,13 +99,13 @@ export function Dashboard() {
     } else {
       refresh();
     }
-  };
+  }, [refresh, selectedDate]);
 
-  const handleWeightLogSuccess = () => {
+  const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
     // Refresh data to get updated weight
     refresh();
-  };
+  }, [refresh]);
 
   // Check if we can add food (only for today)
   const canAddFood = isToday(selectedDate);
