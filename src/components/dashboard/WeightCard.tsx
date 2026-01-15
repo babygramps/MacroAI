@@ -17,6 +17,7 @@ export function WeightCard({
   preferredUnit,
   onClick,
 }: WeightCardProps) {
+  const formattedWeight = latestWeight ? formatWeight(latestWeight.weightKg, preferredUnit) : null;
   return (
     <div className="mb-8">
       <button
@@ -47,7 +48,7 @@ export function WeightCard({
               <div className="h-6 w-16 skeleton rounded mt-1" />
             ) : latestWeight ? (
               <p className="text-lg font-mono font-bold text-weight">
-                {formatWeight(latestWeight.weightKg, preferredUnit)}
+                {formattedWeight}
               </p>
             ) : (
               <p className="text-body text-text-secondary">Tap to log</p>

@@ -558,7 +558,7 @@ export function kgToLbs(kg: number): number {
  * Convert lbs to kg
  */
 export function lbsToKg(lbs: number): number {
-  return Math.round(lbs / 2.20462 * 10) / 10;
+  return Math.round((lbs / 2.20462) * 100) / 100;
 }
 
 /**
