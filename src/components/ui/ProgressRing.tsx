@@ -61,9 +61,18 @@ export function ProgressRing({
 
   const radius = (config.size - config.strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const percentage = Math.min((animatedValue / max) * 100, 100);
-  const strokeDashoffset = circumference - (percentage / 100) * circumference;
-  const isOver = value > max;
+  
+  // Calculate percentages - allow overflow up to 200% (2x goal) for visualization
+  const rawPercentage = (animatedValue / max) * 100;
+  const isOver = animatedValue > max;
+  
+  // For the base ring: show up to 100%
+  const basePercentage = Math.min(rawPercentage, 100);
+  const baseStrokeDashoffset = circumference - (basePercentage / 100) * circumference;
+  
+  // For the overflow ring: show the amount over 100%, capped at another 100% (so max 200% total)
+  const overflowPercentage = isOver ? Math.min(rawPercentage - 100, 100) : 0;
+  const overflowStrokeDashoffset = circumference - (overflowPercentage / 100) * circumference;
 
   useEffect(() => {
     // Animate the value on mount
@@ -78,7 +87,7 @@ export function ProgressRing({
       <svg
         width={config.size}
         height={config.size}
-        className={`transform -rotate-90 ${colors.glow}`}
+        className={`transform -rotate-90 ${isOver ? 'drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]' : colors.glow}`}
       >
         {/* Background ring */}
         <circle
@@ -89,21 +98,38 @@ export function ProgressRing({
           stroke="#1E1E26"
           strokeWidth={config.strokeWidth}
         />
-        {/* Progress ring */}
+        {/* Base progress ring - shows up to 100% in the macro color */}
         <circle
           cx={config.size / 2}
           cy={config.size / 2}
           r={radius}
           fill="none"
-          stroke={isOver ? '#EF4444' : colors.stroke}
+          stroke={isOver ? colors.stroke : colors.stroke}
           strokeWidth={config.strokeWidth}
           strokeLinecap="round"
           strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
+          strokeDashoffset={baseStrokeDashoffset}
           style={{
             transition: 'stroke-dashoffset 1.2s ease-out',
           }}
         />
+        {/* Overflow ring - shows amount over 100% in red, overlapping the start */}
+        {isOver && (
+          <circle
+            cx={config.size / 2}
+            cy={config.size / 2}
+            r={radius}
+            fill="none"
+            stroke="#EF4444"
+            strokeWidth={config.strokeWidth}
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={overflowStrokeDashoffset}
+            style={{
+              transition: 'stroke-dashoffset 1.2s ease-out',
+            }}
+          />
+        )}
       </svg>
 
       {/* Center text */}
@@ -111,7 +137,7 @@ export function ProgressRing({
         <span
           className={`${config.fontSize} font-mono font-bold ${isOver ? 'text-red-500' : 'text-text-primary'}`}
         >
-          {showPercentage ? `${Math.round(percentage)}%` : Math.round(animatedValue)}
+          {showPercentage ? `${Math.round(rawPercentage)}%` : Math.round(animatedValue)}
         </span>
         {unit && size === 'lg' && (
           <span className={`${config.labelSize} text-text-muted`}>
