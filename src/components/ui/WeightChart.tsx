@@ -14,7 +14,9 @@ interface WeightChartProps {
 
 // Get short date format (Jan 5)
 function formatShortDate(dateString: string): string {
-  const date = new Date(dateString);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
+    ? new Date(`${dateString}T00:00:00`)
+    : new Date(dateString);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
