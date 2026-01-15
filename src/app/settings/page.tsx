@@ -2,9 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateClient } from 'aws-amplify/data';
 import { useAuthenticator } from '@aws-amplify/ui-react';
-import type { Schema } from '@/amplify/data/resource';
 import type { UnitSystem } from '@/lib/types';
 import {
   kgToLbs,
@@ -15,8 +13,7 @@ import {
   getWeightUnit,
 } from '@/lib/unitConversions';
 import { showToast } from '@/components/ui/Toast';
-
-const client = generateClient<Schema>();
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
 interface ProfileData {
   id: string;
@@ -66,6 +63,12 @@ export default function SettingsPage() {
   const fetchProfile = useCallback(async () => {
     setIsLoading(true);
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+        setIsLoading(false);
+        return;
+      }
       const { data: profiles } = await client.models.UserProfile.list();
       if (profiles && profiles.length > 0) {
         const p = profiles[0];
@@ -112,6 +115,12 @@ export default function SettingsPage() {
     
     setIsSaving(true);
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+        setIsSaving(false);
+        return;
+      }
       await client.models.UserProfile.update({
         id: profile.id,
         [field]: value,
@@ -133,6 +142,12 @@ export default function SettingsPage() {
     
     setIsSaving(true);
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+        setIsSaving(false);
+        return;
+      }
       const weightUnit = getWeightUnit(newSystem);
       await client.models.UserProfile.update({
         id: profile.id,

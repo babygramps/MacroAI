@@ -1,13 +1,11 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
 import { lbsToKg, kgToLbs } from '@/lib/statsHelpers';
 import { ModalShell } from './ui/ModalShell';
 import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
-const client = generateClient<Schema>();
 const console = {
   log: logDebug,
   info: logInfo,
@@ -60,6 +58,11 @@ function WeightLogForm({
       setExistingEntryId(null);
 
       try {
+        const client = getAmplifyDataClient();
+        if (!client) {
+          setError('Amplify is not ready yet. Please try again.');
+          return;
+        }
         // Query for entries on the selected date using LOCAL timezone boundaries
         // We need to convert local date boundaries to UTC for the query
         const [year, month, day] = date.split('-').map(Number);
@@ -146,6 +149,12 @@ function WeightLogForm({
     });
 
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        setError('Amplify is not ready yet. Please try again.');
+        setIsSaving(false);
+        return;
+      }
       // Create datetime for the selected date at noon (to avoid timezone issues)
       const recordedAt = new Date(`${date}T12:00:00`).toISOString();
 

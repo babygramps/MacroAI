@@ -1,8 +1,6 @@
-import { generateClient } from 'aws-amplify/data';
 import type { Schema } from '@/amplify/data/resource';
 import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry } from '@/lib/types';
-
-const client = generateClient<Schema>();
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
 export const DEFAULT_GOALS: UserGoals = {
   calorieGoal: 2000,
@@ -62,7 +60,13 @@ function calculateDailyTotals(meals: MealEntry[]): DailySummary {
   return { ...totals, meals, entries: [] };
 }
 
-async function fetchMealIngredients(mealId: string): Promise<IngredientEntry[]> {
+async function fetchMealIngredients(
+  client: ReturnType<typeof getAmplifyDataClient>,
+  mealId: string
+): Promise<IngredientEntry[]> {
+  if (!client) {
+    return [];
+  }
   const { data: ingredientsData } = await client.models.MealIngredient.listMealIngredientByMealId({
     mealId,
   });
@@ -86,10 +90,16 @@ async function fetchMealIngredients(mealId: string): Promise<IngredientEntry[]> 
   return ingredients;
 }
 
-async function fetchMealsWithIngredients(meals: Schema['Meal']['type'][]): Promise<MealEntry[]> {
+async function fetchMealsWithIngredients(
+  client: ReturnType<typeof getAmplifyDataClient>,
+  meals: Schema['Meal']['type'][]
+): Promise<MealEntry[]> {
+  if (!client) {
+    return [];
+  }
   return Promise.all(
     meals.map(async (meal) => {
-      const ingredients = await fetchMealIngredients(meal.id);
+      const ingredients = await fetchMealIngredients(client, meal.id);
       return {
         id: meal.id,
         name: meal.name,
@@ -107,6 +117,22 @@ async function fetchMealsWithIngredients(meals: Schema['Meal']['type'][]): Promi
 }
 
 export async function fetchDashboardData(date: Date): Promise<DashboardData> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return {
+      goals: DEFAULT_GOALS,
+      summary: {
+        totalCalories: 0,
+        totalProtein: 0,
+        totalCarbs: 0,
+        totalFat: 0,
+        meals: [],
+        entries: [],
+      },
+      latestWeight: null,
+      needsOnboarding: false,
+    };
+  }
   const selectedDateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).toISOString();
   const selectedDateEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).toISOString();
 
@@ -177,7 +203,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const mealsData = mealsResult.data || [];
   const legacyLogs = legacyLogsResult.data || [];
 
-  const mealsWithIngredients = await fetchMealsWithIngredients(mealsData);
+  const mealsWithIngredients = await fetchMealsWithIngredients(client, mealsData);
   const legacyMeals = mapLegacyFoodLogsToMeals(legacyLogs);
 
   const allMeals = [...mealsWithIngredients, ...legacyMeals];
@@ -192,6 +218,8 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
 }
 
 export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) return;
   await client.models.Meal.update({
     id: updatedMeal.id,
     name: updatedMeal.name,
@@ -249,6 +277,8 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
 }
 
 export async function deleteMealEntry(mealId: string): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) return;
   if (mealId.startsWith('legacy-')) {
     const realId = mealId.replace('legacy-', '');
     await client.models.FoodLog.delete({ id: realId });

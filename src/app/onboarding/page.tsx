@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
 import type { UnitSystem } from '@/lib/types';
 import {
   kgToLbs,
@@ -12,8 +10,7 @@ import {
   feetInchesToCm,
   getWeightUnit,
 } from '@/lib/unitConversions';
-
-const client = generateClient<Schema>();
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
 interface BaseStep {
   emoji: string;
@@ -248,6 +245,10 @@ export default function OnboardingPage() {
   useEffect(() => {
     async function checkProfile() {
       try {
+        const client = getAmplifyDataClient();
+        if (!client) {
+          return;
+        }
         const { data: profiles } = await client.models.UserProfile.list();
         if (profiles && profiles.length > 0) {
           const profile = profiles[0];
@@ -361,6 +362,11 @@ export default function OnboardingPage() {
     if (isLastStep) {
       setIsSaving(true);
       try {
+        const client = getAmplifyDataClient();
+        if (!client) {
+          setIsSaving(false);
+          return;
+        }
         const today = new Date().toISOString().split('T')[0];
         
         // Convert goal rate to kg if imperial

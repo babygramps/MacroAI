@@ -2,15 +2,12 @@
 
 import { useState } from 'react';
 import { parseTextLog } from '@/actions/parseTextLog';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
-
-const client = generateClient<Schema>();
 
 interface TextTabProps {
   onSuccess: () => void;
@@ -79,6 +76,12 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
     setIsSaving(true);
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+        setIsSaving(false);
+        return;
+      }
       const selectedFoods = results.filter((_, i) => selectedItems.has(i));
       
       // Calculate totals

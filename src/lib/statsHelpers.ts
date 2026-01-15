@@ -1,5 +1,4 @@
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { 
   DayData, 
   DailySummary, 
@@ -28,8 +27,6 @@ import {
   getWeekEndDate,
 } from './coachingEngine';
 
-const client = generateClient<Schema>();
-
 /**
  * Format a date to YYYY-MM-DD string
  */
@@ -53,6 +50,10 @@ function getStartOfDay(date: Date): Date {
  * Fetch food logs for a date range and group by day
  */
 export async function fetchWeekData(endDate: Date, days: number = 7): Promise<DayData[]> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return [];
+  }
   const end = getStartOfDay(endDate);
   end.setDate(end.getDate() + 1); // End is exclusive, so add 1 day
   
@@ -202,6 +203,10 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
  * A day counts as "logged" if it has at least one food entry
  */
 export async function calculateStreak(): Promise<number> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return 0;
+  }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   
@@ -349,6 +354,10 @@ export async function fetchWeeklyStats(endDate: Date = new Date()): Promise<Week
  * Fetch user goals (with metabolic modeling fields)
  */
 export async function fetchUserGoals(): Promise<UserGoals | null> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return null;
+  }
   try {
     const { data: profiles } = await client.models.UserProfile.list();
     if (profiles && profiles.length > 0) {
@@ -392,6 +401,10 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
  * Fetch weight history for a given number of days
  */
 export async function fetchWeightHistory(days: number = 30): Promise<WeightLogEntry[]> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return [];
+  }
   const today = new Date();
   today.setHours(23, 59, 59, 999);
   
@@ -441,6 +454,10 @@ export async function fetchWeightHistory(days: number = 30): Promise<WeightLogEn
  * Get the most recent weight entry
  */
 export async function getLatestWeight(): Promise<WeightLogEntry | null> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return null;
+  }
   console.log('[statsHelpers] Fetching latest weight...');
   
   try {
@@ -621,6 +638,10 @@ export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
  * If not stored, compute them on-the-fly
  */
 export async function fetchComputedStates(days: number = 30): Promise<ComputedState[]> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    return [];
+  }
   console.log('[statsHelpers] Fetching/computing states for', days, 'days');
   
   const today = new Date();
@@ -873,6 +894,10 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
  */
 export async function saveComputedState(state: ComputedState): Promise<void> {
   try {
+    const client = getAmplifyDataClient();
+    if (!client) {
+      return;
+    }
     await client.models.ComputedState.create({
       date: state.date,
       trendWeightKg: state.trendWeightKg,
@@ -893,6 +918,10 @@ export async function saveComputedState(state: ComputedState): Promise<void> {
  */
 export async function saveWeeklyCheckIn(checkIn: WeeklyCheckIn): Promise<void> {
   try {
+    const client = getAmplifyDataClient();
+    if (!client) {
+      return;
+    }
     await client.models.WeeklyCheckIn.create({
       weekStartDate: checkIn.weekStartDate,
       weekEndDate: checkIn.weekEndDate,

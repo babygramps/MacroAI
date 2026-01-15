@@ -1,12 +1,9 @@
 'use client';
 
 import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { generateClient } from 'aws-amplify/data';
-import type { Schema } from '@/amplify/data/resource';
 import type { UnitSystem } from './types';
 import { getWeightUnit, getHeightUnit } from './unitConversions';
-
-const client = generateClient<Schema>();
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
 interface UnitContextValue {
   unitSystem: UnitSystem;
@@ -30,6 +27,11 @@ export function UnitProvider({ children }: UnitProviderProps) {
 
   const fetchUnitPreference = async () => {
     try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        setIsLoading(false);
+        return;
+      }
       const { data: profiles } = await client.models.UserProfile.list();
       if (profiles && profiles.length > 0) {
         const profile = profiles[0];
@@ -57,6 +59,10 @@ export function UnitProvider({ children }: UnitProviderProps) {
     
     if (profileId) {
       try {
+        const client = getAmplifyDataClient();
+        if (!client) {
+          return;
+        }
         await client.models.UserProfile.update({
           id: profileId,
           preferredUnitSystem: system,
