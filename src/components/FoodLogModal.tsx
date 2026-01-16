@@ -10,11 +10,20 @@ interface FoodLogModalProps {
   onSuccess: () => void;
 }
 
-type Tab = 'search' | 'type' | 'photo';
+type Tab = 'recents' | 'search' | 'type' | 'photo';
 
 export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) {
-  const [activeTab, setActiveTab] = useState<Tab>('search');
+  const [activeTab, setActiveTab] = useState<Tab>('recents');
 
+  // Lazy load tabs with next/dynamic (bundle-dynamic-imports rule)
+  const RecentsTab = useMemo(
+    () =>
+      dynamic(() => import('./RecentsTab').then((mod) => mod.RecentsTab), {
+        ssr: false,
+        loading: () => <div className="p-4 text-text-secondary">Loading recents…</div>,
+      }),
+    []
+  );
   const SearchTab = useMemo(
     () =>
       dynamic(() => import('./SearchTab').then((mod) => mod.SearchTab), {
@@ -41,6 +50,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
   );
 
   const tabs = [
+    { id: 'recents' as Tab, label: 'Recents', icon: '⏱️' },
     { id: 'search' as Tab, label: 'Search', icon: '🔍' },
     { id: 'type' as Tab, label: 'Type', icon: '✏️' },
     { id: 'photo' as Tab, label: 'Photo', icon: '📷' },
@@ -84,6 +94,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
       </div>
 
       <div className="flex-1 overflow-y-auto">
+        {activeTab === 'recents' && <RecentsTab onSuccess={onSuccess} />}
         {activeTab === 'search' && <SearchTab onSuccess={onSuccess} />}
         {activeTab === 'type' && <TextTab onSuccess={onSuccess} />}
         {activeTab === 'photo' && <PhotoTab onSuccess={onSuccess} />}

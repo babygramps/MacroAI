@@ -49,3 +49,38 @@ export interface FoodLogEntry {
   servingDescription?: string | null;
   servingSizeGrams?: number | null;
 }
+
+// Import IngredientEntry type for RecentFood
+import type { IngredientEntry, MealCategory } from './meal';
+
+/**
+ * Represents a recently/frequently logged food item.
+ * Can be either a full meal or an individual ingredient.
+ */
+export interface RecentFood {
+  id: string;
+  name: string;
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  servingSize: number; // typical weight in grams
+  source: string;
+  logCount: number;
+  lastLoggedAt: string;
+  type: 'meal' | 'ingredient';
+  // For meals, include category and ingredients
+  category?: MealCategory;
+  ingredients?: IngredientEntry[];
+  // For ingredient-based items, include serving info
+  servingDescription?: string | null;
+  servingSizeGrams?: number | null;
+}
+
+/**
+ * Response from the getRecentFoods server action.
+ */
+export interface RecentFoodsResponse {
+  recentMeals: RecentFood[];
+  recentIngredients: RecentFood[];
+}

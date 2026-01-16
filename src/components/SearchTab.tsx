@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { searchFoods } from '@/actions/searchFoods';
+import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory } from '@/lib/types';
+import type { NormalizedFood, MealCategory, RecentFood } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
+import { RecentItemCardSkeleton } from './ui/RecentItemCard';
 
 interface SearchTabProps {
   onSuccess: () => void;
@@ -41,6 +43,71 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('snack');
   const [mealName, setMealName] = useState('');
+
+  // Quick Add recents state
+  const [quickAddItems, setQuickAddItems] = useState<RecentFood[]>([]);
+  const [isLoadingQuickAdd, setIsLoadingQuickAdd] = useState(true);
+
+  // Fetch top 5 recents on mount for Quick Add section
+  useEffect(() => {
+    let mounted = true;
+
+    async function fetchQuickAdd() {
+      try {
+        const data = await getRecentFoods();
+        if (mounted) {
+          // Combine meals and ingredients, take top 5 by interleaving
+          const combined: RecentFood[] = [];
+          const maxItems = 5;
+          let mealIdx = 0;
+          let ingIdx = 0;
+          
+          while (combined.length < maxItems) {
+            // Alternate between meals and ingredients
+            if (mealIdx < data.recentMeals.length && (ingIdx >= data.recentIngredients.length || mealIdx <= ingIdx)) {
+              combined.push(data.recentMeals[mealIdx]);
+              mealIdx++;
+            } else if (ingIdx < data.recentIngredients.length) {
+              combined.push(data.recentIngredients[ingIdx]);
+              ingIdx++;
+            } else {
+              break;
+            }
+          }
+          
+          setQuickAddItems(combined);
+        }
+      } catch (error) {
+        console.error('Error fetching quick add items:', error);
+      } finally {
+        if (mounted) {
+          setIsLoadingQuickAdd(false);
+        }
+      }
+    }
+
+    fetchQuickAdd();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Convert RecentFood to NormalizedFood for selection
+  const handleSelectQuickAddItem = useCallback((item: RecentFood) => {
+    const normalizedFood: NormalizedFood = {
+      id: item.id,
+      name: item.name,
+      calories: item.calories,
+      protein: item.protein,
+      carbs: item.carbs,
+      fat: item.fat,
+      servingSize: item.servingSize,
+      source: item.source as NormalizedFood['source'],
+      servingDescription: item.servingDescription ?? undefined,
+      servingSizeGrams: item.servingSizeGrams ?? undefined,
+    };
+    handleSelectFood(normalizedFood);
+  }, []);
 
   const handleSearch = useCallback(async () => {
     if (!query.trim()) return;
@@ -491,15 +558,66 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         </div>
       )}
 
-      {/* Initial state */}
+      {/* Initial state with Quick Add */}
       {!isLoading && !query && results.length === 0 && (
-        <div className="text-center py-8">
-          <p className="text-4xl mb-4">🍎</p>
-          <p className="text-body text-text-secondary">Search for a food</p>
-          <p className="text-caption mt-2">
-            Type a food name or scan a barcode
-          </p>
-        </div>
+        <>
+          {/* Quick Add section - show top recents */}
+          {isLoadingQuickAdd ? (
+            <div className="mb-6">
+              <h3 className="text-card-title mb-3 flex items-center gap-2">
+                <span>⚡</span>
+                Quick Add
+              </h3>
+              <div className="space-y-2">
+                <RecentItemCardSkeleton />
+                <RecentItemCardSkeleton />
+              </div>
+            </div>
+          ) : quickAddItems.length > 0 ? (
+            <div className="mb-6">
+              <h3 className="text-card-title mb-3 flex items-center gap-2">
+                <span>⚡</span>
+                Quick Add
+              </h3>
+              <div className="space-y-2">
+                {quickAddItems.map((item) => (
+                  <button
+                    key={`${item.type}-${item.id}`}
+                    onClick={() => handleSelectQuickAddItem(item)}
+                    className="w-full card-interactive text-left"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-text-primary truncate">{item.name}</p>
+                        <p className="text-caption">
+                          {item.calories} kcal • {Math.round(item.protein)}g protein
+                          <span className="text-macro-protein ml-1">×{item.logCount}</span>
+                        </p>
+                      </div>
+                      <svg
+                        className="w-4 h-4 text-text-muted flex-shrink-0 ml-2"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {/* Help text */}
+          <div className="text-center py-4">
+            <p className="text-4xl mb-4">🍎</p>
+            <p className="text-body text-text-secondary">Search for a food</p>
+            <p className="text-caption mt-2">
+              Type a food name or scan a barcode
+            </p>
+          </div>
+        </>
       )}
     </div>
   );
