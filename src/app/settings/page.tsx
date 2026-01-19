@@ -14,6 +14,7 @@ import {
 } from '@/lib/unitConversions';
 import { showToast } from '@/components/ui/Toast';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
 
 interface ProfileData {
   id: string;
@@ -51,6 +52,9 @@ export default function SettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [exportScope, setExportScope] = useState<ExportScope>('all');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
   
   // Editing states
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -188,6 +192,23 @@ export default function SettingsPage() {
     
     await saveField('goalRate', rateKg);
   };
+
+  const handleExport = useCallback(async () => {
+    setIsExporting(true);
+    setExportStatus('Preparing export...');
+    try {
+      await exportUserData(exportScope, {
+        onProgress: setExportStatus,
+      });
+      showToast('Export ready. Downloads started.', 'success');
+    } catch (error) {
+      console.error('Export failed:', error);
+      showToast('Export failed. Please try again.', 'error');
+    } finally {
+      setIsExporting(false);
+      setExportStatus(null);
+    }
+  }, [exportScope]);
 
 
   if (isLoading) {
@@ -684,6 +705,41 @@ export default function SettingsPage() {
               </div>
             );
           })}
+        </section>
+
+        {/* Data Export */}
+        <section className="card">
+          <h2 className="text-card-title text-text-secondary mb-4">Data Export</h2>
+          <p className="text-caption text-text-muted mb-4">
+            Download your data as a JSON file and a ZIP of CSVs.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {EXPORT_SCOPES.map((scope) => (
+              <button
+                key={scope.value}
+                onClick={() => setExportScope(scope.value)}
+                disabled={isExporting}
+                className={`rounded-lg p-3 text-left transition-colors ${
+                  exportScope === scope.value
+                    ? 'bg-macro-calories text-white'
+                    : 'bg-bg-elevated text-text-secondary hover:bg-bg-surface'
+                }`}
+              >
+                <div className="text-body font-medium">{scope.label}</div>
+                <div className="text-caption opacity-80">{scope.description}</div>
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={isExporting}
+            className="btn-primary w-full mt-4 disabled:opacity-60"
+          >
+            {isExporting ? 'Exporting...' : 'Export Data'}
+          </button>
+          {exportStatus && (
+            <p className="text-caption text-text-muted mt-3">{exportStatus}</p>
+          )}
         </section>
 
         {/* Account */}
