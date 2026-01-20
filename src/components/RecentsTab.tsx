@@ -6,6 +6,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { RecentFood, RecentFoodsResponse, MealCategory, NormalizedFood } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
+import { onMealLogged } from '@/lib/metabolicService';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
@@ -223,6 +224,9 @@ export function RecentsTab({ onSuccess }: RecentsTabProps) {
           sortOrder: 0,
         });
       }
+
+      // Trigger metabolic recalculation
+      await onMealLogged(now);
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedItem.name} logged!`, 'success');

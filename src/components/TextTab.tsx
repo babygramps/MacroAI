@@ -6,6 +6,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
+import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 
@@ -132,6 +133,9 @@ export function TextTab({ onSuccess }: TextTabProps) {
           sortOrder: i,
         });
       }
+
+      // Trigger metabolic recalculation
+      await onMealLogged(now);
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');

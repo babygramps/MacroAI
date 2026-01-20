@@ -8,6 +8,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, RecentFood } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
+import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCardSkeleton } from './ui/RecentItemCard';
@@ -215,6 +216,9 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         servingSizeGrams: selectedFood.servingSizeGrams || undefined,
         sortOrder: 0,
       });
+
+      // Trigger metabolic recalculation
+      await onMealLogged(now);
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');

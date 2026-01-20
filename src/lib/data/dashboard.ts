@@ -1,6 +1,7 @@
 import type { Schema } from '@/amplify/data/resource';
 import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry } from '@/lib/types';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { onMealLogged } from '@/lib/metabolicService';
 
 export const DEFAULT_GOALS: UserGoals = {
   calorieGoal: 2000,
@@ -314,16 +315,34 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
       });
     }
   }
+
+  // Trigger metabolic recalculation for the meal's date
+  await onMealLogged(updatedMeal.eatenAt);
 }
 
 export async function deleteMealEntry(mealId: string): Promise<void> {
   const client = getAmplifyDataClient();
   if (!client) return;
+  
+  // For legacy food logs, we need to get the date first for metabolic recalculation
   if (mealId.startsWith('legacy-')) {
     const realId = mealId.replace('legacy-', '');
+    // Get the food log first to know its date
+    const { data: foodLog } = await client.models.FoodLog.get({ id: realId });
+    const eatenAt = foodLog?.eatenAt;
+    
     await client.models.FoodLog.delete({ id: realId });
+    
+    // Trigger metabolic recalculation
+    if (eatenAt) {
+      await onMealLogged(eatenAt);
+    }
     return;
   }
+
+  // Get the meal first to know its date for metabolic recalculation
+  const { data: meal } = await client.models.Meal.get({ id: mealId });
+  const eatenAt = meal?.eatenAt;
 
   const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
     mealId,
@@ -334,4 +353,9 @@ export async function deleteMealEntry(mealId: string): Promise<void> {
   }
 
   await client.models.Meal.delete({ id: mealId });
+
+  // Trigger metabolic recalculation for the meal's date
+  if (eatenAt) {
+    await onMealLogged(eatenAt);
+  }
 }

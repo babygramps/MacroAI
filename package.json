@@ -11,7 +11,10 @@
     "test:watch": "jest --watch",
     "test:unit": "jest __tests__/unit",
     "test:ui": "jest __tests__/components --watch",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:tdee": "jest --testPathPatterns=trendEngine --testPathPatterns=expenditureEngine --testPathPatterns=coachingEngine --testPathPatterns=edgeCaseHandler",
+    "validate:tdee": "npx tsx scripts/validate-tdee.ts",
+    "backfill:metabolic": "npx tsx scripts/backfill-metabolic.ts"
   },
   "dependencies": {
     "@aws-amplify/adapter-nextjs": "^1.6.12",

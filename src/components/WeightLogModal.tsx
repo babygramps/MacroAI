@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { lbsToKg, kgToLbs } from '@/lib/statsHelpers';
+import { onWeightLogged } from '@/lib/metabolicService';
 import { ModalShell } from './ui/ModalShell';
 import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
@@ -175,6 +176,9 @@ function WeightLogForm({
         });
         console.log('[WeightLogModal] Weight created successfully');
       }
+
+      // Trigger metabolic recalculation from the weight entry date
+      await onWeightLogged(recordedAt);
 
       onSuccess();
     } catch (err) {

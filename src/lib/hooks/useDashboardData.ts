@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DailySummary, UserGoals, WeightLogEntry } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
-import { logDebug, logError } from '@/lib/logger';
+import { backfillMetabolicData } from '@/lib/metabolicService';
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { logDebug, logError, logInfo } from '@/lib/logger';
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -29,6 +31,41 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [isLoading, setIsLoading] = useState(true);
   const fetchStartRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
+  const backfillCheckedRef = useRef(false);
+
+  // One-time auto-backfill for existing users who don't have ComputedState data yet
+  useEffect(() => {
+    if (backfillCheckedRef.current) return;
+    backfillCheckedRef.current = true;
+
+    const checkAndBackfill = async () => {
+      try {
+        const client = getAmplifyDataClient();
+        if (!client) return;
+
+        // Check if user has any ComputedState records
+        const { data: existingStates } = await client.models.ComputedState.list({
+          limit: 1,
+        });
+
+        // If no computed states exist, run backfill silently
+        if (!existingStates || existingStates.length === 0) {
+          logInfo('No ComputedState data found, running one-time backfill...');
+          const result = await backfillMetabolicData(90);
+          logInfo('Backfill complete', { 
+            daysProcessed: result.daysProcessed,
+            dailyLogsCreated: result.dailyLogsCreated,
+            computedStatesCreated: result.computedStatesCreated,
+          });
+        }
+      } catch (error) {
+        // Silently fail - this is a background optimization, not critical
+        logError('Auto-backfill check failed', { error });
+      }
+    };
+
+    checkAndBackfill();
+  }, []);
 
   const refresh = useCallback(async () => {
     const shouldShowLoading = !hasLoadedRef.current;
