@@ -847,6 +847,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
     const suggestedCalories = calculateCalorieTarget(currentTdee, goalType, goalRate);
     
     // Build weekly check-in if we have enough data
+    // Pass currentTdee to ensure consistency with MetabolicInsights
     let weeklyCheckIn: WeeklyCheckIn | null = null;
     if (daysTracked >= 7) {
       const weekStart = getWeekStartDate();
@@ -856,7 +857,8 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
         weekEnd,
         dailyLogs7,
         computedStates.slice(-7),
-        userGoals
+        userGoals,
+        currentTdee // Use the same TDEE as MetabolicInsights for consistent recommendations
       );
     }
     

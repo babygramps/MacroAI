@@ -189,6 +189,9 @@ export function checkMaintenanceDrift(
  * @param dailyLogs - Daily logs for the week
  * @param computedStates - Computed states for the week
  * @param userGoals - User's goals and profile
+ * @param currentTdee - Optional: The latest smoothed TDEE to use for calorie recommendations.
+ *                      If not provided, falls back to average of the week's computed states.
+ *                      Passing the current TDEE ensures consistency with MetabolicInsights.
  * @returns WeeklyCheckIn object or null if insufficient data
  */
 export function buildWeeklyCheckIn(
@@ -196,7 +199,8 @@ export function buildWeeklyCheckIn(
   weekEndDate: string,
   dailyLogs: DailyLog[],
   computedStates: ComputedState[],
-  userGoals: UserGoals
+  userGoals: UserGoals,
+  currentTdee?: number
 ): WeeklyCheckIn | null {
   // Check eligibility
   const eligibility = checkWeeklyUpdateEligibility(dailyLogs);
@@ -208,10 +212,14 @@ export function buildWeeklyCheckIn(
     return null;
   }
   
-  // Calculate average TDEE for the week
+  // Calculate average TDEE for the week (for display purposes - shows what TDEE was this week)
   const averageTdee = Math.round(
     validStates.reduce((sum, s) => sum + s.estimatedTdeeKcal, 0) / validStates.length
   );
+  
+  // Use current TDEE for calorie recommendations (ensures consistency with MetabolicInsights)
+  // Fall back to average if not provided
+  const tdeeForRecommendations = currentTdee ?? averageTdee;
   
   // Get trend weights for start and end of week
   const sortedStates = [...validStates].sort(
@@ -221,7 +229,7 @@ export function buildWeeklyCheckIn(
   const trendWeightEnd = sortedStates[sortedStates.length - 1]?.trendWeightKg ?? 0;
   const weeklyWeightChange = Math.round((trendWeightEnd - trendWeightStart) * 100) / 100;
   
-  // Calculate suggested calories based on goal
+  // Calculate suggested calories based on goal using the CURRENT TDEE (not average)
   const goalType = userGoals.goalType ?? 'maintain';
   const goalRate = userGoals.goalRate ?? 0.5;
   let suggestedCalories: number;
@@ -231,11 +239,11 @@ export function buildWeeklyCheckIn(
     const { adjustedCalories } = checkMaintenanceDrift(
       trendWeightEnd,
       userGoals.targetWeightKg,
-      averageTdee
+      tdeeForRecommendations
     );
     suggestedCalories = adjustedCalories;
   } else {
-    suggestedCalories = calculateCalorieTarget(averageTdee, goalType, goalRate);
+    suggestedCalories = calculateCalorieTarget(tdeeForRecommendations, goalType, goalRate);
   }
   
   // Determine confidence level
@@ -254,7 +262,7 @@ export function buildWeeklyCheckIn(
   return {
     weekStartDate,
     weekEndDate,
-    averageTdee,
+    averageTdee: tdeeForRecommendations, // Show the TDEE used for recommendations
     suggestedCalories,
     adherenceScore,
     confidenceLevel,
