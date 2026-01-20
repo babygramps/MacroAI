@@ -522,3 +522,46 @@ export async function backfillMetabolicData(days: number = 90): Promise<{
     computedStatesCreated,
   };
 }
+
+// ============================================
+// Debug Helpers (for browser console)
+// ============================================
+
+/**
+ * Clear all ComputedState records and re-run backfill
+ * Call from browser console: window.resetMetabolicData()
+ */
+export async function resetMetabolicData(days: number = 90): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    console.error('[metabolicService] No Amplify client available');
+    return;
+  }
+
+  console.log('[metabolicService] Clearing existing ComputedState records...');
+  
+  // Delete all ComputedState records
+  const { data: states } = await client.models.ComputedState.list({ limit: 1000 });
+  console.log(`[metabolicService] Found ${states?.length || 0} ComputedState records to delete`);
+  
+  if (states) {
+    for (const state of states) {
+      await client.models.ComputedState.delete({ id: state.id });
+    }
+  }
+  
+  console.log('[metabolicService] Deleted all ComputedState records, running backfill...');
+  
+  // Run backfill
+  const result = await backfillMetabolicData(days);
+  console.log('[metabolicService] Reset complete:', result);
+}
+
+// Expose to window for browser console access
+if (typeof window !== 'undefined') {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).resetMetabolicData = resetMetabolicData;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).backfillMetabolicData = backfillMetabolicData;
+  console.log('[metabolicService] Debug helpers available: window.resetMetabolicData(), window.backfillMetabolicData()');
+}
