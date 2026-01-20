@@ -80,11 +80,28 @@ export function RecentsTab({ onSuccess }: RecentsTabProps) {
   }, [inputMode, servings, selectedItem?.servingSizeGrams, weight]);
 
   // Memoize scaled nutrition (rerender-memo)
+  // Note: We return a zeroed object when weight is 0/empty to prevent the detail view
+  // from disappearing while the user is editing the weight field
   const scaledNutrition = useMemo(() => {
     if (!selectedItem) return null;
 
     const effectiveWeight = getEffectiveWeight();
-    if (effectiveWeight <= 0) return null;
+    
+    // When weight is 0 or empty, return zeroed nutrition to keep the view visible
+    // The "Continue" button is already disabled when effectiveWeight <= 0
+    if (effectiveWeight <= 0) {
+      return {
+        name: selectedItem.name,
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        servingSize: 0,
+        source: selectedItem.source as NormalizedFood['source'],
+        servingDescription: selectedItem.servingDescription ?? undefined,
+        servingSizeGrams: selectedItem.servingSizeGrams ?? undefined,
+      };
+    }
 
     // Create a NormalizedFood-like object for scaling
     const baseFood: NormalizedFood = {
