@@ -301,7 +301,7 @@ export function buildComputedState(
       estimatedTdeeKcal: prevTdee,
       rawTdeeKcal: prevTdee,
       fluxConfidenceRange: 500, // High uncertainty when data is missing
-      energyDensityUsed: ENERGY_DENSITY_DEFICIT,
+      energyDensityUsed: selectEnergyDensity(weightDeltaKg), // Use correct density based on weight change
       weightDeltaKg,
     };
   }
