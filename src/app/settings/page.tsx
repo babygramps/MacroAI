@@ -13,6 +13,7 @@ import {
   getWeightUnit,
 } from '@/lib/unitConversions';
 import { showToast } from '@/components/ui/Toast';
+import { AppHeader } from '@/components/ui/AppHeader';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
 
@@ -213,14 +214,9 @@ export default function SettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-bg-primary">
-        <header className="sticky top-0 z-40 bg-bg-primary/80 backdrop-blur-lg border-b border-border-subtle">
-          <div className="max-w-lg mx-auto px-4 py-4 flex items-center">
-            <div className="w-10 h-10 rounded-full skeleton" />
-            <div className="h-6 w-24 skeleton rounded ml-4" />
-          </div>
-        </header>
-        <main className="max-w-lg mx-auto px-4 py-6 space-y-6">
+      <div className="page-container-compact">
+        <AppHeader title="Settings" showBack showSettings={false} />
+        <main className="content-wrapper py-6 space-y-6">
           {[1, 2, 3].map((i) => (
             <div key={i} className="card">
               <div className="h-5 w-32 skeleton rounded mb-4" />
@@ -249,25 +245,10 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-primary pb-8">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-bg-primary/80 backdrop-blur-lg border-b border-border-subtle">
-        <div className="max-w-lg mx-auto px-4 py-4 flex items-center">
-          <button
-            onClick={() => router.push('/')}
-            className="w-10 h-10 rounded-full bg-bg-elevated flex items-center justify-center 
-                       hover:bg-bg-surface transition-colors mr-4"
-            aria-label="Go back"
-          >
-            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <h1 className="text-section-title">Settings</h1>
-        </div>
-      </header>
+    <div className="page-container-compact pb-8">
+      <AppHeader title="Settings" showBack showSettings={false} />
 
-      <main className="max-w-lg mx-auto px-4 py-6 space-y-6">
+      <main className="content-wrapper py-6 space-y-6">
         {/* Unit System */}
         <section className="card">
           <h2 className="text-card-title text-text-secondary mb-4">Units</h2>

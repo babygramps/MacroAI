@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
 import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
 import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
 import { WeightChart, WeightChartSkeleton } from '@/components/ui/WeightChart';
@@ -9,6 +8,7 @@ import { WeightLogModal } from '@/components/WeightLogModal';
 import { MetabolicInsightsCard, MetabolicInsightsCardSkeleton } from '@/components/ui/MetabolicInsightsCard';
 import { TdeeProgressCard, TdeeProgressCardSkeleton } from '@/components/ui/TdeeProgressCard';
 import { WeeklyCheckInCard, WeeklyCheckInCardSkeleton } from '@/components/ui/WeeklyCheckInCard';
+import { AppHeader } from '@/components/ui/AppHeader';
 import { 
   fetchWeeklyStats, 
   fetchUserGoals, 
@@ -19,7 +19,6 @@ import {
 import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights } from '@/lib/types';
 
 export default function StatsPage() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [stats, setStats] = useState<WeeklyStats | null>(null);
   const [goals, setGoals] = useState<UserGoals | null>(null);
@@ -81,21 +80,11 @@ export default function StatsPage() {
 
   return (
     <div className="page-container-compact">
-      {/* Header */}
-      <header className="page-header">
-        <div className="content-wrapper flex items-center">
-          <button
-            onClick={() => router.push('/')}
-            className="icon-button mr-4"
-            aria-label="Go back"
-          >
-            <svg className="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <h1 className="text-section-title">Statistics</h1>
-        </div>
-      </header>
+      <AppHeader 
+        title="Statistics" 
+        showBack 
+        showSettings 
+      />
 
       {/* Main Content */}
       <main className="content-wrapper py-6">
