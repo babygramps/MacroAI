@@ -5,21 +5,22 @@ import { defineAuth } from '@aws-amplify/backend';
  * @see https://docs.amplify.aws/gen2/build-a-backend/auth
  *
  * WebAuthn passkey configuration:
- * - For sandbox: relyingPartyId defaults to 'localhost'
- * - For production: explicitly set to your custom domain
+ * - relyingPartyId MUST match your production domain for passkeys to work
  * - userVerification: 'preferred' allows biometric or PIN
+ * 
+ * NOTE: This config works for production (macroai.rickrothbart.com).
+ * For sandbox testing on localhost, passkeys will only work if you temporarily
+ * change relyingPartyId to 'localhost' or use webAuthn: true instead.
  */
 export const auth = defineAuth({
   loginWith: {
     email: true,
     // Enable WebAuthn passkey authentication
-    // In sandbox, Amplify auto-detects localhost as relyingPartyId
-    // For production, uncomment and set your domain:
-    // webAuthn: {
-    //   relyingPartyId: 'macroai.rickrothbart.com',
-    //   userVerification: 'preferred',
-    // },
-    webAuthn: true,
+    // relyingPartyId must match your custom domain for production
+    webAuthn: {
+      relyingPartyId: 'macroai.rickrothbart.com',
+      userVerification: 'preferred',
+    },
   },
   userAttributes: {
     email: {
