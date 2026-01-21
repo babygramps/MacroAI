@@ -1,6 +1,16 @@
 import { type ClientSchema, a, defineData } from '@aws-amplify/backend';
 
 const schema = a.schema({
+  // Custom passkey names (Cognito doesn't support renaming)
+  // Maps credential ID to user-provided friendly name
+  PasskeyName: a
+    .model({
+      credentialId: a.string().required(), // Cognito credential ID
+      customName: a.string().required(), // User's custom name for this passkey
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('credentialId')]),
+
   UserProfile: a
     .model({
       email: a.string(),

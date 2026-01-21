@@ -7,10 +7,13 @@ import {
   deleteWebAuthnCredential,
 } from 'aws-amplify/auth';
 import { showToast } from './Toast';
+import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 
 interface PasskeyCredential {
   credentialId: string;
   friendlyCredentialName?: string;
+  customName?: string; // User-provided custom name from our DB
+  customNameId?: string; // DynamoDB record ID for the custom name
   relyingPartyId?: string;
   createdAt?: Date;
 }
@@ -25,20 +28,46 @@ interface PasskeyManagerProps {
  * Features:
  * - List all registered passkeys
  * - Register a new passkey (triggers browser prompt)
+ * - Rename passkeys (custom names stored in DynamoDB)
  * - Delete existing passkeys
  * 
- * Note: User must be authenticated to use these APIs
+ * Note: User must be authenticated to use these APIs.
+ * Custom names are stored in our DB since Cognito doesn't support renaming.
  */
 export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
   const [passkeys, setPasskeys] = useState<PasskeyCredential[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [savingName, setSavingName] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Check if WebAuthn is supported in this browser
   const isWebAuthnSupported = typeof window !== 'undefined' && 
     window.PublicKeyCredential !== undefined;
+
+  // Fetch custom names from our database
+  const fetchCustomNames = useCallback(async (): Promise<Map<string, { id: string; name: string }>> => {
+    const nameMap = new Map<string, { id: string; name: string }>();
+    try {
+      const client = getAmplifyDataClient();
+      if (!client) return nameMap;
+      
+      const { data: names } = await client.models.PasskeyName.list();
+      if (names) {
+        names.forEach((n) => {
+          if (n.credentialId && n.customName) {
+            nameMap.set(n.credentialId, { id: n.id, name: n.customName });
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[PasskeyManager] Error fetching custom names:', err);
+    }
+    return nameMap;
+  }, []);
 
   const fetchPasskeys = useCallback(async () => {
     setIsLoading(true);
@@ -46,18 +75,27 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
     
     try {
       console.log('[PasskeyManager] Fetching passkeys...');
-      const result = await listWebAuthnCredentials();
+      const [result, customNames] = await Promise.all([
+        listWebAuthnCredentials(),
+        fetchCustomNames(),
+      ]);
       console.log('[PasskeyManager] Passkeys fetched:', result);
+      
       const credentials: PasskeyCredential[] = result.credentials
         .filter((cred): cred is typeof cred & { credentialId: string } => 
           typeof cred.credentialId === 'string'
         )
-        .map((cred) => ({
-          credentialId: cred.credentialId,
-          friendlyCredentialName: cred.friendlyCredentialName,
-          relyingPartyId: cred.relyingPartyId,
-          createdAt: cred.createdAt ? new Date(cred.createdAt) : undefined,
-        }));
+        .map((cred) => {
+          const customNameData = customNames.get(cred.credentialId);
+          return {
+            credentialId: cred.credentialId,
+            friendlyCredentialName: cred.friendlyCredentialName,
+            customName: customNameData?.name,
+            customNameId: customNameData?.id,
+            relyingPartyId: cred.relyingPartyId,
+            createdAt: cred.createdAt ? new Date(cred.createdAt) : undefined,
+          };
+        });
       setPasskeys(credentials);
     } catch (err) {
       console.error('[PasskeyManager] Error fetching passkeys:', err);
@@ -66,7 +104,7 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [fetchCustomNames]);
 
   useEffect(() => {
     if (isWebAuthnSupported) {
@@ -142,13 +180,28 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
     }
   };
 
-  const handleDeletePasskey = async (credentialId: string) => {
+  const handleDeletePasskey = async (credentialId: string, customNameId?: string) => {
     setDeletingId(credentialId);
     setError(null);
     
     try {
       console.log('[PasskeyManager] Deleting passkey:', credentialId);
+      
+      // Delete from Cognito
       await deleteWebAuthnCredential({ credentialId });
+      
+      // Also delete custom name from our DB if it exists
+      if (customNameId) {
+        try {
+          const client = getAmplifyDataClient();
+          if (client) {
+            await client.models.PasskeyName.delete({ id: customNameId });
+          }
+        } catch (err) {
+          console.warn('[PasskeyManager] Failed to delete custom name:', err);
+        }
+      }
+      
       console.log('[PasskeyManager] Passkey deleted successfully');
       showToast('Passkey removed', 'success');
       setPasskeys((prev) => prev.filter((p) => p.credentialId !== credentialId));
@@ -159,6 +212,68 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
       setError(message);
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  // Start editing a passkey name
+  const handleStartEdit = (passkey: PasskeyCredential) => {
+    setEditingId(passkey.credentialId);
+    setEditName(passkey.customName || passkey.friendlyCredentialName || '');
+  };
+
+  // Cancel editing
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditName('');
+  };
+
+  // Save custom name
+  const handleSaveName = async (passkey: PasskeyCredential) => {
+    if (!editName.trim()) {
+      showToast('Please enter a name', 'error');
+      return;
+    }
+
+    setSavingName(true);
+    
+    try {
+      const client = getAmplifyDataClient();
+      if (!client) {
+        showToast('Database not available', 'error');
+        return;
+      }
+
+      if (passkey.customNameId) {
+        // Update existing custom name
+        await client.models.PasskeyName.update({
+          id: passkey.customNameId,
+          customName: editName.trim(),
+        });
+      } else {
+        // Create new custom name
+        await client.models.PasskeyName.create({
+          credentialId: passkey.credentialId,
+          customName: editName.trim(),
+        });
+      }
+
+      // Update local state
+      setPasskeys((prev) =>
+        prev.map((p) =>
+          p.credentialId === passkey.credentialId
+            ? { ...p, customName: editName.trim() }
+            : p
+        )
+      );
+
+      showToast('Passkey renamed', 'success');
+      setEditingId(null);
+      setEditName('');
+    } catch (err) {
+      console.error('[PasskeyManager] Error saving name:', err);
+      showToast('Failed to save name', 'error');
+    } finally {
+      setSavingName(false);
     }
   };
 
@@ -173,7 +288,11 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
   };
 
   // Generate a friendly name for the passkey
+  // Priority: custom name > Cognito friendly name > fallback
   const getPasskeyDisplayName = (passkey: PasskeyCredential, index: number): string => {
+    if (passkey.customName) {
+      return passkey.customName;
+    }
     if (passkey.friendlyCredentialName) {
       return passkey.friendlyCredentialName;
     }
@@ -267,43 +386,103 @@ export function PasskeyManager({ className = '' }: PasskeyManagerProps) {
           {passkeys.map((passkey, index) => (
             <div
               key={passkey.credentialId}
-              className="p-4 bg-bg-elevated rounded-xl flex items-center gap-3"
+              className="p-4 bg-bg-elevated rounded-xl"
             >
-              {/* Icon */}
-              <div className="w-10 h-10 bg-macro-protein/20 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-macro-protein" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                        d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
-              </div>
+              {editingId === passkey.credentialId ? (
+                /* Edit Mode */
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    placeholder="Enter passkey name"
+                    className="input-field flex-1"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveName(passkey);
+                      if (e.key === 'Escape') handleCancelEdit();
+                    }}
+                  />
+                  <button
+                    onClick={() => handleSaveName(passkey)}
+                    disabled={savingName}
+                    className="p-2 rounded-lg bg-macro-protein text-white hover:bg-macro-protein/90
+                               disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Save"
+                  >
+                    {savingName ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleCancelEdit}
+                    disabled={savingName}
+                    className="p-2 rounded-lg bg-bg-surface text-text-muted hover:bg-bg-primary
+                               disabled:opacity-50 transition-colors"
+                    title="Cancel"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : (
+                /* View Mode */
+                <div className="flex items-center gap-3">
+                  {/* Icon */}
+                  <div className="w-10 h-10 bg-macro-protein/20 rounded-full flex items-center justify-center">
+                    <svg className="w-5 h-5 text-macro-protein" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                            d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+                    </svg>
+                  </div>
 
-              {/* Info */}
-              <div className="flex-1 min-w-0">
-                <p className="text-body text-text-primary truncate">
-                  {getPasskeyDisplayName(passkey, index)}
-                </p>
-                <p className="text-caption text-text-muted">
-                  Added {formatDate(passkey.createdAt)}
-                </p>
-              </div>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-body text-text-primary truncate">
+                      {getPasskeyDisplayName(passkey, index)}
+                    </p>
+                    <p className="text-caption text-text-muted">
+                      Added {formatDate(passkey.createdAt)}
+                    </p>
+                  </div>
 
-              {/* Delete Button */}
-              <button
-                onClick={() => handleDeletePasskey(passkey.credentialId)}
-                disabled={deletingId === passkey.credentialId}
-                className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 
-                           disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                title="Remove passkey"
-              >
-                {deletingId === passkey.credentialId ? (
-                  <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                )}
-              </button>
+                  {/* Edit Button */}
+                  <button
+                    onClick={() => handleStartEdit(passkey)}
+                    className="p-2 rounded-lg bg-bg-surface text-text-secondary hover:bg-bg-primary
+                               transition-colors"
+                    title="Rename passkey"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                            d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
+
+                  {/* Delete Button */}
+                  <button
+                    onClick={() => handleDeletePasskey(passkey.credentialId, passkey.customNameId)}
+                    disabled={deletingId === passkey.credentialId}
+                    className="p-2 rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 
+                               disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    title="Remove passkey"
+                  >
+                    {deletingId === passkey.credentialId ? (
+                      <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
