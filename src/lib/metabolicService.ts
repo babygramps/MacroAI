@@ -426,6 +426,10 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
  * Handle meal logged event
  * Called after a meal is created, updated, or deleted
  * 
+ * Only aggregates daily nutrition - does NOT recalculate TDEE.
+ * TDEE recalculation happens only when weight is logged to avoid
+ * confusing users with TDEE bouncing around as they log food.
+ * 
  * @param date - Date of the meal (from meal.eatenAt)
  */
 export async function onMealLogged(date: string | Date): Promise<void> {
@@ -435,11 +439,8 @@ export async function onMealLogged(date: string | Date): Promise<void> {
   
   console.log('[metabolicService] onMealLogged triggered for:', dateKey);
 
-  // Step 1: Aggregate nutrition for the day
+  // Only aggregate nutrition - TDEE updates on weight log only
   await aggregateDailyNutrition(dateKey);
-
-  // Step 2: Recalculate TDEE from this date forward
-  await recalculateTdeeFromDate(dateKey);
 }
 
 /**
