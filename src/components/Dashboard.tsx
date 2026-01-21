@@ -1,7 +1,7 @@
 'use client';
 
-import { useCallback, useState } from 'react';
-import { useAuthenticator } from '@aws-amplify/ui-react';
+import { useCallback, useState, useEffect } from 'react';
+import { getCurrentUser, fetchUserAttributes } from 'aws-amplify/auth';
 import { FoodLogModal } from './FoodLogModal';
 import { MealEditModal } from './MealEditModal';
 import { DateNavigator } from './ui/DateNavigator';
@@ -19,7 +19,28 @@ import { isToday } from '@/lib/date';
 import { logError } from '@/lib/logger';
 
 export function Dashboard() {
-  const { user } = useAuthenticator();
+  const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
+
+  // Fetch user email on mount
+  useEffect(() => {
+    async function fetchUserEmail() {
+      try {
+        // Try to get email from user attributes first
+        const attributes = await fetchUserAttributes();
+        if (attributes.email) {
+          setUserEmail(attributes.email);
+          return;
+        }
+        
+        // Fallback to signInDetails
+        const user = await getCurrentUser();
+        setUserEmail(user.signInDetails?.loginId);
+      } catch (error) {
+        console.error('[Dashboard] Error fetching user email:', error);
+      }
+    }
+    fetchUserEmail();
+  }, []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -130,7 +151,7 @@ export function Dashboard() {
 
   return (
     <div className="page-container">
-      <DashboardHeader userEmail={user?.signInDetails?.loginId} />
+      <DashboardHeader userEmail={userEmail} />
 
       {/* Main Content */}
       <main className="content-wrapper">

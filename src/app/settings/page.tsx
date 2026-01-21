@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthenticator } from '@aws-amplify/ui-react';
+import { signOut } from 'aws-amplify/auth';
 import type { UnitSystem } from '@/lib/types';
 import {
   kgToLbs,
@@ -16,6 +16,7 @@ import { showToast } from '@/components/ui/Toast';
 import { AppHeader } from '@/components/ui/AppHeader';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
+import { PasskeyManager } from '@/components/ui/PasskeyManager';
 
 interface ProfileData {
   id: string;
@@ -49,7 +50,6 @@ function calculateAge(birthDate: string): number {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { signOut } = useAuthenticator();
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -688,6 +688,12 @@ export default function SettingsPage() {
           })}
         </section>
 
+        {/* Security - Passkeys */}
+        <section className="card">
+          <h2 className="text-card-title text-text-secondary mb-4">Security</h2>
+          <PasskeyManager />
+        </section>
+
         {/* Data Export */}
         <section className="card">
           <h2 className="text-card-title text-text-secondary mb-4">Data Export</h2>
@@ -739,7 +745,15 @@ export default function SettingsPage() {
           </button>
           
           <button
-            onClick={() => signOut()}
+            onClick={async () => {
+              try {
+                await signOut();
+                showToast('Signed out successfully', 'success');
+              } catch (error) {
+                console.error('Sign out error:', error);
+                showToast('Failed to sign out', 'error');
+              }
+            }}
             className="w-full mt-3 py-3 px-4 rounded-xl bg-red-500/10 text-red-400 
                        hover:bg-red-500/20 transition-colors text-left flex items-center justify-between"
           >

@@ -11,7 +11,7 @@ dist/
 
 # Testing
 coverage/
-__tests__/fixtures/
+__tests__/fixtures/*
 
 # Environment & Secrets
 .env
