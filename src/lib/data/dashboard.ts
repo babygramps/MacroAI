@@ -93,6 +93,13 @@ async function fetchIngredientsByMealForDay(
     return ingredientsByMeal;
   }
 
+  // Initialize map with empty arrays for all meals
+  const mealIds = new Set(meals.map((m) => m.id));
+  for (const mealId of mealIds) {
+    ingredientsByMeal.set(mealId, []);
+  }
+
+  // Try batch query first using eatenAt index (most efficient for full day views)
   const { data: ingredientsData } = await client.models.MealIngredient.list({
     filter: {
       eatenAt: {
@@ -104,35 +111,44 @@ async function fetchIngredientsByMealForDay(
   if (ingredientsData && ingredientsData.length > 0) {
     for (const ing of ingredientsData) {
       const mapped = mapMealIngredient(ing);
-      const existing = ingredientsByMeal.get(mapped.mealId);
-      if (existing) {
-        existing.push(mapped);
-      } else {
-        ingredientsByMeal.set(mapped.mealId, [mapped]);
+      // Only add if this ingredient belongs to one of our meals
+      if (mealIds.has(mapped.mealId)) {
+        const existing = ingredientsByMeal.get(mapped.mealId);
+        if (existing) {
+          existing.push(mapped);
+        }
       }
     }
-
-    for (const [mealId, ingredients] of ingredientsByMeal.entries()) {
-      ingredientsByMeal.set(mealId, sortIngredientsByOrder(ingredients));
-    }
-
-    return ingredientsByMeal;
   }
 
-  const ingredientLists = await Promise.all(
-    meals.map(async (meal) => {
-      const { data: mealIngredients } = await client.models.MealIngredient.listMealIngredientByMealId({
-        mealId: meal.id,
-      });
-      return {
-        mealId: meal.id,
-        ingredients: sortIngredientsByOrder((mealIngredients || []).map(mapMealIngredient)),
-      };
-    })
+  // Find meals that still have no ingredients - they may have ingredients
+  // without eatenAt set (legacy data) or with different timestamps
+  const mealsWithoutIngredients = meals.filter(
+    (meal) => (ingredientsByMeal.get(meal.id) || []).length === 0
   );
 
-  for (const item of ingredientLists) {
-    ingredientsByMeal.set(item.mealId, item.ingredients);
+  // Fetch missing ingredients per-meal using mealId index
+  if (mealsWithoutIngredients.length > 0) {
+    const missingIngredientLists = await Promise.all(
+      mealsWithoutIngredients.map(async (meal) => {
+        const { data: mealIngredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+          mealId: meal.id,
+        });
+        return {
+          mealId: meal.id,
+          ingredients: (mealIngredients || []).map(mapMealIngredient),
+        };
+      })
+    );
+
+    for (const item of missingIngredientLists) {
+      ingredientsByMeal.set(item.mealId, item.ingredients);
+    }
+  }
+
+  // Sort all ingredient lists by sortOrder
+  for (const [mealId, ingredients] of ingredientsByMeal.entries()) {
+    ingredientsByMeal.set(mealId, sortIngredientsByOrder(ingredients));
   }
 
   return ingredientsByMeal;
