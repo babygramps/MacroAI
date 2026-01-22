@@ -3,7 +3,7 @@ import type { DailySummary, UserGoals, WeightLogEntry } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import { logDebug, logError, logInfo } from '@/lib/logger';
+import { logError } from '@/lib/logger';
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -29,7 +29,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const fetchStartRef = useRef<number | null>(null);
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
 
@@ -50,13 +49,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
 
         // If no computed states exist, run backfill silently
         if (!existingStates || existingStates.length === 0) {
-          logInfo('No ComputedState data found, running one-time backfill...');
-          const result = await backfillMetabolicData(90);
-          logInfo('Backfill complete', { 
-            daysProcessed: result.daysProcessed,
-            dailyLogsCreated: result.dailyLogsCreated,
-            computedStatesCreated: result.computedStatesCreated,
-          });
+          await backfillMetabolicData(90);
         }
       } catch (error) {
         // Silently fail - this is a background optimization, not critical
@@ -72,7 +65,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     if (shouldShowLoading) {
       setIsLoading(true);
     }
-    fetchStartRef.current = typeof performance !== 'undefined' ? performance.now() : null;
     try {
       const data = await fetchDashboardData(selectedDate);
       setGoals(data.goals);
@@ -86,10 +78,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
         setIsLoading(false);
       }
       hasLoadedRef.current = true;
-      if (fetchStartRef.current !== null && typeof performance !== 'undefined') {
-        const durationMs = Math.round(performance.now() - fetchStartRef.current);
-        logDebug('Dashboard data fetch duration', { durationMs });
-      }
     }
   }, [selectedDate]);
 

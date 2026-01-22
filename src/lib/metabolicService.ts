@@ -33,12 +33,10 @@ import type { DailyLog, UserGoals, WeightLogEntry } from './types';
 export async function aggregateDailyNutrition(date: string | Date): Promise<DailyLog | null> {
   const client = getAmplifyDataClient();
   if (!client) {
-    console.error('[metabolicService] No Amplify client available');
     return null;
   }
 
   const dateKey = typeof date === 'string' ? date : formatDateKey(date);
-  console.log('[metabolicService] Aggregating nutrition for:', dateKey);
 
   try {
     // Get start and end of day for query
@@ -81,13 +79,6 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
     const foodLogs = foodLogsResult.data ?? [];
     const weights = weightResult.data ?? [];
     const existingLogs = existingDailyLog.data ?? [];
-
-    console.log('[metabolicService] Found:', {
-      meals: meals.length,
-      foodLogs: foodLogs.length,
-      weights: weights.length,
-      existingDailyLogs: existingLogs.length,
-    });
 
     // Sum up all nutrition from meals
     let totalCalories = 0;
@@ -140,11 +131,9 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
         id: existingId,
         ...dailyLogData,
       });
-      console.log('[metabolicService] Updated DailyLog for', dateKey);
     } else {
       // Create new
       await client.models.DailyLog.create(dailyLogData);
-      console.log('[metabolicService] Created DailyLog for', dateKey);
     }
 
     return dailyLogData as DailyLog;
@@ -289,8 +278,6 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
   const today = new Date();
   today.setHours(23, 59, 59, 999);
 
-  console.log('[metabolicService] Recalculating TDEE from', formatDateKey(startDate), 'to today');
-
   try {
     // Fetch all required data in parallel
     const [userGoals, weightEntries, dailyLogs, existingStates] = await Promise.all([
@@ -308,7 +295,6 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     ]);
 
     if (weightEntries.length === 0) {
-      console.log('[metabolicService] No weight entries found for recalculation');
       return 0;
     }
 
@@ -330,7 +316,6 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     const trendData = calculateTrendWeights(weightEntries, startDate, today);
 
     if (trendData.length === 0) {
-      console.log('[metabolicService] No trend data calculated');
       return 0;
     }
 
@@ -351,13 +336,11 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
 
     if (prevStates && prevStates.length > 0) {
       prevTdee = prevStates[0].estimatedTdeeKcal;
-      console.log('[metabolicService] Using previous TDEE from', dayBeforeKey, ':', prevTdee);
     } else if (userGoals && weightEntries.length > 0) {
       // Cold start - use Mifflin-St Jeor
       const coldStart = calculateColdStartTdee(userGoals, weightEntries[0].weightKg);
       if (coldStart) {
         prevTdee = coldStart;
-        console.log('[metabolicService] Using cold start TDEE:', prevTdee);
       }
     }
 
@@ -410,7 +393,6 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
       daysRecalculated++;
     }
 
-    console.log('[metabolicService] Recalculated', daysRecalculated, 'days of TDEE');
     return daysRecalculated;
   } catch (error) {
     console.error('[metabolicService] Error recalculating TDEE:', error);
@@ -436,8 +418,6 @@ export async function onMealLogged(date: string | Date): Promise<void> {
   const dateKey = typeof date === 'string' 
     ? formatDateKey(new Date(date)) 
     : formatDateKey(date);
-  
-  console.log('[metabolicService] onMealLogged triggered for:', dateKey);
 
   // Only aggregate nutrition - TDEE updates on weight log only
   await aggregateDailyNutrition(dateKey);
@@ -453,8 +433,6 @@ export async function onWeightLogged(date: string | Date): Promise<void> {
   const dateKey = typeof date === 'string'
     ? formatDateKey(new Date(date))
     : formatDateKey(date);
-
-  console.log('[metabolicService] onWeightLogged triggered for:', dateKey);
 
   // Step 1: Update the DailyLog with the new weight
   await aggregateDailyNutrition(dateKey);
@@ -482,11 +460,8 @@ export async function backfillMetabolicData(days: number = 90): Promise<{
 }> {
   const client = getAmplifyDataClient();
   if (!client) {
-    console.error('[metabolicService] No Amplify client available');
     return { daysProcessed: 0, dailyLogsCreated: 0, computedStatesCreated: 0 };
   }
-
-  console.log('[metabolicService] Starting backfill for', days, 'days');
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -511,12 +486,6 @@ export async function backfillMetabolicData(days: number = 90): Promise<{
   // Now recalculate all TDEE from the start
   const computedStatesCreated = await recalculateTdeeFromDate(startDate);
 
-  console.log('[metabolicService] Backfill complete:', {
-    daysProcessed: days + 1,
-    dailyLogsCreated,
-    computedStatesCreated,
-  });
-
   return {
     daysProcessed: days + 1,
     dailyLogsCreated,
@@ -535,15 +504,11 @@ export async function backfillMetabolicData(days: number = 90): Promise<{
 export async function resetMetabolicData(days: number = 90): Promise<void> {
   const client = getAmplifyDataClient();
   if (!client) {
-    console.error('[metabolicService] No Amplify client available');
     return;
   }
 
-  console.log('[metabolicService] Clearing existing ComputedState records...');
-  
   // Delete all ComputedState records
   const { data: states } = await client.models.ComputedState.list({ limit: 1000 });
-  console.log(`[metabolicService] Found ${states?.length || 0} ComputedState records to delete`);
   
   if (states) {
     for (const state of states) {
@@ -551,11 +516,8 @@ export async function resetMetabolicData(days: number = 90): Promise<void> {
     }
   }
   
-  console.log('[metabolicService] Deleted all ComputedState records, running backfill...');
-  
   // Run backfill
-  const result = await backfillMetabolicData(days);
-  console.log('[metabolicService] Reset complete:', result);
+  await backfillMetabolicData(days);
 }
 
 // Expose to window for browser console access
@@ -564,5 +526,4 @@ if (typeof window !== 'undefined') {
   (window as any).resetMetabolicData = resetMetabolicData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).backfillMetabolicData = backfillMetabolicData;
-  console.log('[metabolicService] Debug helpers available: window.resetMetabolicData(), window.backfillMetabolicData()');
 }

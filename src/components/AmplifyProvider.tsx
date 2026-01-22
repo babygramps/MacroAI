@@ -29,10 +29,8 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
   const checkAuthState = useCallback(async () => {
     try {
       await getCurrentUser();
-      console.log('[AmplifyProvider] User is authenticated');
       setIsAuthenticated(true);
     } catch {
-      console.log('[AmplifyProvider] User is not authenticated');
       setIsAuthenticated(false);
     }
   }, []);
@@ -59,8 +57,6 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
   // Listen to auth events
   useEffect(() => {
     const unsubscribe = Hub.listen('auth', ({ payload }) => {
-      console.log('[AmplifyProvider] Auth event:', payload.event);
-      
       switch (payload.event) {
         case 'signedIn':
           setIsAuthenticated(true);
@@ -69,7 +65,6 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
           setIsAuthenticated(false);
           break;
         case 'tokenRefresh_failure':
-          console.warn('[AmplifyProvider] Token refresh failed, signing out');
           setIsAuthenticated(false);
           break;
       }
@@ -80,7 +75,6 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
 
   // Handle successful authentication from SignIn component
   const handleAuthenticated = useCallback(() => {
-    console.log('[AmplifyProvider] User authenticated via SignIn');
     setIsAuthenticated(true);
   }, []);
 
