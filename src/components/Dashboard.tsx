@@ -15,6 +15,8 @@ import { DashboardHeader } from './dashboard/DashboardHeader';
 import { DashboardRings } from './dashboard/DashboardRings';
 import { WeightCard } from './dashboard/WeightCard';
 import { MealLogSection } from './dashboard/MealLogSection';
+import { DayStatusBanner } from './ui/DayStatusBanner';
+import { DayStatusAction } from './ui/DayStatusAction';
 import { isToday } from '@/lib/date';
 import { logError } from '@/lib/logger';
 
@@ -55,7 +57,17 @@ export function Dashboard() {
     mealId: null,
     mealName: '',
   });
-  const { goals, summary, latestWeight, needsOnboarding, isLoading, refresh } = useDashboardData(selectedDate);
+  const {
+    goals,
+    summary,
+    latestWeight,
+    needsOnboarding,
+    isLoading,
+    dayStatus,
+    dayStatusMap,
+    refresh,
+    updateDayStatus,
+  } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
     setSelectedDate(newDate);
@@ -159,9 +171,19 @@ export function Dashboard() {
         <div className="flex justify-center mt-6 mb-6">
           <DateNavigator 
             selectedDate={selectedDate} 
-            onDateChange={handleDateChange} 
+            onDateChange={handleDateChange}
+            dayStatuses={dayStatusMap}
           />
         </div>
+
+        {/* Day Status Banner (for past days) */}
+        <DayStatusBanner
+          selectedDate={selectedDate}
+          currentStatus={dayStatus}
+          totalCalories={summary.totalCalories}
+          estimatedTdee={goals.calorieGoal}
+          onStatusChange={updateDayStatus}
+        />
 
         <DashboardRings summary={summary} goals={goals} />
 
@@ -180,6 +202,15 @@ export function Dashboard() {
           canAddFood={canAddFood}
           onEdit={handleEditMeal}
           onDelete={handleDeleteMeal}
+        />
+
+        {/* Day Status Action (for marking today as complete/skipped) */}
+        <DayStatusAction
+          selectedDate={selectedDate}
+          currentStatus={dayStatus}
+          totalCalories={summary.totalCalories}
+          estimatedTdee={goals.calorieGoal}
+          onStatusChange={updateDayStatus}
         />
       </main>
 

@@ -1,12 +1,29 @@
 'use client';
 
-import type { WeeklyCheckIn, UserGoals } from '@/lib/types';
+import type { WeeklyCheckIn, UserGoals, LogStatus } from '@/lib/types';
+
+interface DayStatusBreakdown {
+  complete: number;
+  partial: number;
+  skipped: number;
+  untracked: number;
+}
 
 interface WeeklyCheckInCardProps {
   checkIn: WeeklyCheckIn;
   goals?: UserGoals | null;
   unit?: 'kg' | 'lbs';
+  /** Optional breakdown of day statuses for the week */
+  dayStatusBreakdown?: DayStatusBreakdown;
 }
+
+// Status colors for the mini indicators
+const STATUS_COLORS: Record<LogStatus | 'untracked', string> = {
+  complete: '#10B981',
+  partial: '#F59E0B',
+  skipped: '#6B7280',
+  untracked: '#374151',
+};
 
 // Convert kg to lbs
 function convertWeight(kg: number, unit: 'kg' | 'lbs'): string {
@@ -57,7 +74,7 @@ function getConfidenceBadgeColor(level: WeeklyCheckIn['confidenceLevel']): { bg:
   }
 }
 
-export function WeeklyCheckInCard({ checkIn, goals, unit = 'kg' }: WeeklyCheckInCardProps) {
+export function WeeklyCheckInCard({ checkIn, goals, unit = 'kg', dayStatusBreakdown }: WeeklyCheckInCardProps) {
   const adherenceColor = getAdherenceColor(checkIn.adherenceScore);
   const adherenceLabel = getAdherenceLabel(checkIn.adherenceScore);
   const adherencePercent = Math.round(checkIn.adherenceScore * 100);
@@ -185,6 +202,64 @@ export function WeeklyCheckInCard({ checkIn, goals, unit = 'kg' }: WeeklyCheckIn
           </p>
         </div>
       </div>
+
+      {/* Day Status Breakdown */}
+      {dayStatusBreakdown && (
+        <div className="bg-bg-elevated rounded-xl p-3 mb-4">
+          <p className="text-caption text-text-muted mb-2">Logging Breakdown</p>
+          <div className="flex items-center gap-4">
+            {dayStatusBreakdown.complete > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: STATUS_COLORS.complete }}
+                />
+                <span className="text-xs text-text-secondary">
+                  {dayStatusBreakdown.complete} complete
+                </span>
+              </div>
+            )}
+            {dayStatusBreakdown.partial > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: STATUS_COLORS.partial }}
+                />
+                <span className="text-xs text-text-secondary">
+                  {dayStatusBreakdown.partial} partial
+                </span>
+              </div>
+            )}
+            {dayStatusBreakdown.skipped > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: STATUS_COLORS.skipped }}
+                />
+                <span className="text-xs text-text-secondary">
+                  {dayStatusBreakdown.skipped} skipped
+                </span>
+              </div>
+            )}
+            {dayStatusBreakdown.untracked > 0 && (
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: STATUS_COLORS.untracked }}
+                />
+                <span className="text-xs text-text-secondary">
+                  {dayStatusBreakdown.untracked} no data
+                </span>
+              </div>
+            )}
+          </div>
+          {dayStatusBreakdown.skipped > 0 && (
+            <p className="text-xs text-text-muted mt-2">
+              Skipped days are excluded from TDEE calculations
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Goal Alignment */}
       <div 

@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DailySummary, UserGoals, WeightLogEntry } from '@/lib/types';
+import type { DailySummary, UserGoals, WeightLogEntry, LogStatus } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
+import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -11,7 +12,10 @@ interface UseDashboardDataResult {
   latestWeight: WeightLogEntry | null;
   needsOnboarding: boolean;
   isLoading: boolean;
+  dayStatus: LogStatus | null;
+  dayStatusMap: Map<string, LogStatus>;
   refresh: () => Promise<void>;
+  updateDayStatus: (status: LogStatus) => void;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -23,14 +27,25 @@ const EMPTY_SUMMARY: DailySummary = {
   entries: [],
 };
 
+// Helper to format date to YYYY-MM-DD
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [goals, setGoals] = useState<UserGoals>(DEFAULT_GOALS);
   const [summary, setSummary] = useState<DailySummary>(EMPTY_SUMMARY);
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [dayStatus, setDayStatus] = useState<LogStatus | null>(null);
+  const [dayStatusMap, setDayStatusMap] = useState<Map<string, LogStatus>>(new Map());
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
+  const statusMapLoadedRef = useRef(false);
 
   // One-time auto-backfill for existing users who don't have ComputedState data yet
   useEffect(() => {
@@ -66,11 +81,24 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       setIsLoading(true);
     }
     try {
-      const data = await fetchDashboardData(selectedDate);
+      const [data, status] = await Promise.all([
+        fetchDashboardData(selectedDate),
+        fetchDayStatus(selectedDate),
+      ]);
       setGoals(data.goals);
       setSummary(data.summary);
       setLatestWeight(data.latestWeight);
       setNeedsOnboarding(data.needsOnboarding);
+      setDayStatus(status);
+
+      // Update the status map for the current day
+      if (status) {
+        setDayStatusMap(prev => {
+          const next = new Map(prev);
+          next.set(formatDateKey(selectedDate), status);
+          return next;
+        });
+      }
     } catch (error) {
       logError('Error fetching dashboard data', { error });
     } finally {
@@ -80,6 +108,39 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       hasLoadedRef.current = true;
     }
   }, [selectedDate]);
+
+  // Callback to update day status locally (optimistic update)
+  const updateDayStatusLocal = useCallback((status: LogStatus) => {
+    setDayStatus(status);
+    setDayStatusMap(prev => {
+      const next = new Map(prev);
+      next.set(formatDateKey(selectedDate), status);
+      return next;
+    });
+  }, [selectedDate]);
+
+  // Load status map for the visible month range (once)
+  useEffect(() => {
+    if (statusMapLoadedRef.current) return;
+    statusMapLoadedRef.current = true;
+
+    const loadStatusMap = async () => {
+      try {
+        const today = new Date();
+        const startDate = new Date(today);
+        startDate.setDate(startDate.getDate() - 60); // Load last 60 days
+
+        const statuses = await fetchDayStatusRange(startDate, today);
+        if (statuses.size > 0) {
+          setDayStatusMap(statuses);
+        }
+      } catch (error) {
+        logError('Error loading day status map', { error });
+      }
+    };
+
+    loadStatusMap();
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -91,6 +152,9 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     latestWeight,
     needsOnboarding,
     isLoading,
+    dayStatus,
+    dayStatusMap,
     refresh,
+    updateDayStatus: updateDayStatusLocal,
   };
 }

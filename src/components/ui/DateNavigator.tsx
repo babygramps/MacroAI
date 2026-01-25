@@ -1,11 +1,21 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import type { LogStatus } from '@/lib/types';
 
 interface DateNavigatorProps {
   selectedDate: Date;
   onDateChange: (date: Date) => void;
+  /** Map of date strings (YYYY-MM-DD) to their log status */
+  dayStatuses?: Map<string, LogStatus>;
 }
+
+// Status dot colors
+const STATUS_DOT_COLORS: Record<LogStatus, string> = {
+  complete: '#10B981', // Green
+  partial: '#F59E0B', // Amber
+  skipped: '#6B7280', // Gray
+};
 
 // Helper to format date for display
 function formatDisplayDate(date: Date): string {
@@ -51,7 +61,15 @@ function getFirstDayOfMonth(year: number, month: number): number {
   return new Date(year, month, 1).getDay();
 }
 
-export function DateNavigator({ selectedDate, onDateChange }: DateNavigatorProps) {
+// Helper to format date to YYYY-MM-DD
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateNavigatorProps) {
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(selectedDate.getMonth());
   const [calendarYear, setCalendarYear] = useState(selectedDate.getFullYear());
@@ -275,24 +293,37 @@ export function DateNavigator({ selectedDate, onDateChange }: DateNavigatorProps
                 calendarMonth === today.getMonth() && 
                 calendarYear === today.getFullYear();
 
+              // Get status for this day
+              const dayDateKey = formatDateKey(dayDate);
+              const dayStatus = dayStatuses?.get(dayDateKey);
+
               return (
-                <button
-                  key={day}
-                  onClick={() => handleDayClick(day)}
-                  disabled={isFuture}
-                  className={`w-9 h-9 rounded-full text-sm font-medium transition-colors
-                    ${isFuture 
-                      ? 'text-text-muted opacity-30 cursor-not-allowed' 
-                      : 'hover:bg-bg-elevated cursor-pointer'}
-                    ${isSelected 
-                      ? 'bg-macro-calories text-white hover:bg-macro-calories' 
-                      : ''}
-                    ${isCurrentDay && !isSelected 
-                      ? 'border border-macro-calories text-macro-calories' 
-                      : 'text-text-primary'}`}
-                >
-                  {day}
-                </button>
+                <div key={day} className="flex flex-col items-center">
+                  <button
+                    onClick={() => handleDayClick(day)}
+                    disabled={isFuture}
+                    className={`w-9 h-9 rounded-full text-sm font-medium transition-colors
+                      ${isFuture
+                        ? 'text-text-muted opacity-30 cursor-not-allowed'
+                        : 'hover:bg-bg-elevated cursor-pointer'}
+                      ${isSelected
+                        ? 'bg-macro-calories text-white hover:bg-macro-calories'
+                        : ''}
+                      ${isCurrentDay && !isSelected
+                        ? 'border border-macro-calories text-macro-calories'
+                        : 'text-text-primary'}`}
+                  >
+                    {day}
+                  </button>
+                  {/* Status indicator dot */}
+                  {!isFuture && dayStatus && (
+                    <div
+                      className="w-1.5 h-1.5 rounded-full mt-0.5"
+                      style={{ backgroundColor: STATUS_DOT_COLORS[dayStatus] }}
+                      title={`Day ${dayStatus}`}
+                    />
+                  )}
+                </div>
               );
             })}
           </div>

@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { DayData } from '@/lib/types';
+import type { DayData, LogStatus } from '@/lib/types';
 
 interface WeeklyChartProps {
   data: DayData[];
   calorieGoal: number;
+  /** Map of date strings (YYYY-MM-DD) to their log status */
+  dayStatuses?: Map<string, LogStatus>;
 }
 
 // Get day abbreviation from date string (YYYY-MM-DD)
@@ -22,7 +24,7 @@ function isToday(dateString: string): boolean {
   return dateString === todayStr;
 }
 
-export function WeeklyChart({ data, calorieGoal }: WeeklyChartProps) {
+export function WeeklyChart({ data, calorieGoal, dayStatuses }: WeeklyChartProps) {
   const [animatedHeights, setAnimatedHeights] = useState<number[]>(data.map(() => 0));
 
   // Chart dimensions - increased top padding for goal label and calorie values
@@ -67,6 +69,28 @@ export function WeeklyChart({ data, calorieGoal }: WeeklyChartProps) {
         className="w-full max-w-[320px] mx-auto"
         preserveAspectRatio="xMidYMid meet"
       >
+        {/* Define patterns for skipped days */}
+        <defs>
+          <pattern
+            id="skippedPattern"
+            patternUnits="userSpaceOnUse"
+            width="6"
+            height="6"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="6" stroke="#6B7280" strokeWidth="3" />
+          </pattern>
+          <pattern
+            id="partialPattern"
+            patternUnits="userSpaceOnUse"
+            width="8"
+            height="8"
+            patternTransform="rotate(45)"
+          >
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#F59E0B" strokeWidth="2" strokeDasharray="2 2" />
+          </pattern>
+        </defs>
+
         {/* Bars - drawn first so goal line appears on top */}
         {data.map((day, index) => {
           const x = startX + index * (barWidth + barGap);
@@ -75,6 +99,21 @@ export function WeeklyChart({ data, calorieGoal }: WeeklyChartProps) {
           const isOverGoal = day.summary.totalCalories > calorieGoal;
           const hasData = day.summary.entries.length > 0;
           const isTodayBar = isToday(day.date);
+          const dayStatus = dayStatuses?.get(day.date);
+          const isSkipped = dayStatus === 'skipped';
+          const isPartial = dayStatus === 'partial';
+
+          // Determine bar fill based on status
+          let barFill = isOverGoal ? '#EF4444' : '#FF6B35';
+          let barOpacity = hasData ? 1 : 0.3;
+
+          if (isSkipped) {
+            barFill = 'url(#skippedPattern)';
+            barOpacity = 0.6;
+          } else if (isPartial) {
+            barFill = 'url(#partialPattern)';
+            barOpacity = 0.8;
+          }
 
           return (
             <g key={day.date}>
@@ -95,19 +134,37 @@ export function WeeklyChart({ data, calorieGoal }: WeeklyChartProps) {
                 width={barWidth}
                 height={height}
                 rx={4}
-                fill={isOverGoal ? '#EF4444' : '#FF6B35'}
-                opacity={hasData ? 1 : 0.3}
+                fill={barFill}
+                opacity={barOpacity}
                 style={{
                   transition: 'height 0.6s ease-out, y 0.6s ease-out',
                 }}
               />
+
+              {/* Solid overlay for skipped/partial to show the pattern better */}
+              {(isSkipped || isPartial) && height > 0 && (
+                <rect
+                  x={x}
+                  y={y}
+                  width={barWidth}
+                  height={height}
+                  rx={4}
+                  fill="none"
+                  stroke={isSkipped ? '#6B7280' : '#F59E0B'}
+                  strokeWidth={1.5}
+                  strokeDasharray={isSkipped ? '4 2' : '0'}
+                  style={{
+                    transition: 'height 0.6s ease-out, y 0.6s ease-out',
+                  }}
+                />
+              )}
 
               {/* Day label */}
               <text
                 x={x + barWidth / 2}
                 y={chartHeight - 10}
                 textAnchor="middle"
-                fill={isTodayBar ? '#FF6B35' : '#9CA3AF'}
+                fill={isTodayBar ? '#FF6B35' : isSkipped ? '#6B7280' : '#9CA3AF'}
                 fontSize="11"
                 fontFamily="'Satoshi', sans-serif"
                 fontWeight="500"
@@ -123,6 +180,21 @@ export function WeeklyChart({ data, calorieGoal }: WeeklyChartProps) {
                   r={2}
                   fill="#FF6B35"
                 />
+              )}
+
+              {/* Skipped indicator (small X or slash) */}
+              {isSkipped && (
+                <text
+                  x={x + barWidth / 2}
+                  y={padding.top + graphHeight / 2}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="#6B7280"
+                  fontSize="14"
+                  fontWeight="bold"
+                >
+                  /
+                </text>
               )}
             </g>
           );
