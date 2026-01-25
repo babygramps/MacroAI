@@ -183,6 +183,7 @@ export function Dashboard() {
           totalCalories={summary.totalCalories}
           estimatedTdee={goals.calorieGoal}
           onStatusChange={updateDayStatus}
+          isLoading={isLoading}
         />
 
         <DashboardRings summary={summary} goals={goals} />

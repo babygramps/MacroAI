@@ -104,7 +104,22 @@ describe('DayStatusBanner', () => {
         onStatusChange={mockOnStatusChange}
       />
     );
-    
+
     expect(screen.getByText('Mark Skipped')).toBeInTheDocument();
+  });
+
+  it('renders nothing while loading', () => {
+    const { container } = render(
+      <DayStatusBanner
+        selectedDate={yesterday}
+        currentStatus={null}
+        totalCalories={0}
+        estimatedTdee={2500}
+        onStatusChange={mockOnStatusChange}
+        isLoading={true}
+      />
+    );
+
+    expect(container.firstChild).toBeNull();
   });
 });

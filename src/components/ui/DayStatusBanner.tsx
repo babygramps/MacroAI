@@ -11,6 +11,7 @@ interface DayStatusBannerProps {
   totalCalories: number;
   estimatedTdee?: number;
   onStatusChange: (status: LogStatus) => void;
+  isLoading?: boolean;
 }
 
 // Status colors
@@ -41,6 +42,7 @@ export function DayStatusBanner({
   totalCalories,
   estimatedTdee = 2000,
   onStatusChange,
+  isLoading = false,
 }: DayStatusBannerProps) {
   const [isUpdating, setIsUpdating] = useState(false);
 
@@ -64,6 +66,11 @@ export function DayStatusBanner({
 
   // Don't show for today - use DayStatusAction instead
   if (isToday(selectedDate)) {
+    return null;
+  }
+
+  // Don't show while data is loading to prevent flash of incorrect state
+  if (isLoading) {
     return null;
   }
 
