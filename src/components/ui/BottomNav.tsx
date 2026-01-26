@@ -54,7 +54,6 @@ export const BottomNav = memo(function BottomNav({
   
   const isStatsActive = pathname === '/stats';
   const isSettingsActive = pathname === '/settings';
-  const isHomeActive = pathname === '/' || pathname === '';
 
   return (
     <nav className="bottom-nav">
@@ -96,11 +95,6 @@ export const BottomNav = memo(function BottomNav({
           <span className="bottom-nav-label">Settings</span>
         </Link>
       </div>
-      
-      {/* Home indicator bar - shows which page we're on */}
-      {isHomeActive && !isStatsActive && !isSettingsActive && (
-        <div className="bottom-nav-indicator" />
-      )}
     </nav>
   );
 });

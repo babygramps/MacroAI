@@ -15,6 +15,7 @@ import {
 import { showToast } from '@/components/ui/Toast';
 import { AppHeader } from '@/components/ui/AppHeader';
 import { BottomNav } from '@/components/ui/BottomNav';
+import { FoodLogModal } from '@/components/FoodLogModal';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
 import { PasskeyManager } from '@/components/ui/PasskeyManager';
@@ -65,6 +66,9 @@ export default function SettingsPage() {
   // Height state for imperial
   const [heightFeet, setHeightFeet] = useState(5);
   const [heightInches, setHeightInches] = useState(7);
+  
+  // Food log modal
+  const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
 
   const fetchProfile = useCallback(async () => {
     setIsLoading(true);
@@ -768,7 +772,14 @@ export default function SettingsPage() {
       </main>
 
       {/* Bottom Navigation */}
-      <BottomNav showAdd={false} />
+      <BottomNav onAddClick={() => setIsFoodModalOpen(true)} />
+
+      {/* Food Log Modal */}
+      <FoodLogModal
+        isOpen={isFoodModalOpen}
+        onClose={() => setIsFoodModalOpen(false)}
+        onSuccess={() => setIsFoodModalOpen(false)}
+      />
     </div>
   );
 }

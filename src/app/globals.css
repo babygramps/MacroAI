@@ -702,9 +702,23 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(to top, var(--bg-primary) 85%, transparent);
-  padding-top: 1rem;
   z-index: 50;
+  /* Solid background that extends to bottom of viewport */
+  background: var(--bg-surface);
+  /* Add safe area padding at the very bottom */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Gradient overlay for smooth transition into page content */
+.bottom-nav::before {
+  content: '';
+  position: absolute;
+  top: -1rem;
+  left: 0;
+  right: 0;
+  height: 1rem;
+  background: linear-gradient(to top, var(--bg-surface), transparent);
+  pointer-events: none;
 }
 
 .bottom-nav > div {
@@ -713,7 +727,7 @@ body {
   border: 1px solid var(--border-subtle);
   border-bottom: none;
   padding: 0.5rem 0;
-  padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+  padding-bottom: 0.5rem;
 }
 
 .bottom-nav-item {
@@ -778,18 +792,6 @@ body {
 
 .bottom-nav-add:active .bottom-nav-add-inner {
   transform: scale(0.95);
-}
-
-.bottom-nav-indicator {
-  position: absolute;
-  bottom: env(safe-area-inset-bottom, 0);
-  left: 50%;
-  transform: translateX(-50%);
-  width: 32px;
-  height: 4px;
-  background: var(--color-calories);
-  border-radius: 2px;
-  margin-bottom: 0.5rem;
 }
 
 /* Amplify Authenticator overrides */

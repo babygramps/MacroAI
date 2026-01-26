@@ -5,6 +5,7 @@ import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
 import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
 import { WeightChart, WeightChartSkeleton } from '@/components/ui/WeightChart';
 import { WeightLogModal } from '@/components/WeightLogModal';
+import { FoodLogModal } from '@/components/FoodLogModal';
 import { MetabolicInsightsCard, MetabolicInsightsCardSkeleton } from '@/components/ui/MetabolicInsightsCard';
 import { TdeeProgressCard, TdeeProgressCardSkeleton } from '@/components/ui/TdeeProgressCard';
 import { WeeklyCheckInCard, WeeklyCheckInCardSkeleton } from '@/components/ui/WeeklyCheckInCard';
@@ -27,6 +28,7 @@ export default function StatsPage() {
   const [metabolicInsights, setMetabolicInsights] = useState<MetabolicInsights | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
+  const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
 
   const loadStats = useCallback(async () => {
     console.log('[StatsPage] Loading stats...');
@@ -402,7 +404,18 @@ export default function StatsPage() {
       />
 
       {/* Bottom Navigation */}
-      <BottomNav showAdd={false} />
+      <BottomNav onAddClick={() => setIsFoodModalOpen(true)} />
+
+      {/* Food Log Modal */}
+      <FoodLogModal
+        isOpen={isFoodModalOpen}
+        onClose={() => setIsFoodModalOpen(false)}
+        onSuccess={() => {
+          setIsFoodModalOpen(false);
+          // Reload stats to reflect any new food logs
+          loadStats();
+        }}
+      />
     </div>
   );
 }
