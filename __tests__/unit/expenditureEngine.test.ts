@@ -355,8 +355,34 @@ describe('expenditureEngine', () => {
         null,
         2500
       );
-      
+
       expect(result.estimatedTdeeKcal).toBe(2500);
+    });
+
+    it('should hold previous TDEE when day is marked as skipped even with calorie data', () => {
+      const dailyLog: DailyLog = {
+        date: '2026-01-15',
+        scaleWeightKg: 84,
+        nutritionCalories: 1500, // Has calories but user marked incomplete
+        nutritionProteinG: 100,
+        nutritionCarbsG: 150,
+        nutritionFatG: 50,
+        stepCount: null,
+        logStatus: 'skipped', // User explicitly marked as incomplete
+      };
+
+      const result = buildComputedState(
+        '2026-01-15',
+        84.5,
+        85,
+        dailyLog,
+        2500
+      );
+
+      // Should hold previous TDEE because user marked day as skipped
+      expect(result.estimatedTdeeKcal).toBe(2500);
+      expect(result.rawTdeeKcal).toBe(2500);
+      expect(result.fluxConfidenceRange).toBe(500); // High uncertainty
     });
   });
 

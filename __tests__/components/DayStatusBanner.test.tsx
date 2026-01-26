@@ -122,4 +122,20 @@ describe('DayStatusBanner', () => {
 
     expect(container.firstChild).toBeNull();
   });
+
+  it('shows subtle option for days with reasonable calories', () => {
+    render(
+      <DayStatusBanner
+        selectedDate={yesterday}
+        currentStatus={null}
+        totalCalories={2200}
+        estimatedTdee={2500}
+        onStatusChange={mockOnStatusChange}
+      />
+    );
+
+    // Should show the subtle prompt
+    expect(screen.getByText(/Didn't log everything/)).toBeInTheDocument();
+    expect(screen.getByText('Mark Incomplete')).toBeInTheDocument();
+  });
 });

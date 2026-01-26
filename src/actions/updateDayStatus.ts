@@ -2,6 +2,7 @@
 
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { LogStatus } from '@/lib/types';
+import { recalculateTdeeFromDate } from '@/lib/metabolicService';
 
 /**
  * Format date to YYYY-MM-DD string
@@ -121,6 +122,12 @@ export async function updateDayStatus(
       });
       console.log('[updateDayStatus] Created new DailyLog for', dateKey);
     }
+
+    // Trigger TDEE recalculation from this date forward
+    // This ensures skipped days are properly excluded from calculations
+    console.log('[updateDayStatus] Triggering TDEE recalculation from', dateKey);
+    const daysRecalculated = await recalculateTdeeFromDate(dateKey);
+    console.log('[updateDayStatus] Recalculated TDEE for', daysRecalculated, 'days');
 
     return { success: true, logStatus: status };
   } catch (error) {

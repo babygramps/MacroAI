@@ -140,14 +140,56 @@ export function DayStatusBanner({
   const isLowCalories = totalCalories > 0 && totalCalories < estimatedTdee * 0.5;
   const hasNoFood = totalCalories === 0;
 
-  // Don't show banner if day has reasonable calories and no status
-  if (!isLowCalories && !hasNoFood && !currentStatus) {
-    return null;
+  // Determine if we should show a warning (incomplete-looking) or just an option
+  const showWarning = isLowCalories || hasNoFood;
+
+  // For days with reasonable calories, show a subtle option to mark as incomplete
+  if (!showWarning) {
+    return (
+      <div
+        className="mb-4 rounded-xl p-3 flex items-center justify-between gap-3"
+        style={{
+          backgroundColor: '#1E1E26',
+          borderLeft: '3px solid #2A2A35',
+        }}
+      >
+        <div className="flex items-center gap-2">
+          <svg
+            className="w-4 h-4 text-text-muted"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span className="text-xs text-text-muted">
+            Didn&apos;t log everything?
+          </span>
+        </div>
+        <button
+          onClick={handleMarkSkipped}
+          disabled={isUpdating}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap
+                     transition-colors hover:opacity-90 disabled:opacity-50"
+          style={{
+            backgroundColor: `${STATUS_COLORS.skipped}20`,
+            color: STATUS_COLORS.skipped,
+          }}
+        >
+          {isUpdating ? 'Updating...' : 'Mark Incomplete'}
+        </button>
+      </div>
+    );
   }
 
   // Show warning banner for incomplete-looking days
   const warningColor = hasNoFood ? STATUS_COLORS.skipped : STATUS_COLORS.incomplete;
-  const message = hasNoFood 
+  const message = hasNoFood
     ? 'No food logged for this day'
     : `Only ${totalCalories} kcal logged - looks incomplete`;
   const suggestion = hasNoFood
@@ -155,27 +197,27 @@ export function DayStatusBanner({
     : 'If you forgot to log, mark as skipped for accurate TDEE';
 
   return (
-    <div 
+    <div
       className="mb-4 rounded-xl p-4"
-      style={{ 
+      style={{
         backgroundColor: `${warningColor}10`,
         borderLeft: `3px solid ${warningColor}`,
       }}
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3">
-          <svg 
-            className="w-5 h-5 mt-0.5 flex-shrink-0" 
+          <svg
+            className="w-5 h-5 mt-0.5 flex-shrink-0"
             style={{ color: warningColor }}
-            fill="none" 
-            stroke="currentColor" 
+            fill="none"
+            stroke="currentColor"
             viewBox="0 0 24 24"
           >
-            <path 
-              strokeLinecap="round" 
-              strokeLinejoin="round" 
-              strokeWidth={2} 
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" 
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
             />
           </svg>
           <div>
@@ -185,13 +227,13 @@ export function DayStatusBanner({
             <p className="text-xs text-text-muted mt-1">{suggestion}</p>
           </div>
         </div>
-        
+
         <button
           onClick={handleMarkSkipped}
           disabled={isUpdating}
           className="px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap
                      transition-colors hover:opacity-90 disabled:opacity-50"
-          style={{ 
+          style={{
             backgroundColor: `${STATUS_COLORS.skipped}20`,
             color: STATUS_COLORS.skipped,
           }}

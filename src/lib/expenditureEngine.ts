@@ -292,9 +292,14 @@ export function buildComputedState(
   stepCountDelta?: number
 ): ComputedState {
   const weightDeltaKg = trendWeightKg - prevTrendWeightKg;
-  
-  // If no calorie data, we can't calculate TDEE - hold previous
-  if (!dailyLog || dailyLog.nutritionCalories === null) {
+
+  // If no calorie data OR day is marked as skipped, we can't calculate TDEE - hold previous
+  // This ensures user-marked incomplete days are excluded from TDEE calculations
+  const isSkipped = dailyLog?.logStatus === 'skipped';
+  if (!dailyLog || dailyLog.nutritionCalories === null || isSkipped) {
+    if (isSkipped) {
+      console.log(`[ExpenditureEngine] Day ${date} marked as skipped - holding previous TDEE`);
+    }
     return {
       date,
       trendWeightKg,
