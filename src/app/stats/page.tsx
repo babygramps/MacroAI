@@ -9,6 +9,7 @@ import { MetabolicInsightsCard, MetabolicInsightsCardSkeleton } from '@/componen
 import { TdeeProgressCard, TdeeProgressCardSkeleton } from '@/components/ui/TdeeProgressCard';
 import { WeeklyCheckInCard, WeeklyCheckInCardSkeleton } from '@/components/ui/WeeklyCheckInCard';
 import { AppHeader } from '@/components/ui/AppHeader';
+import { BottomNav } from '@/components/ui/BottomNav';
 import { 
   fetchWeeklyStats, 
   fetchUserGoals, 
@@ -399,6 +400,9 @@ export default function StatsPage() {
         onSuccess={handleWeightLogSuccess}
         preferredUnit={preferredUnit}
       />
+
+      {/* Bottom Navigation */}
+      <BottomNav showAdd={false} />
     </div>
   );
 }

@@ -276,7 +276,7 @@ body {
 .page-container-compact {
   min-height: 100vh;
   background: var(--bg-primary);
-  padding-bottom: 2rem; /* pb-8 equivalent */
+  padding-bottom: 6rem; /* Space for bottom nav */
 }
 
 .page-header {
@@ -691,6 +691,105 @@ body {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1rem;
+}
+
+/* ============================================
+   BOTTOM NAVIGATION
+   ============================================ */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, var(--bg-primary) 85%, transparent);
+  padding-top: 1rem;
+  z-index: 50;
+}
+
+.bottom-nav > div {
+  background: var(--bg-surface);
+  border-radius: 1.25rem 1.25rem 0 0;
+  border: 1px solid var(--border-subtle);
+  border-bottom: none;
+  padding: 0.5rem 0;
+  padding-bottom: env(safe-area-inset-bottom, 0.5rem);
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.75rem 0.5rem;
+  color: var(--text-muted);
+  transition: color 0.15s ease;
+  text-decoration: none;
+}
+
+.bottom-nav-item:hover {
+  color: var(--text-secondary);
+}
+
+.bottom-nav-item.active {
+  color: var(--color-calories);
+}
+
+.bottom-nav-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 0.25rem;
+}
+
+.bottom-nav-label {
+  font-size: 0.625rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.bottom-nav-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 1.5rem;
+  margin-top: -1.25rem;
+}
+
+.bottom-nav-add-inner {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 9999px;
+  background: var(--color-calories);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  box-shadow: 0 4px 20px rgba(255, 107, 53, 0.4);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.bottom-nav-add:hover .bottom-nav-add-inner {
+  transform: scale(1.05);
+  box-shadow: 0 6px 24px rgba(255, 107, 53, 0.5);
+}
+
+.bottom-nav-add:active .bottom-nav-add-inner {
+  transform: scale(0.95);
+}
+
+.bottom-nav-indicator {
+  position: absolute;
+  bottom: env(safe-area-inset-bottom, 0);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 32px;
+  height: 4px;
+  background: var(--color-calories);
+  border-radius: 2px;
+  margin-bottom: 0.5rem;
 }
 
 /* Amplify Authenticator overrides */

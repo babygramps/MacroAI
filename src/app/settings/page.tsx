@@ -14,6 +14,7 @@ import {
 } from '@/lib/unitConversions';
 import { showToast } from '@/components/ui/Toast';
 import { AppHeader } from '@/components/ui/AppHeader';
+import { BottomNav } from '@/components/ui/BottomNav';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
 import { PasskeyManager } from '@/components/ui/PasskeyManager';
@@ -765,6 +766,9 @@ export default function SettingsPage() {
           </button>
         </section>
       </main>
+
+      {/* Bottom Navigation */}
+      <BottomNav showAdd={false} />
     </div>
   );
 }

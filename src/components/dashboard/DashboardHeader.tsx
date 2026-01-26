@@ -7,8 +7,8 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ userEmail }: DashboardHeaderProps) {
   return (
     <AppHeader 
-      showStats 
-      showSettings 
+      showStats={false}
+      showSettings={false}
       userEmail={userEmail}
     />
   );
