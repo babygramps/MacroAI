@@ -3,16 +3,18 @@
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { ModalShell } from './ui/ModalShell';
+import type { RecentFoodsResponse } from '@/lib/types';
 
 interface FoodLogModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  prefetchedRecents?: RecentFoodsResponse | null;
 }
 
 type Tab = 'search' | 'type' | 'photo' | 'recipe';
 
-export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) {
+export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
 
   // Lazy load tabs with next/dynamic (bundle-dynamic-imports rule)
@@ -94,7 +96,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'search' && <SearchTab onSuccess={onSuccess} />}
+        {activeTab === 'search' && <SearchTab onSuccess={onSuccess} prefetchedRecents={prefetchedRecents} />}
         {activeTab === 'type' && <TextTab onSuccess={onSuccess} />}
         {activeTab === 'photo' && <PhotoTab onSuccess={onSuccess} />}
         {activeTab === 'recipe' && <RecipeTab onSuccess={onSuccess} />}

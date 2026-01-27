@@ -5,7 +5,7 @@ import { getCurrentUser, fetchUserAttributes } from 'aws-amplify/auth';
 import { FoodLogModal } from './FoodLogModal';
 import { MealEditModal } from './MealEditModal';
 import { DateNavigator } from './ui/DateNavigator';
-import type { MealEntry } from '@/lib/types';
+import type { MealEntry, RecentFoodsResponse } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
 import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
@@ -20,11 +20,15 @@ import { DayStatusAction } from './ui/DayStatusAction';
 import { BottomNav } from './ui/BottomNav';
 import { isToday } from '@/lib/date';
 import { logError } from '@/lib/logger';
+import { getRecentFoods } from '@/actions/getRecentFoods';
 
 export function Dashboard() {
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
 
-  // Fetch user email on mount
+  // Prefetch recents on mount so data is ready when FoodLogModal opens (async-parallel rule)
+  const [prefetchedRecents, setPrefetchedRecents] = useState<RecentFoodsResponse | null>(null);
+
+  // Fetch user email and prefetch recents on mount
   useEffect(() => {
     async function fetchUserEmail() {
       try {
@@ -42,7 +46,20 @@ export function Dashboard() {
         console.error('[Dashboard] Error fetching user email:', error);
       }
     }
+
+    async function prefetchRecents() {
+      try {
+        const data = await getRecentFoods();
+        setPrefetchedRecents(data);
+      } catch (error) {
+        // Silent fail - SearchTab will fetch on its own if needed
+        console.error('[Dashboard] Error prefetching recents:', error);
+      }
+    }
+
+    // Start both fetches in parallel (async-parallel rule)
     fetchUserEmail();
+    prefetchRecents();
   }, []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
@@ -123,7 +140,7 @@ export function Dashboard() {
     setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
   }, []);
 
-  const handleLogSuccess = useCallback(() => {
+  const handleLogSuccess = useCallback(async () => {
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
@@ -132,6 +149,13 @@ export function Dashboard() {
       setSelectedDate(today);
     } else {
       refresh();
+    }
+    // Refresh prefetched recents so they're up-to-date for next modal open
+    try {
+      const data = await getRecentFoods();
+      setPrefetchedRecents(data);
+    } catch {
+      // Silent fail - will fetch fresh next time
     }
   }, [refresh, selectedDate]);
 
@@ -227,6 +251,7 @@ export function Dashboard() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleLogSuccess}
+        prefetchedRecents={prefetchedRecents}
       />
 
       {/* Meal Edit Modal */}

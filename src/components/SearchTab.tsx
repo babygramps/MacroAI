@@ -15,6 +15,7 @@ import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 
 interface SearchTabProps {
   onSuccess: () => void;
+  prefetchedRecents?: RecentFoodsResponse | null;
 }
 
 type View = 'search' | 'scanner' | 'detail' | 'category';
@@ -30,7 +31,7 @@ const BarcodeScanner = dynamic(
   }
 );
 
-export function SearchTab({ onSuccess }: SearchTabProps) {
+export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NormalizedFood[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,12 +46,20 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
   const [category, setCategory] = useState<MealCategory>('snack');
   const [mealName, setMealName] = useState('');
 
-  // Recents state - full data for display when no search query
-  const [recentsData, setRecentsData] = useState<RecentFoodsResponse | null>(null);
-  const [isLoadingRecents, setIsLoadingRecents] = useState(true);
+  // Recents state - use prefetched data if available (async-parallel optimization)
+  const [recentsData, setRecentsData] = useState<RecentFoodsResponse | null>(prefetchedRecents ?? null);
+  const [isLoadingRecents, setIsLoadingRecents] = useState(!prefetchedRecents);
 
-  // Fetch recents on mount for display when no search query
+  // Only fetch recents if not prefetched (fallback for when Dashboard didn't prefetch)
   useEffect(() => {
+    // If we already have prefetched data, skip fetching
+    if (prefetchedRecents) {
+      setRecentsData(prefetchedRecents);
+      setIsLoadingRecents(false);
+      return;
+    }
+
+    // Fallback: fetch if no prefetched data available
     let mounted = true;
 
     async function fetchRecents() {
@@ -72,7 +81,7 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [prefetchedRecents]);
 
   // Convert RecentFood to NormalizedFood for selection
   const handleSelectRecentItem = useCallback((item: RecentFood) => {
