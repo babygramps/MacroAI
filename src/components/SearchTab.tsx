@@ -5,13 +5,13 @@ import dynamic from 'next/dynamic';
 import { searchFoods } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory, RecentFood } from '@/lib/types';
+import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
-import { RecentItemCardSkeleton } from './ui/RecentItemCard';
+import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 
 interface SearchTabProps {
   onSuccess: () => void;
@@ -45,56 +45,37 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
   const [category, setCategory] = useState<MealCategory>('snack');
   const [mealName, setMealName] = useState('');
 
-  // Quick Add recents state
-  const [quickAddItems, setQuickAddItems] = useState<RecentFood[]>([]);
-  const [isLoadingQuickAdd, setIsLoadingQuickAdd] = useState(true);
+  // Recents state - full data for display when no search query
+  const [recentsData, setRecentsData] = useState<RecentFoodsResponse | null>(null);
+  const [isLoadingRecents, setIsLoadingRecents] = useState(true);
 
-  // Fetch top 5 recents on mount for Quick Add section
+  // Fetch recents on mount for display when no search query
   useEffect(() => {
     let mounted = true;
 
-    async function fetchQuickAdd() {
+    async function fetchRecents() {
       try {
         const data = await getRecentFoods();
         if (mounted) {
-          // Combine meals and ingredients, take top 5 by interleaving
-          const combined: RecentFood[] = [];
-          const maxItems = 5;
-          let mealIdx = 0;
-          let ingIdx = 0;
-          
-          while (combined.length < maxItems) {
-            // Alternate between meals and ingredients
-            if (mealIdx < data.recentMeals.length && (ingIdx >= data.recentIngredients.length || mealIdx <= ingIdx)) {
-              combined.push(data.recentMeals[mealIdx]);
-              mealIdx++;
-            } else if (ingIdx < data.recentIngredients.length) {
-              combined.push(data.recentIngredients[ingIdx]);
-              ingIdx++;
-            } else {
-              break;
-            }
-          }
-          
-          setQuickAddItems(combined);
+          setRecentsData(data);
         }
       } catch (error) {
-        console.error('Error fetching quick add items:', error);
+        console.error('Error fetching recents:', error);
       } finally {
         if (mounted) {
-          setIsLoadingQuickAdd(false);
+          setIsLoadingRecents(false);
         }
       }
     }
 
-    fetchQuickAdd();
+    fetchRecents();
     return () => {
       mounted = false;
     };
   }, []);
 
   // Convert RecentFood to NormalizedFood for selection
-  const handleSelectQuickAddItem = useCallback((item: RecentFood) => {
+  const handleSelectRecentItem = useCallback((item: RecentFood) => {
     const normalizedFood: NormalizedFood = {
       id: item.id,
       name: item.name,
@@ -562,65 +543,71 @@ export function SearchTab({ onSuccess }: SearchTabProps) {
         </div>
       )}
 
-      {/* Initial state with Quick Add */}
+      {/* Initial state - show recents when no query */}
       {!isLoading && !query && results.length === 0 && (
         <>
-          {/* Quick Add section - show top recents */}
-          {isLoadingQuickAdd ? (
-            <div className="mb-6">
-              <h3 className="text-card-title mb-3 flex items-center gap-2">
-                <span>⚡</span>
-                Quick Add
-              </h3>
-              <div className="space-y-2">
-                <RecentItemCardSkeleton />
-                <RecentItemCardSkeleton />
-              </div>
+          {/* Loading state */}
+          {isLoadingRecents ? (
+            <div className="space-y-3">
+              <RecentItemCardSkeleton />
+              <RecentItemCardSkeleton />
+              <RecentItemCardSkeleton />
             </div>
-          ) : quickAddItems.length > 0 ? (
-            <div className="mb-6">
-              <h3 className="text-card-title mb-3 flex items-center gap-2">
-                <span>⚡</span>
-                Quick Add
-              </h3>
-              <div className="space-y-2">
-                {quickAddItems.map((item) => (
-                  <button
-                    key={`${item.type}-${item.id}`}
-                    onClick={() => handleSelectQuickAddItem(item)}
-                    className="w-full card-interactive text-left"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-text-primary truncate">{item.name}</p>
-                        <p className="text-caption">
-                          {item.calories} kcal • {Math.round(item.protein)}g protein
-                          <span className="text-macro-protein ml-1">×{item.logCount}</span>
-                        </p>
-                      </div>
-                      <svg
-                        className="w-4 h-4 text-text-muted flex-shrink-0 ml-2"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          ) : recentsData && (recentsData.recentMeals.length > 0 || recentsData.recentIngredients.length > 0) ? (
+            <>
+              {/* Recent Meals section */}
+              {recentsData.recentMeals.length > 0 ? (
+                <div className="mb-6">
+                  <h3 className="text-card-title mb-3 flex items-center gap-2">
+                    <span>🍽️</span>
+                    Recent Meals
+                  </h3>
+                  <div className="space-y-2">
+                    {recentsData.recentMeals.map((meal) => (
+                      <RecentItemCard
+                        key={meal.id}
+                        item={meal}
+                        onSelect={handleSelectRecentItem}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
-          {/* Help text */}
-          <div className="text-center py-4">
-            <p className="text-4xl mb-4">🍎</p>
-            <p className="text-body text-text-secondary">Search for a food</p>
-            <p className="text-caption mt-2">
-              Type a food name or scan a barcode
-            </p>
-          </div>
+              {/* Frequent Foods section */}
+              {recentsData.recentIngredients.length > 0 ? (
+                <div className="mb-6">
+                  <h3 className="text-card-title mb-3 flex items-center gap-2">
+                    <span>⭐</span>
+                    Frequent Foods
+                  </h3>
+                  <div className="space-y-2">
+                    {recentsData.recentIngredients.map((ingredient) => (
+                      <RecentItemCard
+                        key={ingredient.id}
+                        item={ingredient}
+                        onSelect={handleSelectRecentItem}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : (
+            /* Empty state - no recents yet */
+            <div className="text-center py-12">
+              <div className="w-20 h-20 bg-bg-elevated rounded-full flex items-center justify-center mx-auto mb-4">
+                <span className="text-4xl">🍎</span>
+              </div>
+              <h3 className="text-section-title mb-2">Search for a Food</h3>
+              <p className="text-body text-text-secondary mb-2">
+                Type a food name or scan a barcode
+              </p>
+              <p className="text-caption text-text-muted">
+                Foods you log will appear here for quick access
+              </p>
+            </div>
+          )}
         </>
       )}
     </div>
