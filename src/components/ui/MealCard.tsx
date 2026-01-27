@@ -1,15 +1,17 @@
 'use client';
 
-import { memo, useMemo, useState } from 'react';
+import { memo, useMemo, useState, useCallback } from 'react';
 import type { MealEntry } from '@/lib/types';
 import { CategoryBadge } from './CategoryPicker';
 import { IngredientListItem } from './IngredientCard';
+import { MealContextMenu, EditIcon, DeleteIcon, DuplicateIcon, type MealContextMenuAction } from './MealContextMenu';
 
 interface MealCardProps {
   meal: MealEntry;
   index: number;
   onEdit?: (meal: MealEntry) => void;
   onDelete?: (id: string) => void;
+  onDuplicate?: (id: string) => void;
 }
 
 // Map common food/meal names to emojis
@@ -89,53 +91,96 @@ function formatTime(dateString: string): string {
   });
 }
 
-export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete }: MealCardProps) {
+export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, onDuplicate }: MealCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const emoji = useMemo(() => getMealEmoji(meal.name, meal.category), [meal.name, meal.category]);
   const hasMultipleIngredients = meal.ingredients.length > 1;
   const formattedTime = useMemo(() => formatTime(meal.eatenAt), [meal.eatenAt]);
 
+  // Build context menu actions
+  const contextMenuActions = useMemo((): MealContextMenuAction[] => {
+    const actions: MealContextMenuAction[] = [];
+
+    if (onEdit) {
+      actions.push({
+        label: 'Edit',
+        icon: EditIcon,
+        onClick: () => onEdit(meal),
+      });
+    }
+
+    if (onDuplicate) {
+      actions.push({
+        label: 'Duplicate',
+        icon: DuplicateIcon,
+        onClick: () => onDuplicate(meal.id),
+      });
+    }
+
+    if (onDelete) {
+      actions.push({
+        label: 'Delete',
+        icon: DeleteIcon,
+        onClick: () => onDelete(meal.id),
+        variant: 'danger',
+      });
+    }
+
+    return actions;
+  }, [meal, onEdit, onDelete, onDuplicate]);
+
+  const hasActions = contextMenuActions.length > 0;
+
+  // Handle expand/collapse click while avoiding conflict with context menu
+  const handleCardClick = useCallback(() => {
+    if (hasMultipleIngredients) {
+      setIsExpanded((prev) => !prev);
+    }
+  }, [hasMultipleIngredients]);
+
   return (
     <div
-      className="card-interactive animate-fade-in-up overflow-hidden"
+      className="card-interactive animate-fade-in-up overflow-hidden group"
       style={{ '--stagger-index': index } as React.CSSProperties}
     >
-      {/* Main card content - always visible */}
-      <button
-        onClick={() => hasMultipleIngredients && setIsExpanded(!isExpanded)}
-        className={`w-full flex items-center gap-3 text-left ${hasMultipleIngredients ? 'cursor-pointer' : 'cursor-default'}`}
-      >
-        <span className="text-2xl">{emoji}</span>
-        
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <p className="font-satoshi font-medium text-text-primary truncate">
-              {meal.name}
+      <MealContextMenu actions={contextMenuActions} disabled={!hasActions}>
+        {/* Main card content - always visible */}
+        <button
+          onClick={handleCardClick}
+          className={`w-full flex items-center gap-3 text-left pr-10 ${hasMultipleIngredients ? 'cursor-pointer' : 'cursor-default'}`}
+        >
+          <span className="text-2xl">{emoji}</span>
+          
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-0.5">
+              <p className="font-satoshi font-medium text-text-primary truncate">
+                {meal.name}
+              </p>
+              <CategoryBadge category={meal.category} />
+            </div>
+            <p className="text-caption">
+              {meal.totalCalories} kcal • {Math.round(meal.totalProtein)}g protein
             </p>
-            <CategoryBadge category={meal.category} />
+            {hasMultipleIngredients && (
+              <p className="text-xs text-text-muted mt-0.5 flex items-center gap-1">
+                <svg
+                  className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+                {meal.ingredients.length} ingredients
+              </p>
+            )}
           </div>
-          <p className="text-caption">
-            {meal.totalCalories} kcal • {Math.round(meal.totalProtein)}g protein
-          </p>
-          {hasMultipleIngredients && (
-            <p className="text-xs text-text-muted mt-0.5 flex items-center gap-1">
-              <svg
-                className={`w-3 h-3 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-              {meal.ingredients.length} ingredients
-            </p>
-          )}
-        </div>
-        
-        <span className="text-caption text-text-muted whitespace-nowrap hidden sm:block">
-          {formattedTime}
-        </span>
-      </button>
+          
+          <span className="text-caption text-text-muted whitespace-nowrap hidden sm:block">
+            {formattedTime}
+          </span>
+        </button>
+      </MealContextMenu>
 
       {/* Expanded content - ingredients list */}
       <div
@@ -153,50 +198,11 @@ export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete }
         </div>
       </div>
 
-      {/* Action buttons always visible at bottom */}
-      {(onEdit || onDelete) && (
-        <div className="flex items-center gap-1 mt-2 pt-2 border-t border-border-subtle">
-          {onEdit && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onEdit(meal);
-              }}
-              className="flex-1 py-1.5 rounded-lg bg-bg-elevated text-text-secondary text-xs
-                         hover:bg-macro-calories/20 hover:text-macro-calories transition-colors
-                         flex items-center justify-center gap-1"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                />
-              </svg>
-              Edit
-            </button>
-          )}
-          {onDelete && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(meal.id);
-              }}
-              className="py-1.5 px-3 rounded-lg bg-bg-elevated text-text-muted text-xs
-                         hover:bg-red-500/20 hover:text-red-500 transition-colors"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
+      {/* Mobile hint for long-press (shown only on touch devices) */}
+      {hasActions && (
+        <p className="text-xs text-text-muted mt-2 text-center md:hidden">
+          Long press for more options
+        </p>
       )}
     </div>
   );

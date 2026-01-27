@@ -9,6 +9,7 @@ interface MealLogSectionProps {
   canAddFood: boolean;
   onEdit: (meal: MealEntry) => void;
   onDelete: (mealId: string) => void;
+  onDuplicate: (mealId: string) => void;
 }
 
 export function MealLogSection({
@@ -18,6 +19,7 @@ export function MealLogSection({
   canAddFood,
   onEdit,
   onDelete,
+  onDuplicate,
 }: MealLogSectionProps) {
   return (
     <section>
@@ -43,6 +45,7 @@ export function MealLogSection({
               index={index}
               onEdit={onEdit}
               onDelete={onDelete}
+              onDuplicate={onDuplicate}
             />
           ))
         ) : (

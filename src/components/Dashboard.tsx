@@ -9,7 +9,7 @@ import type { MealEntry, RecentFoodsResponse } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
 import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
-import { deleteMealEntry, updateMeal } from '@/lib/data/dashboard';
+import { deleteMealEntry, updateMeal, duplicateMealEntry } from '@/lib/data/dashboard';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
 import { DashboardHeader } from './dashboard/DashboardHeader';
 import { DashboardRings } from './dashboard/DashboardRings';
@@ -140,6 +140,17 @@ export function Dashboard() {
     setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
   }, []);
 
+  const handleDuplicateMeal = useCallback(async (mealId: string) => {
+    try {
+      await duplicateMealEntry(mealId);
+      showToast('Meal duplicated!', 'success');
+      await refresh();
+    } catch (error) {
+      logError('Error duplicating meal', { error });
+      showToast('Failed to duplicate meal', 'error');
+    }
+  }, [refresh]);
+
   const handleLogSuccess = useCallback(async () => {
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
@@ -228,6 +239,7 @@ export function Dashboard() {
           canAddFood={canAddFood}
           onEdit={handleEditMeal}
           onDelete={handleDeleteMeal}
+          onDuplicate={handleDuplicateMeal}
         />
 
         {/* Day Status Action (for marking today as complete/skipped) */}

@@ -377,6 +377,94 @@ export async function deleteMealEntry(mealId: string): Promise<void> {
 }
 
 /**
+ * Duplicate a meal entry (creates a new copy with current timestamp)
+ */
+export async function duplicateMealEntry(mealId: string): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) return;
+
+  const now = new Date().toISOString();
+
+  // Handle legacy food logs
+  if (mealId.startsWith('legacy-')) {
+    const realId = mealId.replace('legacy-', '');
+    const { data: foodLog } = await client.models.FoodLog.get({ id: realId });
+
+    if (!foodLog) {
+      throw new Error('Food log not found');
+    }
+
+    await client.models.FoodLog.create({
+      name: foodLog.name,
+      weightG: foodLog.weightG,
+      calories: foodLog.calories,
+      protein: foodLog.protein,
+      carbs: foodLog.carbs,
+      fat: foodLog.fat,
+      source: foodLog.source,
+      eatenAt: now,
+      servingDescription: foodLog.servingDescription ?? undefined,
+      servingSizeGrams: foodLog.servingSizeGrams ?? undefined,
+    });
+
+    await onMealLogged(now);
+    return;
+  }
+
+  // Get the meal and its ingredients
+  const { data: meal } = await client.models.Meal.get({ id: mealId });
+
+  if (!meal) {
+    throw new Error('Meal not found');
+  }
+
+  const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+    mealId,
+  });
+
+  // Create a new meal with the same data but current timestamp
+  const { data: newMeal } = await client.models.Meal.create({
+    name: meal.name,
+    category: meal.category,
+    eatenAt: now,
+    totalCalories: meal.totalCalories,
+    totalProtein: meal.totalProtein,
+    totalCarbs: meal.totalCarbs,
+    totalFat: meal.totalFat,
+    totalWeightG: meal.totalWeightG,
+  });
+
+  if (!newMeal) {
+    throw new Error('Failed to duplicate meal');
+  }
+
+  // Duplicate all ingredients
+  if (ingredients && ingredients.length > 0) {
+    await Promise.all(
+      ingredients.map((ing) =>
+        client.models.MealIngredient.create({
+          mealId: newMeal.id,
+          name: ing.name,
+          eatenAt: now,
+          weightG: ing.weightG,
+          calories: ing.calories,
+          protein: ing.protein,
+          carbs: ing.carbs,
+          fat: ing.fat,
+          source: ing.source,
+          servingDescription: ing.servingDescription ?? undefined,
+          servingSizeGrams: ing.servingSizeGrams ?? undefined,
+          sortOrder: ing.sortOrder ?? 0,
+        })
+      )
+    );
+  }
+
+  // Trigger metabolic recalculation
+  await onMealLogged(now);
+}
+
+/**
  * Scale recipe nutrition to a specific portion
  */
 export function scaleRecipePortion(
