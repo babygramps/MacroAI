@@ -1,5 +1,5 @@
 import type { Schema } from '@/amplify/data/resource';
-import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry } from '@/lib/types';
+import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry, RecipeEntry, ScaledRecipePortion } from '@/lib/types';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { onMealLogged } from '@/lib/metabolicService';
 
@@ -374,4 +374,87 @@ export async function deleteMealEntry(mealId: string): Promise<void> {
   if (eatenAt) {
     await onMealLogged(eatenAt);
   }
+}
+
+/**
+ * Scale recipe nutrition to a specific portion
+ */
+export function scaleRecipePortion(
+  recipe: RecipeEntry,
+  portionAmount: number,
+  portionMode: 'servings' | 'grams'
+): ScaledRecipePortion {
+  let portionWeightG: number;
+
+  if (portionMode === 'servings') {
+    const servingSizeG = recipe.servingSizeG || Math.round(recipe.totalYieldG / recipe.totalServings);
+    portionWeightG = portionAmount * servingSizeG;
+  } else {
+    portionWeightG = portionAmount;
+  }
+
+  const scaleFactor = portionWeightG / recipe.totalYieldG;
+
+  return {
+    weightG: Math.round(portionWeightG),
+    calories: Math.round(recipe.totalCalories * scaleFactor),
+    protein: Math.round(recipe.totalProtein * scaleFactor * 10) / 10,
+    carbs: Math.round(recipe.totalCarbs * scaleFactor * 10) / 10,
+    fat: Math.round(recipe.totalFat * scaleFactor * 10) / 10,
+    scaleFactor,
+  };
+}
+
+/**
+ * Log a portion of a recipe as a meal with scaled ingredients
+ */
+export async function logRecipePortion(
+  recipe: RecipeEntry,
+  portionAmount: number,
+  portionMode: 'servings' | 'grams',
+  category: MealCategory,
+  mealName: string
+): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) return;
+
+  const scaled = scaleRecipePortion(recipe, portionAmount, portionMode);
+  const now = new Date().toISOString();
+
+  // Create the meal
+  const { data: meal } = await client.models.Meal.create({
+    name: mealName || recipe.name,
+    category,
+    eatenAt: now,
+    totalCalories: scaled.calories,
+    totalProtein: scaled.protein,
+    totalCarbs: scaled.carbs,
+    totalFat: scaled.fat,
+    totalWeightG: scaled.weightG,
+  });
+
+  if (!meal) {
+    throw new Error('Failed to create meal from recipe');
+  }
+
+  // Create scaled ingredients
+  await Promise.all(
+    recipe.ingredients.map((ing, index) =>
+      client.models.MealIngredient.create({
+        mealId: meal.id,
+        name: ing.name,
+        eatenAt: now,
+        weightG: Math.round(ing.weightG * scaled.scaleFactor),
+        calories: Math.round(ing.calories * scaled.scaleFactor),
+        protein: Math.round(ing.protein * scaled.scaleFactor * 10) / 10,
+        carbs: Math.round(ing.carbs * scaled.scaleFactor * 10) / 10,
+        fat: Math.round(ing.fat * scaled.scaleFactor * 10) / 10,
+        source: ing.source,
+        sortOrder: index,
+      })
+    )
+  );
+
+  // Trigger metabolic recalculation
+  await onMealLogged(now);
 }

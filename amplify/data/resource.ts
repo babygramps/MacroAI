@@ -156,6 +156,43 @@ const schema = a.schema({
     })
     .authorization((allow) => [allow.owner()])
     .secondaryIndexes((index) => [index('weekStartDate')]),
+
+  // Recipe - User's saved recipes with total yield info
+  Recipe: a
+    .model({
+      name: a.string().required(), // "Grandma's Borscht"
+      description: a.string(), // Optional notes
+      totalYieldG: a.integer().required(), // Total weight of finished recipe
+      totalServings: a.float().required(), // e.g., 8 servings
+      servingDescription: a.string(), // e.g., "1 cup", "1 bowl"
+      servingSizeG: a.integer(), // grams per serving
+      // Pre-computed totals for the full recipe
+      totalCalories: a.integer().required(),
+      totalProtein: a.float().required(),
+      totalCarbs: a.float().required(),
+      totalFat: a.float().required(),
+      // Metadata
+      sourceUrl: a.string(), // If imported from URL
+      createdAt: a.datetime().required(),
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('createdAt')]),
+
+  // RecipeIngredient - Individual ingredients in a recipe
+  RecipeIngredient: a
+    .model({
+      recipeId: a.string().required(),
+      name: a.string().required(),
+      weightG: a.integer().required(),
+      calories: a.integer().required(),
+      protein: a.float().required(),
+      carbs: a.float().required(),
+      fat: a.float().required(),
+      source: a.string().required(), // "USDA" | "GEMINI"
+      sortOrder: a.integer(),
+    })
+    .authorization((allow) => [allow.owner()])
+    .secondaryIndexes((index) => [index('recipeId')]),
 });
 
 export type Schema = ClientSchema<typeof schema>;

@@ -7,7 +7,8 @@ import type {
 
 // USDA Nutrient IDs
 const USDA_NUTRIENT_IDS = {
-  CALORIES: 1008, // Energy (kcal)
+  CALORIES_KCAL: 1008, // Energy (kcal)
+  CALORIES_KJ: 1062, // Energy (kJ) - some foods only have this
   PROTEIN: 1003, // Protein
   CARBS: 1005, // Carbohydrate, by difference
   FAT: 1004, // Total lipid (fat)
@@ -99,11 +100,26 @@ export function normalizeUSDA(food: USDAFood, scaleToServing: boolean = true): N
   // Get serving info
   const servingInfo = extractUSDAServingInfo(food);
   
-  // Get per-100g values
-  const caloriesPer100g = getNutrientValue(USDA_NUTRIENT_IDS.CALORIES);
+  // Get per-100g values for macros
   const proteinPer100g = getNutrientValue(USDA_NUTRIENT_IDS.PROTEIN);
   const carbsPer100g = getNutrientValue(USDA_NUTRIENT_IDS.CARBS);
   const fatPer100g = getNutrientValue(USDA_NUTRIENT_IDS.FAT);
+  
+  // Get calories - try kcal first, then kJ (convert), then calculate from macros
+  let caloriesPer100g = getNutrientValue(USDA_NUTRIENT_IDS.CALORIES_KCAL);
+  
+  if (caloriesPer100g === 0) {
+    // Try kJ and convert to kcal (1 kcal = 4.184 kJ)
+    const caloriesKJ = getNutrientValue(USDA_NUTRIENT_IDS.CALORIES_KJ);
+    if (caloriesKJ > 0) {
+      caloriesPer100g = Math.round(caloriesKJ / 4.184);
+    }
+  }
+  
+  if (caloriesPer100g === 0 && (proteinPer100g > 0 || carbsPer100g > 0 || fatPer100g > 0)) {
+    // Calculate from macros as last resort: protein*4 + carbs*4 + fat*9
+    caloriesPer100g = Math.round((proteinPer100g * 4) + (carbsPer100g * 4) + (fatPer100g * 9));
+  }
 
   if (scaleToServing) {
     // Scale to actual serving size

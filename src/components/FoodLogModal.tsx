@@ -10,7 +10,7 @@ interface FoodLogModalProps {
   onSuccess: () => void;
 }
 
-type Tab = 'recents' | 'search' | 'type' | 'photo';
+type Tab = 'recents' | 'search' | 'type' | 'photo' | 'recipe';
 
 export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('recents');
@@ -48,12 +48,21 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
       }),
     []
   );
+  const RecipeTab = useMemo(
+    () =>
+      dynamic(() => import('./RecipeTab').then((mod) => mod.RecipeTab), {
+        ssr: false,
+        loading: () => <div className="p-4 text-text-secondary">Loading recipes…</div>,
+      }),
+    []
+  );
 
   const tabs = [
     { id: 'recents' as Tab, label: 'Recents', icon: '⏱️' },
     { id: 'search' as Tab, label: 'Search', icon: '🔍' },
     { id: 'type' as Tab, label: 'Type', icon: '✏️' },
     { id: 'photo' as Tab, label: 'Photo', icon: '📷' },
+    { id: 'recipe' as Tab, label: 'Recipe', icon: '📖' },
   ];
 
   return (
@@ -98,6 +107,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess }: FoodLogModalProps) 
         {activeTab === 'search' && <SearchTab onSuccess={onSuccess} />}
         {activeTab === 'type' && <TextTab onSuccess={onSuccess} />}
         {activeTab === 'photo' && <PhotoTab onSuccess={onSuccess} />}
+        {activeTab === 'recipe' && <RecipeTab onSuccess={onSuccess} />}
       </div>
     </ModalShell>
   );

@@ -5,6 +5,7 @@ export * from '@/lib/types/food';
 export * from '@/lib/types/usda';
 export * from '@/lib/types/off';
 export * from '@/lib/types/meal';
+export * from '@/lib/types/recipe';
 
 // Unit system type
 export type UnitSystem = 'metric' | 'imperial';
