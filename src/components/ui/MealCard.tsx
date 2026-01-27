@@ -198,12 +198,6 @@ export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, 
         </div>
       </div>
 
-      {/* Mobile hint for long-press (shown only on touch devices) */}
-      {hasActions && (
-        <p className="text-xs text-text-muted mt-2 text-center md:hidden">
-          Long press for more options
-        </p>
-      )}
     </div>
   );
 });

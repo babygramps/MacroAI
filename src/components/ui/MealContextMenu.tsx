@@ -184,19 +184,20 @@ export function MealContextMenu({ actions, children, disabled = false }: MealCon
       >
         {children}
 
-        {/* Desktop 3-dot menu button */}
+        {/* 3-dot menu button - always visible, subtle on mobile, prominent on hover */}
         {!disabled && (
           <button
             onClick={handleMenuButtonClick}
-            className="absolute top-2 right-2 p-2 rounded-lg bg-bg-elevated/80 backdrop-blur-sm
-                       text-text-muted hover:text-text-primary hover:bg-bg-elevated
-                       transition-colors opacity-0 group-hover:opacity-100
-                       md:opacity-100 focus:opacity-100 touch-none"
+            className="absolute top-1/2 -translate-y-1/2 right-1 p-1.5 rounded-lg
+                       text-text-muted/50 hover:text-text-primary hover:bg-bg-elevated/80
+                       active:bg-bg-elevated transition-colors
+                       md:right-2 md:p-2 md:text-text-muted md:bg-bg-elevated/60
+                       md:hover:bg-bg-elevated md:backdrop-blur-sm"
             aria-label="More options"
             aria-haspopup="true"
             aria-expanded={isOpen}
           >
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-4 h-4 md:w-5 md:h-5" fill="currentColor" viewBox="0 0 20 20">
               <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
             </svg>
           </button>
