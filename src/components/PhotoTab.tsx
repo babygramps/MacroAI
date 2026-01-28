@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
-import { analyzeImage } from '@/actions/analyzeImage';
+import { analyzeImage, type ImageAnalysisResult, type ImageAnalysisErrorCode } from '@/actions/analyzeImage';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
@@ -33,6 +33,9 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('meal');
   const [mealName, setMealName] = useState('');
+
+  // Error state for analysis failures
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -76,6 +79,9 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const handleAnalyze = useCallback(async () => {
     if (!pendingFile || !image) return;
 
+    // Clear any previous error
+    setErrorMessage(null);
+
     // Log analysis start with file details
     logRemote.info('Photo analysis started', {
       ...getFileContext(pendingFile),
@@ -93,18 +99,28 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         formData.append('description', description.trim());
       }
 
-      const foods = await analyzeImage(formData);
+      const result = await analyzeImage(formData);
 
-      // Log successful analysis
+      // Log the result
       logRemote.info('Photo analysis completed', {
         ...getFileContext(pendingFile),
         durationMs: Date.now() - startTime,
-        foodsDetected: foods.length,
-        foodNames: foods.map(f => f.name),
+        success: result.success,
+        foodsDetected: result.foods.length,
+        foodNames: result.foods.map((f: NormalizedFood) => f.name),
+        errorCode: result.error?.code,
       });
 
-      setResults(foods);
-      setSelectedItems(new Set(foods.map((_, i) => i)));
+      if (!result.success || result.foods.length === 0) {
+        // Show error message from server
+        const message = result.error?.message || 'No food items detected. Please try again.';
+        setErrorMessage(message);
+        setView('describe');
+        return;
+      }
+
+      setResults(result.foods);
+      setSelectedItems(new Set(result.foods.map((_: NormalizedFood, i: number) => i)));
       setView('review');
     } catch (error) {
       // Log detailed error for debugging
@@ -116,7 +132,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
       });
 
       console.error('Image analysis error:', error);
-      showToast('Failed to analyze photo. Please try again.', 'error');
+      setErrorMessage('Something went wrong. Please try again.');
       setView('describe');
     }
   }, [pendingFile, image, description]);
@@ -230,6 +246,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setSelectedItems(new Set());
     setDescription('');
     setPendingFile(null);
+    setErrorMessage(null);
     setView('input');
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -364,6 +381,21 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={image} alt="Food" className="w-full h-full object-cover" />
         </div>
+
+        {/* Error message */}
+        {errorMessage && (
+          <div className="mb-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
+            <div className="flex items-start gap-3">
+              <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <div>
+                <p className="text-red-400 font-medium text-sm">Analysis Failed</p>
+                <p className="text-red-300/80 text-sm mt-1">{errorMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <h3 className="text-section-title mb-2">Add Details (Optional)</h3>
         <p className="text-caption text-text-muted mb-4">

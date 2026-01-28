@@ -31,6 +31,27 @@ interface GeminiFallbackFood {
   fat_g: number;
 }
 
+// Error codes for user-friendly messaging
+export type ImageAnalysisErrorCode =
+  | 'no_api_key'
+  | 'no_image'
+  | 'gemini_empty_response'
+  | 'gemini_no_food_detected'
+  | 'gemini_parse_error'
+  | 'gemini_api_error'
+  | 'unknown_error';
+
+// Structured result for better error handling
+export interface ImageAnalysisResult {
+  success: boolean;
+  foods: NormalizedFood[];
+  error?: {
+    code: ImageAnalysisErrorCode;
+    message: string;
+    details?: string; // For debugging - Gemini raw response, etc.
+  };
+}
+
 // Search USDA for a single ingredient (returns best match using relevance scoring)
 async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood | null> {
   const apiKey = process.env.USDA_API_KEY;
@@ -51,7 +72,7 @@ async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood 
     }
 
     const data: USDASearchResponse = await response.json();
-    
+
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
       const { food: usdaFood } = findBestMatch(data.foods, searchTerm);
@@ -59,11 +80,11 @@ async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood 
       if (!usdaFood) {
         return null;
       }
-      
+
       // Return per-100g data for ingredient scaling (scaleToServing=false)
       return normalizeUSDA(usdaFood, false);
     }
-    
+
     return null;
   } catch (error) {
     console.error('USDA search error for:', searchTerm, error);
@@ -132,30 +153,58 @@ function scaleToWeight(food: NormalizedFood, targetWeight: number, displayName: 
  *
  * Note: Images are NOT cached due to uniqueness
  */
-export async function analyzeImage(formData: FormData): Promise<NormalizedFood[]> {
+export async function analyzeImage(formData: FormData): Promise<ImageAnalysisResult> {
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     console.error('GEMINI_API_KEY not configured');
-    return [];
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'no_api_key',
+        message: 'AI service is not configured. Please contact support.',
+      },
+    };
   }
 
   const imageFile = formData.get('image') as File | null;
   const userDescription = formData.get('description') as string | null;
-  
+
   if (!imageFile) {
     console.error('No image provided');
-    return [];
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'no_image',
+        message: 'No image was received. Please try taking another photo.',
+      },
+    };
   }
+
+  // Log incoming image details for debugging
+  console.info('analyzeImage called', {
+    fileName: imageFile.name,
+    fileType: imageFile.type,
+    fileSize: imageFile.size,
+    fileSizeMB: Math.round(imageFile.size / 1024 / 1024 * 100) / 100,
+    hasDescription: !!userDescription,
+  });
 
   try {
     // Convert file to base64
     const arrayBuffer = await imageFile.arrayBuffer();
     const base64Image = Buffer.from(arrayBuffer).toString('base64');
 
+    console.info('Image converted to base64', {
+      base64Length: base64Image.length,
+      mimeType: imageFile.type || 'image/jpeg',
+    });
+
     const client = new GoogleGenAI({ apiKey: geminiKey });
 
     // Build context section if user provided a description
-    const userContextSection = userDescription 
+    const userContextSection = userDescription
       ? `
 USER-PROVIDED CONTEXT:
 The user has described this meal as: "${userDescription}"
@@ -199,6 +248,8 @@ USDA SEARCH TERM TIPS:
   - salmon → "salmon atlantic cooked"
   - salad greens → "lettuce green leaf raw"
 
+IMPORTANT: If you cannot identify any food items in the image (e.g., image is blurry, not food, or unclear), return an empty array: []
+
 Return ONLY a valid JSON array. Example:
 [
   {"usda_search_term": "chicken breast meat cooked roasted", "display_name": "Grilled Chicken Breast", "estimated_weight_g": 150, "is_branded": false},
@@ -206,8 +257,8 @@ Return ONLY a valid JSON array. Example:
   {"usda_search_term": "rice brown cooked", "display_name": "Brown Rice", "estimated_weight_g": 150, "is_branded": false}
 ]`;
 
-    console.info('Analyzing image with Gemini Vision...');
-    
+    console.info('Sending request to Gemini Vision...');
+
     const response = await client.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: [
@@ -230,16 +281,61 @@ Return ONLY a valid JSON array. Example:
     });
 
     const responseText = response.text;
+
+    // Log the raw response for debugging
+    console.info('Gemini raw response received', {
+      hasResponse: !!responseText,
+      responseLength: responseText?.length ?? 0,
+      responsePreview: responseText?.substring(0, 500) ?? 'null',
+    });
+
     if (!responseText) {
       console.warn('Gemini returned empty response');
-      return [];
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'gemini_empty_response',
+          message: 'The AI could not process this image. Please try a clearer photo.',
+          details: 'Gemini returned null/empty response',
+        },
+      };
     }
 
-    const parsedItems: GeminiImageParsedItem[] = JSON.parse(responseText);
-    console.info(`Gemini identified ${parsedItems.length} food items`);
+    // Try to parse the JSON response
+    let parsedItems: GeminiImageParsedItem[];
+    try {
+      parsedItems = JSON.parse(responseText);
+    } catch (parseError) {
+      console.error('Failed to parse Gemini response as JSON', {
+        parseError: parseError instanceof Error ? parseError.message : String(parseError),
+        rawResponse: responseText.substring(0, 1000),
+      });
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'gemini_parse_error',
+          message: 'The AI returned an unexpected response. Please try again.',
+          details: `Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}. Raw: ${responseText.substring(0, 500)}`,
+        },
+      };
+    }
+
+    console.info(`Gemini identified ${parsedItems.length} food items`, {
+      items: parsedItems.map(i => i.display_name),
+    });
 
     if (parsedItems.length === 0) {
-      return [];
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'gemini_no_food_detected',
+          message: 'No food items were detected in this image. Try taking a clearer photo with better lighting, or add a description.',
+          details: 'Gemini returned empty array - no food items recognized',
+        },
+      };
     }
 
     // Step 2: Query USDA for each non-branded item (parallel)
@@ -257,7 +353,7 @@ Return ONLY a valid JSON array. Example:
           // Try USDA first
           console.log(`Searching USDA for: ${item.usda_search_term}`);
           const usdaResult = await searchUSDAIngredient(item.usda_search_term);
-          
+
           if (usdaResult) {
             // Scale USDA result to actual weight
             food = scaleToWeight(usdaResult, item.estimated_weight_g, item.display_name);
@@ -276,9 +372,42 @@ Return ONLY a valid JSON array. Example:
     );
 
     console.info(`Returning ${results.length} food items with nutrition data`);
-    return results;
+    return {
+      success: true,
+      foods: results,
+    };
   } catch (error) {
-    console.error('Image analysis error:', error);
-    return [];
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+
+    console.error('Image analysis error:', {
+      message: errorMessage,
+      stack: errorStack?.split('\n').slice(0, 5).join('\n'),
+      imageType: imageFile.type,
+      imageSize: imageFile.size,
+    });
+
+    // Check for specific Gemini API errors
+    if (errorMessage.includes('SAFETY') || errorMessage.includes('blocked')) {
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'gemini_api_error',
+          message: 'This image could not be analyzed. Please try a different photo.',
+          details: `Safety filter: ${errorMessage}`,
+        },
+      };
+    }
+
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'unknown_error',
+        message: 'Something went wrong analyzing your photo. Please try again.',
+        details: errorMessage,
+      },
+    };
   }
 }
