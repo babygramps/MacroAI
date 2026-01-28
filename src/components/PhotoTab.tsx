@@ -9,6 +9,7 @@ import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
+import { logRemote, getFileContext, getErrorContext } from '@/lib/clientLogger';
 
 interface PhotoTabProps {
   onSuccess: () => void;
@@ -24,11 +25,11 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const [view, setView] = useState<View>('input');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  
+
   // Description to help AI understand the meal
   const [description, setDescription] = useState('');
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  
+
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('meal');
   const [mealName, setMealName] = useState('');
@@ -37,10 +38,35 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Log file selection for debugging mobile issues
+    logRemote.info('Photo selected', {
+      ...getFileContext(file),
+      inputType: e.target.capture ? 'camera' : 'gallery',
+    });
+
+    // Check for potential issues early
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    if (file.size > MAX_FILE_SIZE) {
+      logRemote.warn('Large file selected', {
+        ...getFileContext(file),
+        maxAllowed: MAX_FILE_SIZE,
+      });
+    }
+
     // Show preview and store file for later
     const reader = new FileReader();
+    reader.onerror = () => {
+      logRemote.error('FileReader error', {
+        ...getFileContext(file),
+        readerError: reader.error?.message,
+      });
+    };
     reader.onload = () => {
       setImage(reader.result as string);
+      logRemote.debug('Photo preview loaded', {
+        ...getFileContext(file),
+        previewLength: (reader.result as string)?.length,
+      });
     };
     reader.readAsDataURL(file);
     setPendingFile(file);
@@ -50,19 +76,47 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   const handleAnalyze = useCallback(async () => {
     if (!pendingFile || !image) return;
 
+    // Log analysis start with file details
+    logRemote.info('Photo analysis started', {
+      ...getFileContext(pendingFile),
+      hasDescription: !!description.trim(),
+      descriptionLength: description.trim().length,
+    });
+
     setView('loading');
+    const startTime = Date.now();
+
     try {
       const formData = new FormData();
       formData.append('image', pendingFile);
       if (description.trim()) {
         formData.append('description', description.trim());
       }
+
       const foods = await analyzeImage(formData);
+
+      // Log successful analysis
+      logRemote.info('Photo analysis completed', {
+        ...getFileContext(pendingFile),
+        durationMs: Date.now() - startTime,
+        foodsDetected: foods.length,
+        foodNames: foods.map(f => f.name),
+      });
+
       setResults(foods);
       setSelectedItems(new Set(foods.map((_, i) => i)));
       setView('review');
     } catch (error) {
+      // Log detailed error for debugging
+      logRemote.error('Photo analysis failed', {
+        ...getFileContext(pendingFile),
+        ...getErrorContext(error),
+        durationMs: Date.now() - startTime,
+        hasDescription: !!description.trim(),
+      });
+
       console.error('Image analysis error:', error);
+      showToast('Failed to analyze photo. Please try again.', 'error');
       setView('describe');
     }
   }, [pendingFile, image, description]);
@@ -81,13 +135,13 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
   const handleContinueToCategory = () => {
     if (selectedItems.size === 0) return;
-    
+
     // Generate a default meal name
     const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-    const defaultName = selectedFoods.length === 1 
+    const defaultName = selectedFoods.length === 1
       ? selectedFoods[0].name
       : selectedFoods.map(f => f.name).slice(0, 2).join(' & ');
-    
+
     setMealName(defaultName);
     // Default to meal for multi-ingredient, snack for single
     setCategory(selectedFoods.length > 1 ? 'meal' : 'snack');
@@ -106,7 +160,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         return;
       }
       const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-      
+
       // Calculate totals
       const ingredients = selectedFoods.map((food) => ({
         name: food.name,
@@ -117,7 +171,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         fat: food.fat || 0,
         source: food.source,
       }));
-      
+
       const totals = calculateMealTotals(ingredients);
       const now = new Date().toISOString();
 
@@ -197,7 +251,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   // Category selection view
   if (view === 'category' && image) {
     const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-    
+
     return (
       <div className="p-4 pb-safe">
         <button
@@ -238,7 +292,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
               <p className="text-caption">{selectedFoods.length} item{selectedFoods.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          
+
           {/* Items preview */}
           <div className="space-y-1 mb-4 pl-9">
             {selectedFoods.slice(0, 3).map((food, i) => (
@@ -383,19 +437,17 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
             <button
               key={index}
               onClick={() => toggleItem(index)}
-              className={`card text-left transition-all ${
-                selectedItems.has(index)
-                  ? 'border-macro-calories/50'
-                  : 'opacity-50'
-              }`}
+              className={`card text-left transition-all ${selectedItems.has(index)
+                ? 'border-macro-calories/50'
+                : 'opacity-50'
+                }`}
             >
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    selectedItems.has(index)
-                      ? 'border-macro-calories bg-macro-calories'
-                      : 'border-border-subtle'
-                  }`}
+                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedItems.has(index)
+                    ? 'border-macro-calories bg-macro-calories'
+                    : 'border-border-subtle'
+                    }`}
                 >
                   {selectedItems.has(index) && (
                     <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
