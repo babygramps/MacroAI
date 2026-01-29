@@ -18,8 +18,10 @@ import { MealLogSection } from './dashboard/MealLogSection';
 import { DayStatusBanner } from './ui/DayStatusBanner';
 import { DayStatusAction } from './ui/DayStatusAction';
 import { BottomNav } from './ui/BottomNav';
+import { DebugOverlay } from './ui/DebugOverlay';
 import { isToday } from '@/lib/date';
 import { logError } from '@/lib/logger';
+import { logRemote, setUserContext } from '@/lib/clientLogger';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 
 export function Dashboard() {
@@ -36,12 +38,18 @@ export function Dashboard() {
         const attributes = await fetchUserAttributes();
         if (attributes.email) {
           setUserEmail(attributes.email);
+          // Set user context for all logs
+          setUserContext({ email: attributes.email });
           return;
         }
         
         // Fallback to signInDetails
         const user = await getCurrentUser();
         setUserEmail(user.signInDetails?.loginId);
+        // Set user context for all logs
+        if (user.signInDetails?.loginId) {
+          setUserContext({ email: user.signInDetails.loginId, userId: user.userId });
+        }
       } catch (error) {
         console.error('[Dashboard] Error fetching user email:', error);
       }
@@ -152,6 +160,7 @@ export function Dashboard() {
   }, [refresh]);
 
   const handleLogSuccess = useCallback(async () => {
+    logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate) });
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
@@ -159,7 +168,9 @@ export function Dashboard() {
       today.setHours(0, 0, 0, 0);
       setSelectedDate(today);
     } else {
-      refresh();
+      logRemote.info('DASHBOARD_REFRESH_TRIGGERED', { trigger: 'log_success' });
+      await refresh();
+      logRemote.info('DASHBOARD_REFRESH_COMPLETE', { mealCount: summary.meals.length });
     }
     // Refresh prefetched recents so they're up-to-date for next modal open
     try {
@@ -168,7 +179,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [refresh, selectedDate]);
+  }, [refresh, selectedDate, summary.meals.length]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
@@ -298,6 +309,9 @@ export function Dashboard() {
         onConfirm={confirmDeleteMeal}
         onCancel={cancelDeleteMeal}
       />
+
+      {/* Debug Overlay - visible only when ?debug=1 in URL */}
+      <DebugOverlay />
     </div>
   );
 }

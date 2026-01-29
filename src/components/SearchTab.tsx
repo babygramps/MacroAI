@@ -13,7 +13,7 @@ import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 import { ErrorAlert } from './ui/ErrorAlert';
-import { logRemote, getErrorContext } from '@/lib/clientLogger';
+import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface SearchTabProps {
   onSuccess: () => void;
@@ -213,16 +213,28 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const handleLog = async () => {
     if (!selectedFood) return;
 
+    const traceId = generateTraceId();
+    const weightNum = getEffectiveWeight();
+    const scaled = scaleNutrition(selectedFood, weightNum);
+
+    logRemote.info('MEAL_LOG_START', {
+      traceId,
+      tab: 'search',
+      foodName: scaled.name,
+      category,
+      weightG: weightNum,
+      calories: scaled.calories,
+    });
+
     setIsSaving(true);
     try {
       const client = getAmplifyDataClient();
       if (!client) {
+        logRemote.error('MEAL_LOG_ERROR', { traceId, error: 'Amplify client not ready' });
         showToast('Amplify is not ready yet. Please try again.', 'error');
         setIsSaving(false);
         return;
       }
-      const weightNum = getEffectiveWeight();
-      const scaled = scaleNutrition(selectedFood, weightNum);
       const now = new Date().toISOString();
 
       // Create the meal
@@ -238,11 +250,14 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       });
 
       if (!meal) {
+        logRemote.error('MEAL_CREATE_FAILED', { traceId, error: 'Meal.create returned null' });
         throw new Error('Failed to create meal');
       }
 
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id });
+
       // Create the ingredient
-      await client.models.MealIngredient.create({
+      const { data: ingredient } = await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
         eatenAt: now,
@@ -257,13 +272,31 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         sortOrder: 0,
       });
 
+      if (ingredient) {
+        logRemote.info('INGREDIENT_CREATED', { traceId, ingredientId: ingredient.id, mealId: meal.id });
+      } else {
+        logRemote.warn('INGREDIENT_CREATE_WARN', { traceId, mealId: meal.id, error: 'MealIngredient.create returned null' });
+      }
+
+      // Verify meal is readable (eventual consistency check)
+      await new Promise(r => setTimeout(r, 100));
+      const { data: verification } = await client.models.Meal.get({ id: meal.id });
+      if (verification) {
+        logRemote.info('MEAL_VERIFIED', { traceId, mealId: meal.id });
+      } else {
+        logRemote.warn('MEAL_VERIFICATION_FAILED', { traceId, mealId: meal.id, error: 'Meal not readable after creation' });
+      }
+
       // Trigger metabolic recalculation
       await onMealLogged(now);
+
+      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified: !!verification });
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
       onSuccess();
     } catch (error) {
+      logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging food:', error);
       showToast('Failed to log food. Please try again.', 'error');
     } finally {

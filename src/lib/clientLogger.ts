@@ -2,7 +2,9 @@
  * Client-side logger that sends logs to CloudWatch via API route
  * 
  * Usage:
- *   import { logRemote } from '@/lib/clientLogger';
+ *   import { logRemote, generateTraceId } from '@/lib/clientLogger';
+ *   const traceId = generateTraceId();
+ *   logRemote.info('MEAL_LOG_START', { traceId, tab: 'search' });
  *   logRemote.error('Photo upload failed', { fileSize: file.size, fileType: file.type });
  */
 
@@ -10,6 +12,65 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogContext {
     [key: string]: unknown;
+}
+
+// User context for identifying logs
+let userContext: { userId?: string; email?: string } = {};
+
+/**
+ * Set user context to be included in all logs
+ * Call this after authentication
+ */
+export function setUserContext(ctx: { userId?: string; email?: string }): void {
+    userContext = ctx;
+}
+
+/**
+ * Generate a unique trace ID for correlating logs across the meal logging flow
+ * Format: ml_<timestamp>_<random>
+ */
+export function generateTraceId(): string {
+    return `ml_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// In-memory buffer of recent log entries for debug overlay
+export interface DebugLogEntry {
+    timestamp: number;
+    level: LogLevel;
+    message: string;
+    traceId?: string;
+    context?: LogContext;
+}
+
+const DEBUG_LOG_BUFFER_SIZE = 20;
+const debugLogBuffer: DebugLogEntry[] = [];
+const debugLogListeners: Set<(entries: DebugLogEntry[]) => void> = new Set();
+
+/**
+ * Subscribe to debug log updates (for DebugOverlay)
+ */
+export function subscribeToDebugLogs(callback: (entries: DebugLogEntry[]) => void): () => void {
+    debugLogListeners.add(callback);
+    // Immediately send current buffer
+    callback([...debugLogBuffer]);
+    // Return unsubscribe function
+    return () => debugLogListeners.delete(callback);
+}
+
+/**
+ * Get current debug log entries
+ */
+export function getDebugLogs(): DebugLogEntry[] {
+    return [...debugLogBuffer];
+}
+
+function addToDebugBuffer(entry: DebugLogEntry): void {
+    debugLogBuffer.unshift(entry);
+    if (debugLogBuffer.length > DEBUG_LOG_BUFFER_SIZE) {
+        debugLogBuffer.pop();
+    }
+    // Notify listeners
+    debugLogListeners.forEach(cb => cb([...debugLogBuffer]));
 }
 
 // Collect device/browser info for debugging
@@ -31,14 +92,27 @@ function getDeviceContext(): LogContext {
 }
 
 async function sendLog(level: LogLevel, message: string, context?: LogContext): Promise<void> {
+    const timestamp = Date.now();
+    
+    // Add to debug buffer for overlay
+    const traceId = context?.traceId as string | undefined;
+    addToDebugBuffer({
+        timestamp,
+        level,
+        message,
+        traceId,
+        context,
+    });
+
     // Don't block the UI - fire and forget
     try {
         const payload = {
             level,
             message,
-            timestamp: Date.now(),
+            timestamp,
             context: {
                 ...context,
+                ...userContext, // Include user context in all logs
                 device: getDeviceContext(),
                 url: typeof window !== 'undefined' ? window.location.pathname : undefined,
             },

@@ -58,3 +58,6 @@ CLAUDE.md
 *.log
 *.tmp
 *.temp
+
+# Next.js docs for AI agents (generated)
+.next-docs/

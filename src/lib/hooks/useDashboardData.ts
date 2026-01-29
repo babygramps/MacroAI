@@ -4,6 +4,7 @@ import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
+import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
 
 interface UseDashboardDataResult {
@@ -77,14 +78,50 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
 
   const refresh = useCallback(async () => {
     const shouldShowLoading = !hasLoadedRef.current;
+    const dateStr = formatDateKey(selectedDate);
+    const startTime = Date.now();
+
+    logRemote.info('FETCH_DASHBOARD_START', { date: dateStr, isFirstLoad: shouldShowLoading });
+
     if (shouldShowLoading) {
       setIsLoading(true);
     }
-    try {
+
+    // Helper function for the actual fetch
+    const doFetch = async () => {
       const [data, status] = await Promise.all([
         fetchDashboardData(selectedDate),
         fetchDayStatus(selectedDate),
       ]);
+      return { data, status };
+    };
+
+    try {
+      let result: { data: Awaited<ReturnType<typeof fetchDashboardData>>; status: LogStatus | null };
+
+      try {
+        result = await doFetch();
+      } catch (firstError) {
+        // First attempt failed, retry after a short delay
+        logRemote.warn('FETCH_DASHBOARD_RETRY', {
+          date: dateStr,
+          durationMs: Date.now() - startTime,
+          ...getErrorContext(firstError),
+        });
+        await new Promise(r => setTimeout(r, 500));
+        result = await doFetch();
+      }
+
+      const { data, status } = result;
+
+      logRemote.info('FETCH_DASHBOARD_RESULT', {
+        date: dateStr,
+        durationMs: Date.now() - startTime,
+        mealCount: data.summary.meals.length,
+        mealIds: data.summary.meals.map(m => m.id),
+        totalCalories: data.summary.totalCalories,
+      });
+
       setGoals(data.goals);
       setSummary(data.summary);
       setLatestWeight(data.latestWeight);
@@ -100,6 +137,11 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
         });
       }
     } catch (error) {
+      logRemote.error('FETCH_DASHBOARD_ERROR', {
+        date: dateStr,
+        durationMs: Date.now() - startTime,
+        ...getErrorContext(error),
+      });
       logError('Error fetching dashboard data', { error });
     } finally {
       if (shouldShowLoading) {
