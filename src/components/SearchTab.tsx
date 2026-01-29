@@ -257,6 +257,11 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
 
       // Create the ingredient
+      // Note: servingSizeGrams must be an integer (schema constraint)
+      const servingSizeGramsInt = selectedFood.servingSizeGrams 
+        ? Math.round(selectedFood.servingSizeGrams) 
+        : undefined;
+      
       const ingredientResult = await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
@@ -268,7 +273,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         fat: scaled.fat,
         source: scaled.source,
         servingDescription: selectedFood.servingDescription || undefined,
-        servingSizeGrams: selectedFood.servingSizeGrams || undefined,
+        servingSizeGrams: servingSizeGramsInt,
         sortOrder: 0,
       });
 

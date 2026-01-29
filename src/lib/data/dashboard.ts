@@ -319,6 +319,11 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
     const ingredient = updatedMeal.ingredients[i];
 
     if (ingredient.id.startsWith('temp-')) {
+      // Note: servingSizeGrams must be an integer (schema constraint)
+      const servingSizeGramsInt = ingredient.servingSizeGrams 
+        ? Math.round(ingredient.servingSizeGrams) 
+        : undefined;
+      
       await client.models.MealIngredient.create({
         mealId: updatedMeal.id,
         name: ingredient.name,
@@ -330,7 +335,7 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
         fat: ingredient.fat,
         source: ingredient.source,
         servingDescription: ingredient.servingDescription ?? undefined,
-        servingSizeGrams: ingredient.servingSizeGrams ?? undefined,
+        servingSizeGrams: servingSizeGramsInt,
         sortOrder: i,
       });
     } else if (existingIds.has(ingredient.id)) {
@@ -456,8 +461,13 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
   // Duplicate all ingredients
   if (ingredients && ingredients.length > 0) {
     await Promise.all(
-      ingredients.map((ing) =>
-        client.models.MealIngredient.create({
+      ingredients.map((ing) => {
+        // Note: servingSizeGrams must be an integer (schema constraint)
+        const servingSizeGramsInt = ing.servingSizeGrams 
+          ? Math.round(ing.servingSizeGrams) 
+          : undefined;
+        
+        return client.models.MealIngredient.create({
           mealId: newMeal.id,
           name: ing.name,
           eatenAt: now,
@@ -468,10 +478,10 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
           fat: ing.fat,
           source: ing.source,
           servingDescription: ing.servingDescription ?? undefined,
-          servingSizeGrams: ing.servingSizeGrams ?? undefined,
+          servingSizeGrams: servingSizeGramsInt,
           sortOrder: ing.sortOrder ?? 0,
-        })
-      )
+        });
+      })
     );
   }
 

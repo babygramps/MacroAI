@@ -164,6 +164,11 @@ export function TextTab({ onSuccess }: TextTabProps) {
       let ingredientsCreated = 0;
       for (let i = 0; i < selectedFoods.length; i++) {
         const food = selectedFoods[i];
+        // Note: servingSizeGrams must be an integer (schema constraint)
+        const servingSizeGramsInt = food.servingSizeGrams 
+          ? Math.round(food.servingSizeGrams) 
+          : undefined;
+        
         const { data: ingredient } = await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
@@ -175,7 +180,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
           fat: food.fat || 0,
           source: food.source,
           servingDescription: food.servingDescription || undefined,
-          servingSizeGrams: food.servingSizeGrams || undefined,
+          servingSizeGrams: servingSizeGramsInt,
           sortOrder: i,
         });
         if (ingredient) {
