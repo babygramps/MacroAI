@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { searchFoods, type SearchResult } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse } from '@/lib/types';
+import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { onMealLogged } from '@/lib/metabolicService';
@@ -16,7 +16,7 @@ import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 
 interface SearchTabProps {
-  onSuccess: () => void;
+  onSuccess: (meal?: MealEntry) => void;
   prefetchedRecents?: RecentFoodsResponse | null;
 }
 
@@ -242,7 +242,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       }
 
       // Create the ingredient
-      await client.models.MealIngredient.create({
+      const { data: ingredient } = await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
         eatenAt: now,
@@ -262,7 +262,38 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
-      onSuccess();
+
+      // Construct full MealEntry for optimistic update
+      if (ingredient) {
+        const mealEntry: MealEntry = {
+          id: meal.id,
+          name: meal.name,
+          category: meal.category as MealCategory,
+          eatenAt: meal.eatenAt,
+          totalCalories: meal.totalCalories,
+          totalProtein: meal.totalProtein,
+          totalCarbs: meal.totalCarbs,
+          totalFat: meal.totalFat,
+          totalWeightG: meal.totalWeightG,
+          ingredients: [{
+            id: ingredient.id,
+            mealId: meal.id,
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            source: ingredient.source,
+            servingDescription: ingredient.servingDescription ?? null,
+            servingSizeGrams: ingredient.servingSizeGrams ?? null,
+            sortOrder: ingredient.sortOrder ?? 0,
+          }],
+        };
+        onSuccess(mealEntry);
+      } else {
+        onSuccess();
+      }
     } catch (error) {
       console.error('Error logging food:', error);
       showToast('Failed to log food. Please try again.', 'error');

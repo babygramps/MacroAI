@@ -58,3 +58,5 @@ CLAUDE.md
 *.log
 *.tmp
 *.temp
+# next-agents-md
+.next-docs/

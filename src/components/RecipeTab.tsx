@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getRecipes } from '@/actions/getRecipes';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { RecipeEntry, MealCategory, ScaledRecipePortion } from '@/lib/types';
+import type { RecipeEntry, MealCategory, ScaledRecipePortion, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { onMealLogged } from '@/lib/metabolicService';
 import { RecipeCard, RecipeCardSkeleton } from './ui/RecipeCard';
@@ -12,7 +12,7 @@ import { showToast } from './ui/Toast';
 import { RecipeModal } from './RecipeModal';
 
 interface RecipeTabProps {
-  onSuccess: () => void;
+  onSuccess: (meal?: MealEntry) => void;
 }
 
 type View = 'list' | 'portion' | 'category';
@@ -156,29 +156,61 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
       }
 
       // Create scaled ingredients
-      await Promise.all(
-        selectedRecipe.ingredients.map((ing, index) =>
-          client.models.MealIngredient.create({
+      const createdIngredients = [];
+      for (let i = 0; i < selectedRecipe.ingredients.length; i++) {
+        const ing = selectedRecipe.ingredients[i];
+        const { data: ingredient } = await client.models.MealIngredient.create({
+          mealId: meal.id,
+          name: ing.name,
+          eatenAt: now,
+          weightG: Math.round(ing.weightG * scaledPortion.scaleFactor),
+          calories: Math.round(ing.calories * scaledPortion.scaleFactor),
+          protein: Math.round(ing.protein * scaledPortion.scaleFactor * 10) / 10,
+          carbs: Math.round(ing.carbs * scaledPortion.scaleFactor * 10) / 10,
+          fat: Math.round(ing.fat * scaledPortion.scaleFactor * 10) / 10,
+          source: ing.source,
+          sortOrder: i,
+        });
+
+        if (ingredient) {
+          createdIngredients.push({
+            id: ingredient.id,
             mealId: meal.id,
-            name: ing.name,
-            eatenAt: now,
-            weightG: Math.round(ing.weightG * scaledPortion.scaleFactor),
-            calories: Math.round(ing.calories * scaledPortion.scaleFactor),
-            protein: Math.round(ing.protein * scaledPortion.scaleFactor * 10) / 10,
-            carbs: Math.round(ing.carbs * scaledPortion.scaleFactor * 10) / 10,
-            fat: Math.round(ing.fat * scaledPortion.scaleFactor * 10) / 10,
-            source: ing.source,
-            sortOrder: index,
-          })
-        )
-      );
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            source: ingredient.source,
+            servingDescription: ingredient.servingDescription ?? null,
+            servingSizeGrams: ingredient.servingSizeGrams ?? null,
+            sortOrder: ingredient.sortOrder ?? 0,
+          });
+        }
+      }
 
       // Trigger metabolic recalculation
       await onMealLogged(now);
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedRecipe.name} logged!`, 'success');
-      onSuccess();
+
+      // Construct full MealEntry for optimistic update
+      const mealEntry: MealEntry = {
+        id: meal.id,
+        name: meal.name,
+        category: meal.category as MealCategory,
+        eatenAt: meal.eatenAt,
+        totalCalories: meal.totalCalories,
+        totalProtein: meal.totalProtein,
+        totalCarbs: meal.totalCarbs,
+        totalFat: meal.totalFat,
+        totalWeightG: meal.totalWeightG,
+        ingredients: createdIngredients,
+      };
+
+      onSuccess(mealEntry);
     } catch (error) {
       console.error('Error logging recipe portion:', error);
       showToast('Failed to log meal. Please try again.', 'error');
@@ -204,7 +236,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
   }, [fetchRecipes]);
 
   const servingLabel = selectedRecipe?.servingDescription || 'serving';
-  const servingSizeG = selectedRecipe?.servingSizeG || 
+  const servingSizeG = selectedRecipe?.servingSizeG ||
     (selectedRecipe ? Math.round(selectedRecipe.totalYieldG / selectedRecipe.totalServings) : 0);
 
   // Category selection view
@@ -398,8 +430,8 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
 
         <div className="card mb-6">
           <h4 className="text-card-title mb-4">
-            Nutrition ({inputMode === 'servings' 
-              ? `${portionAmount} ${servingLabel}${parseFloat(portionAmount) !== 1 ? 's' : ''}` 
+            Nutrition ({inputMode === 'servings'
+              ? `${portionAmount} ${servingLabel}${parseFloat(portionAmount) !== 1 ? 's' : ''}`
               : `${scaledPortion.weightG}g`})
           </h4>
           <div className="grid grid-cols-2 gap-4">

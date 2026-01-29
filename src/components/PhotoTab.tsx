@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { analyzeImage, type ImageAnalysisResult, type ImageAnalysisErrorCode } from '@/actions/analyzeImage';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory } from '@/lib/types';
+import type { NormalizedFood, MealCategory, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
@@ -12,7 +12,7 @@ import { showToast } from './ui/Toast';
 import { logRemote, getFileContext, getErrorContext } from '@/lib/clientLogger';
 
 interface PhotoTabProps {
-  onSuccess: () => void;
+  onSuccess: (meal?: MealEntry) => void;
 }
 
 type View = 'input' | 'describe' | 'loading' | 'review' | 'category';
@@ -208,9 +208,10 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
       }
 
       // Create all ingredients
+      const createdIngredients = [];
       for (let i = 0; i < selectedFoods.length; i++) {
         const food = selectedFoods[i];
-        await client.models.MealIngredient.create({
+        const { data: ingredient } = await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
           eatenAt: now,
@@ -224,6 +225,22 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
           servingSizeGrams: food.servingSizeGrams || undefined,
           sortOrder: i,
         });
+        if (ingredient) {
+          createdIngredients.push({
+            id: ingredient.id,
+            mealId: meal.id,
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            source: ingredient.source,
+            servingDescription: ingredient.servingDescription ?? null,
+            servingSizeGrams: ingredient.servingSizeGrams ?? null,
+            sortOrder: ingredient.sortOrder ?? 0,
+          });
+        }
       }
 
       // Trigger metabolic recalculation
@@ -231,7 +248,22 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
-      onSuccess();
+
+      // Construct full MealEntry for optimistic update
+      const mealEntry: MealEntry = {
+        id: meal.id,
+        name: meal.name,
+        category: meal.category as MealCategory,
+        eatenAt: meal.eatenAt,
+        totalCalories: meal.totalCalories,
+        totalProtein: meal.totalProtein,
+        totalCarbs: meal.totalCarbs,
+        totalFat: meal.totalFat,
+        totalWeightG: meal.totalWeightG,
+        ingredients: createdIngredients,
+      };
+
+      onSuccess(mealEntry);
     } catch (error) {
       console.error('Error logging meal:', error);
       showToast('Failed to log meal. Please try again.', 'error');
