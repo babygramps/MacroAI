@@ -38,7 +38,7 @@ export function Dashboard() {
           setUserEmail(attributes.email);
           return;
         }
-
+        
         // Fallback to signInDetails
         const user = await getCurrentUser();
         setUserEmail(user.signInDetails?.loginId);
@@ -85,7 +85,6 @@ export function Dashboard() {
     dayStatusMap,
     refresh,
     updateDayStatus,
-    addMeal,
   } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
@@ -152,7 +151,7 @@ export function Dashboard() {
     }
   }, [refresh]);
 
-  const handleLogSuccess = useCallback(async (meal?: MealEntry) => {
+  const handleLogSuccess = useCallback(async () => {
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
@@ -160,9 +159,6 @@ export function Dashboard() {
       today.setHours(0, 0, 0, 0);
       setSelectedDate(today);
     } else {
-      if (meal) {
-        addMeal(meal);
-      }
       refresh();
     }
     // Refresh prefetched recents so they're up-to-date for next modal open
@@ -172,7 +168,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [refresh, selectedDate, addMeal]);
+  }, [refresh, selectedDate]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
@@ -209,8 +205,8 @@ export function Dashboard() {
       <main className="content-wrapper">
         {/* Date Navigator */}
         <div className="flex justify-center mt-6 mb-6">
-          <DateNavigator
-            selectedDate={selectedDate}
+          <DateNavigator 
+            selectedDate={selectedDate} 
             onDateChange={handleDateChange}
             dayStatuses={dayStatusMap}
           />
@@ -257,8 +253,8 @@ export function Dashboard() {
       </main>
 
       {/* Bottom Navigation */}
-      <BottomNav
-        onAddClick={() => setIsModalOpen(true)}
+      <BottomNav 
+        onAddClick={() => setIsModalOpen(true)} 
         showAdd={canAddFood}
       />
 

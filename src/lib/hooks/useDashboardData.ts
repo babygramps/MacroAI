@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DailySummary, UserGoals, WeightLogEntry, LogStatus, MealEntry } from '@/lib/types';
+import type { DailySummary, UserGoals, WeightLogEntry, LogStatus } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
@@ -16,7 +16,6 @@ interface UseDashboardDataResult {
   dayStatusMap: Map<string, LogStatus>;
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
-  addMeal: (meal: MealEntry) => void;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -147,24 +146,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     refresh();
   }, [refresh]);
 
-  // Optimistic update for adding a meal
-  const addMeal = useCallback((meal: MealEntry) => {
-    setSummary((prev) => {
-      const newMeals = [meal, ...prev.meals];
-      // Sort by eatenAt descending
-      newMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
-
-      return {
-        ...prev,
-        meals: newMeals,
-        totalCalories: prev.totalCalories + meal.totalCalories,
-        totalProtein: prev.totalProtein + meal.totalProtein,
-        totalCarbs: prev.totalCarbs + meal.totalCarbs,
-        totalFat: prev.totalFat + meal.totalFat,
-      };
-    });
-  }, []);
-
   return {
     goals,
     summary,
@@ -175,6 +156,5 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     dayStatusMap,
     refresh,
     updateDayStatus: updateDayStatusLocal,
-    addMeal,
   };
 }

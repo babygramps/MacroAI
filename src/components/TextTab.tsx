@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { parseTextLog, type TextParseResult } from '@/actions/parseTextLog';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory, MealEntry } from '@/lib/types';
+import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
@@ -13,7 +13,7 @@ import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 
 interface TextTabProps {
-  onSuccess: (meal?: MealEntry) => void;
+  onSuccess: () => void;
 }
 
 type View = 'input' | 'review' | 'category';
@@ -146,10 +146,9 @@ export function TextTab({ onSuccess }: TextTabProps) {
       }
 
       // Create all ingredients
-      const createdIngredients = [];
       for (let i = 0; i < selectedFoods.length; i++) {
         const food = selectedFoods[i];
-        const { data: ingredient } = await client.models.MealIngredient.create({
+        await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
           eatenAt: now,
@@ -163,22 +162,6 @@ export function TextTab({ onSuccess }: TextTabProps) {
           servingSizeGrams: food.servingSizeGrams || undefined,
           sortOrder: i,
         });
-        if (ingredient) {
-          createdIngredients.push({
-            id: ingredient.id,
-            mealId: meal.id,
-            name: ingredient.name,
-            weightG: ingredient.weightG,
-            calories: ingredient.calories,
-            protein: ingredient.protein,
-            carbs: ingredient.carbs,
-            fat: ingredient.fat,
-            source: ingredient.source,
-            servingDescription: ingredient.servingDescription ?? null,
-            servingSizeGrams: ingredient.servingSizeGrams ?? null,
-            sortOrder: ingredient.sortOrder ?? 0,
-          });
-        }
       }
 
       // Trigger metabolic recalculation
@@ -186,22 +169,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
-
-      // Construct full MealEntry for optimistic update
-      const mealEntry: MealEntry = {
-        id: meal.id,
-        name: meal.name,
-        category: meal.category as MealCategory,
-        eatenAt: meal.eatenAt,
-        totalCalories: meal.totalCalories,
-        totalProtein: meal.totalProtein,
-        totalCarbs: meal.totalCarbs,
-        totalFat: meal.totalFat,
-        totalWeightG: meal.totalWeightG,
-        ingredients: createdIngredients,
-      };
-
-      onSuccess(mealEntry);
+      onSuccess();
     } catch (error) {
       console.error('Error logging meal:', error);
       showToast('Failed to log meal. Please try again.', 'error');
