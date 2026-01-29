@@ -1,6 +1,6 @@
 'use server';
 
-import type { NormalizedFood, USDASearchResponse } from '@/lib/types';
+import type { NormalizedFood, USDASearchResponse, ActionError } from '@/lib/types';
 import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
 import { generateCacheKey, createCacheEntry, isExpired } from '@/lib/cache';
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
@@ -16,6 +16,21 @@ const console = {
   warn: logWarn,
   error: logError,
 } as const;
+
+// Error codes for text parsing debugging
+export type TextParseErrorCode =
+  | 'no_api_key'
+  | 'gemini_parse_error'
+  | 'no_ingredients_found'
+  | 'usda_error'
+  | 'unknown_error';
+
+// Structured result using shared ActionError
+export interface TextParseResult {
+  success: boolean;
+  foods: NormalizedFood[];
+  error?: ActionError & { code: TextParseErrorCode };
+}
 
 
 // Types for Gemini parsing response
@@ -115,7 +130,7 @@ async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood 
     }
 
     const data: USDASearchResponse = await response.json();
-    
+
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
       const { food: usdaFood, score } = findBestMatch(data.foods, searchTerm);
@@ -124,14 +139,14 @@ async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood 
         void score;
         return null;
       }
-      
+
       // Log full USDA response details
       void usdaFood;
-      
+
       // Return per-100g data for ingredient scaling (scaleToServing=false)
       return normalizeUSDA(usdaFood, false);
     }
-    
+
     return null;
   } catch (error) {
     console.error('USDA search error for:', searchTerm, error);
@@ -152,9 +167,12 @@ async function parseWithGemini(text: string): Promise<GeminiParsedIngredient[]> 
 
     const prompt = `You are a nutrition data parser. Parse this meal description into individual ingredients that can be searched in the USDA FoodData Central database.
 
+CRITICAL RULE: If the description is NOT about food, meals, or edible items (e.g., "windshield", "laptop repair", "car maintenance"), return an EMPTY ARRAY: []
+
 INSTRUCTIONS:
-1. Break down the meal into individual, simple ingredients
-2. For each ingredient, provide:
+1. First, verify this is a food/meal description. If not, return []
+2. Break down the meal into individual, simple ingredients
+3. For each ingredient, provide:
    - usda_search_term: A simple, USDA-friendly search term (e.g., "egg whole raw fresh" not "eggs")
    - display_name: Human-readable name with quantity (e.g., "2 Large Eggs")
    - quantity: Number of units
@@ -176,7 +194,7 @@ USDA SEARCH TERM TIPS:
 
 MEAL DESCRIPTION: "${text}"
 
-Return ONLY a valid JSON array:
+Return ONLY a valid JSON array (empty [] if not food-related):
 [
   {"usda_search_term": "egg whole raw fresh", "display_name": "2 Large Eggs", "quantity": 2, "weight_g": 100, "is_branded": false},
   {"usda_search_term": "pork bacon cooked", "display_name": "3 Strips of Bacon", "quantity": 3, "weight_g": 24, "is_branded": false}
@@ -264,59 +282,107 @@ function scaleToWeight(food: NormalizedFood, targetWeight: number, displayName: 
  * 5. Scale all results to correct portion sizes
  * 6. Cache the final results
  */
-export async function parseTextLog(text: string): Promise<NormalizedFood[]> {
+export async function parseTextLog(text: string): Promise<TextParseResult> {
+  console.info('Text parse started', { textLength: text?.length, textPreview: text?.substring(0, 100) });
+
   if (!text || text.trim().length === 0) {
-    return [];
+    return { success: true, foods: [] };
   }
 
   const trimmedText = text.trim();
 
-  // Step 1: Check cache
-  const cachedResults = await getCachedResults(trimmedText);
-  if (cachedResults && cachedResults.length > 0) {
-    return cachedResults;
-  }
+  try {
+    // Step 1: Check cache
+    const cachedResults = await getCachedResults(trimmedText);
+    if (cachedResults && cachedResults.length > 0) {
+      console.info('Text parse cache hit', { resultsCount: cachedResults.length });
+      return { success: true, foods: cachedResults };
+    }
 
-  // Step 2: Parse with Gemini into ingredients
-  const parsedIngredients = await parseWithGemini(trimmedText);
-  if (parsedIngredients.length === 0) {
-    return [];
-  }
+    // Step 2: Parse with Gemini into ingredients
+    const parsedIngredients = await parseWithGemini(trimmedText);
+    console.info('Gemini parsing completed', {
+      ingredientsCount: parsedIngredients.length,
+      ingredients: parsedIngredients.map(i => i.display_name)
+    });
 
-
-  // Step 3: Query USDA for each non-branded ingredient (parallel)
-  const results: NormalizedFood[] = [];
-
-  await Promise.all(
-    parsedIngredients.map(async (ingredient) => {
-      let food: NormalizedFood | null = null;
-
-      if (ingredient.is_branded) {
-        // Branded item - use Gemini directly
-        food = await getGeminiFallback(ingredient);
-      } else {
-        // Try USDA first
-        const usdaResult = await searchUSDAIngredient(ingredient.usda_search_term);
-        
-        if (usdaResult) {
-          // Scale USDA result to actual weight
-          food = scaleToWeight(usdaResult, ingredient.weight_g, ingredient.display_name);
-        } else {
-          // USDA miss - fallback to Gemini
-          food = await getGeminiFallback(ingredient);
+    if (parsedIngredients.length === 0) {
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'no_ingredients_found',
+          message: 'Could not identify any food items. Try describing your meal differently.',
+          details: 'Gemini returned empty ingredients array'
         }
-      }
+      };
+    }
 
-      if (food) {
-        results.push(food);
-      }
-    })
-  );
+    // Step 3: Query USDA for each non-branded ingredient (parallel)
+    const results: NormalizedFood[] = [];
 
-  // Step 4: Cache successful results
-  if (results.length > 0) {
-    await saveToCache(trimmedText, results);
+    await Promise.all(
+      parsedIngredients.map(async (ingredient) => {
+        let food: NormalizedFood | null = null;
+
+        if (ingredient.is_branded) {
+          // Branded item - use Gemini directly
+          food = await getGeminiFallback(ingredient);
+        } else {
+          // Try USDA first
+          const usdaResult = await searchUSDAIngredient(ingredient.usda_search_term);
+
+          if (usdaResult) {
+            // Scale USDA result to actual weight
+            food = scaleToWeight(usdaResult, ingredient.weight_g, ingredient.display_name);
+          } else {
+            // USDA miss - fallback to Gemini
+            food = await getGeminiFallback(ingredient);
+          }
+        }
+
+        if (food) {
+          results.push(food);
+        }
+      })
+    );
+
+    console.info('Text parse completed', {
+      ingredientsParsed: parsedIngredients.length,
+      foodsResolved: results.length,
+      foodNames: results.map(f => f.name)
+    });
+
+    // Step 4: Cache successful results
+    if (results.length > 0) {
+      await saveToCache(trimmedText, results);
+    }
+
+    if (results.length === 0) {
+      return {
+        success: false,
+        foods: [],
+        error: {
+          code: 'usda_error',
+          message: 'Could not find nutrition data for the items. Try simpler descriptions.',
+          details: 'No USDA matches and Gemini fallback failed'
+        }
+      };
+    }
+
+    return { success: true, foods: results };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Text parse failed', { text: trimmedText.substring(0, 100), error: errorMessage });
+
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'unknown_error',
+        message: 'Something went wrong. Please try again.',
+        details: errorMessage
+      }
+    };
   }
-
-  return results;
 }

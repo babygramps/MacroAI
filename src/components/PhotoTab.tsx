@@ -383,7 +383,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         </div>
 
         {/* Error message */}
-        {errorMessage && (
+        {errorMessage ? (
           <div className="mb-4 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
             <div className="flex items-start gap-3">
               <svg className="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -395,7 +395,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
         <h3 className="text-section-title mb-2">Add Details (Optional)</h3>
         <p className="text-caption text-text-muted mb-4">

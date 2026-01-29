@@ -1,11 +1,13 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { parseRecipe } from '@/actions/parseRecipe';
+import { parseRecipe, type RecipeParseResult } from '@/actions/parseRecipe';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { ParsedRecipe, ParsedRecipeIngredient } from '@/lib/types';
 import { ModalShell } from './ui/ModalShell';
 import { showToast } from './ui/Toast';
+import { ErrorAlert } from './ui/ErrorAlert';
+import { logRemote, getErrorContext } from '@/lib/clientLogger';
 
 interface RecipeModalProps {
   isOpen: boolean;
@@ -24,37 +26,57 @@ export function RecipeModal({ isOpen, onClose, onSuccess }: RecipeModalProps) {
   const [recipeText, setRecipeText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  
+
   // Parsed recipe data
   const [parsedRecipe, setParsedRecipe] = useState<ParsedRecipe | null>(null);
   const [selectedIngredients, setSelectedIngredients] = useState<Set<number>>(new Set());
-  
+
   // Editable fields
   const [recipeName, setRecipeName] = useState('');
   const [totalServings, setTotalServings] = useState('');
   const [servingDescription, setServingDescription] = useState('');
 
+  // Error state
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const handleParse = async () => {
     if (!recipeText.trim()) return;
 
     setIsLoading(true);
+    setErrorMessage(null);
+    const startTime = Date.now();
+    logRemote.info('Recipe parse started', { textLength: recipeText.length, textPreview: recipeText.substring(0, 100) });
+
     try {
       const result = await parseRecipe(recipeText);
-      
-      if (!result) {
-        showToast('Could not parse recipe. Please try again.', 'error');
+
+      logRemote.info('Recipe parse completed', {
+        durationMs: Date.now() - startTime,
+        success: result.success,
+        ingredientsCount: result.recipe?.ingredients?.length ?? 0,
+        errorCode: result.error?.code
+      });
+
+      if (!result.success || !result.recipe) {
+        const errorMsg = result.error?.message || 'Could not parse recipe. Please try again.';
+        setErrorMessage(errorMsg);
         return;
       }
 
-      setParsedRecipe(result);
-      setRecipeName(result.name);
-      setTotalServings(result.totalServings.toString());
-      setServingDescription(result.servingDescription);
-      setSelectedIngredients(new Set(result.ingredients.map((_, i) => i)));
+      setParsedRecipe(result.recipe);
+      setRecipeName(result.recipe.name);
+      setTotalServings(result.recipe.totalServings.toString());
+      setServingDescription(result.recipe.servingDescription);
+      setSelectedIngredients(new Set(result.recipe.ingredients.map((_, i) => i)));
       setView('review');
     } catch (error) {
+      logRemote.error('Recipe parse failed', {
+        textLength: recipeText.length,
+        durationMs: Date.now() - startTime,
+        ...getErrorContext(error)
+      });
       console.error('Parse error:', error);
-      showToast('Failed to parse recipe. Please try again.', 'error');
+      setErrorMessage('Failed to parse recipe. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -255,6 +277,11 @@ Makes about 12 cups"
                 </>
               )}
             </button>
+
+            {/* Error message */}
+            {errorMessage ? (
+              <ErrorAlert title="Recipe Error" message={errorMessage} className="mt-4" />
+            ) : null}
           </>
         ) : parsedRecipe && totals && perServing ? (
           <>
@@ -306,19 +333,17 @@ Makes about 12 cups"
                   <button
                     key={index}
                     onClick={() => toggleIngredient(index)}
-                    className={`card w-full text-left text-sm transition-all ${
-                      selectedIngredients.has(index)
-                        ? 'border-macro-calories/50'
-                        : 'opacity-50'
-                    }`}
+                    className={`card w-full text-left text-sm transition-all ${selectedIngredients.has(index)
+                      ? 'border-macro-calories/50'
+                      : 'opacity-50'
+                      }`}
                   >
                     <div className="flex items-center gap-2">
                       <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedIngredients.has(index)
-                            ? 'border-macro-calories bg-macro-calories'
-                            : 'border-border-subtle'
-                        }`}
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedIngredients.has(index)
+                          ? 'border-macro-calories bg-macro-calories'
+                          : 'border-border-subtle'
+                          }`}
                       >
                         {selectedIngredients.has(index) && (
                           <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">

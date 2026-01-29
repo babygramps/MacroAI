@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { searchFoods } from '@/actions/searchFoods';
+import { searchFoods, type SearchResult } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse } from '@/lib/types';
@@ -12,6 +12,8 @@ import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
+import { ErrorAlert } from './ui/ErrorAlert';
+import { logRemote, getErrorContext } from '@/lib/clientLogger';
 
 interface SearchTabProps {
   onSuccess: () => void;
@@ -41,7 +43,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const [inputMode, setInputMode] = useState<InputMode>('grams');
   const [view, setView] = useState<View>('search');
   const [isSaving, setIsSaving] = useState(false);
-  
+
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('snack');
   const [mealName, setMealName] = useState('');
@@ -49,6 +51,9 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   // Recents state - use prefetched data if available (async-parallel optimization)
   const [recentsData, setRecentsData] = useState<RecentFoodsResponse | null>(prefetchedRecents ?? null);
   const [isLoadingRecents, setIsLoadingRecents] = useState(!prefetchedRecents);
+
+  // Error state for search failures
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Only fetch recents if not prefetched (fallback for when Dashboard didn't prefetch)
   useEffect(() => {
@@ -104,11 +109,34 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
     if (!query.trim()) return;
 
     setIsLoading(true);
+    setErrorMessage(null);
+    const startTime = Date.now();
+    logRemote.info('Search started', { query: query.trim() });
+
     try {
-      const foods = await searchFoods(query);
-      setResults(foods);
+      const result = await searchFoods(query);
+
+      logRemote.info('Search completed', {
+        query: query.trim(),
+        durationMs: Date.now() - startTime,
+        success: result.success,
+        resultsCount: result.foods.length,
+        errorCode: result.error?.code
+      });
+
+      setResults(result.foods);
+
+      if (!result.success && result.error) {
+        setErrorMessage(result.error.message);
+      }
     } catch (error) {
+      logRemote.error('Search failed', {
+        query: query.trim(),
+        durationMs: Date.now() - startTime,
+        ...getErrorContext(error)
+      });
       console.error('Search error:', error);
+      setErrorMessage('Search failed. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -118,11 +146,33 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
     setQuery(barcode);
     setView('search');
     setIsLoading(true);
+    setErrorMessage(null);
+    const startTime = Date.now();
+    logRemote.info('Barcode scan started', { barcode });
+
     try {
-      const foods = await searchFoods(barcode);
-      setResults(foods);
+      const result = await searchFoods(barcode);
+
+      logRemote.info('Barcode search completed', {
+        barcode,
+        durationMs: Date.now() - startTime,
+        success: result.success,
+        resultsCount: result.foods.length
+      });
+
+      setResults(result.foods);
+
+      if (!result.success && result.error) {
+        setErrorMessage(result.error.message);
+      }
     } catch (error) {
+      logRemote.error('Barcode search failed', {
+        barcode,
+        durationMs: Date.now() - startTime,
+        ...getErrorContext(error)
+      });
       console.error('Barcode search error:', error);
+      setErrorMessage('Could not find product. Try searching manually.');
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +203,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
   const handleContinueToCategory = () => {
     if (!selectedFood) return;
-    
+
     // Set default meal name and category
     setMealName(selectedFood.name);
     setCategory('snack'); // Default to snack for single items
@@ -326,8 +376,8 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
   // Detail view
   if (view === 'detail' && selectedFood && scaledFood) {
-    const hasServingInfo = selectedFood.servingSizeGrams && 
-      selectedFood.servingDescription && 
+    const hasServingInfo = selectedFood.servingSizeGrams &&
+      selectedFood.servingDescription &&
       selectedFood.servingDescription !== `${selectedFood.servingSizeGrams}g`;
 
     return (
@@ -551,6 +601,11 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
           <p className="text-caption mt-2">Try a different search term</p>
         </div>
       )}
+
+      {/* Error message */}
+      {errorMessage ? (
+        <ErrorAlert title="Search Error" message={errorMessage} className="mb-4" />
+      ) : null}
 
       {/* Initial state - show recents when no query */}
       {!isLoading && !query && results.length === 0 && (

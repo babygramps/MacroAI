@@ -7,6 +7,30 @@ export * from '@/lib/types/off';
 export * from '@/lib/types/meal';
 export * from '@/lib/types/recipe';
 
+// ============================================
+// Shared Action Result Types
+// ============================================
+
+/**
+ * Standard error structure for server action failures.
+ * Used consistently across all AI features for debugging and user feedback.
+ */
+export interface ActionError {
+  code: string;
+  message: string;  // User-friendly message for display
+  details?: string; // Technical details for logging
+}
+
+/**
+ * Generic action result wrapper for server actions.
+ * Use this pattern for consistent error handling across the app.
+ */
+export interface ActionResult<T> {
+  success: boolean;
+  data: T;
+  error?: ActionError;
+}
+
 // Unit system type
 export type UnitSystem = 'metric' | 'imperial';
 
@@ -46,7 +70,7 @@ export interface WeightStats {
   changeFromMonthAgo: number | null;
 }
 
- 
+
 
 // Daily summary (updated to support both legacy and new meal structure)
 export interface DailySummary {
@@ -163,24 +187,24 @@ export interface WeightStatsWithTrend extends WeightStats {
 export const METABOLIC_CONSTANTS = {
   // Weight trend EMA
   WEIGHT_EMA_ALPHA: 0.1,
-  
+
   // TDEE EMA
   TDEE_EMA_ALPHA: 0.05,
   TDEE_EMA_ALPHA_RESPONSIVE: 0.1, // Used when activity changes significantly
-  
+
   // Energy density (kcal per kg)
   ENERGY_DENSITY_DEFICIT: 7700, // ~3500 kcal/lb - fat loss dominant
   ENERGY_DENSITY_SURPLUS: 5500, // Accounts for anabolic inefficiency
-  
+
   // Step responsiveness
   STEP_RESPONSIVENESS_THRESHOLD: 0.2, // 20% increase triggers responsive mode
-  
+
   // Coaching
   MIN_VALID_DAYS: 4, // Minimum days logged for weekly update
   COLD_START_DAYS: 7, // Days before TDEE is calibrated
   MAINTENANCE_TOLERANCE_KG: 1.5, // +/- tolerance for maintenance mode
   MICRO_ADJUSTMENT_KCAL: 150, // Small adjustment for maintenance drift
-  
+
   // BMR activity multipliers
   ACTIVITY_MULTIPLIERS: {
     sedentary: 1.2,
@@ -189,7 +213,7 @@ export const METABOLIC_CONSTANTS = {
     active: 1.725,
     veryActive: 1.9,
   } as const,
-  
+
   // Default activity level for cold start
   DEFAULT_ACTIVITY_MULTIPLIER: 1.55,
 } as const;

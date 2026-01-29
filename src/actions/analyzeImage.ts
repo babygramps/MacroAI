@@ -248,6 +248,8 @@ USDA SEARCH TERM TIPS:
   - salmon → "salmon atlantic cooked"
   - salad greens → "lettuce green leaf raw"
 
+CRITICAL: If the image does NOT contain food (e.g., cars, electronics, landscapes, people without food), return an EMPTY array: []
+
 IMPORTANT: If you cannot identify any food items in the image (e.g., image is blurry, not food, or unclear), return an empty array: []
 
 Return ONLY a valid JSON array. Example:

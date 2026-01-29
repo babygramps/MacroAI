@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { parseTextLog } from '@/actions/parseTextLog';
+import { parseTextLog, type TextParseResult } from '@/actions/parseTextLog';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
@@ -9,6 +9,8 @@ import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
+import { ErrorAlert } from './ui/ErrorAlert';
+import { logRemote, getErrorContext } from '@/lib/clientLogger';
 
 interface TextTabProps {
   onSuccess: () => void;
@@ -23,23 +25,51 @@ export function TextTab({ onSuccess }: TextTabProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<number>>(new Set());
   const [view, setView] = useState<View>('input');
-  
+
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('meal');
   const [mealName, setMealName] = useState('');
+
+  // Error state
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleAnalyze = async () => {
     if (!text.trim()) return;
 
     setIsLoading(true);
+    setErrorMessage(null);
+    const startTime = Date.now();
+    logRemote.info('Text analysis started', { textLength: text.length, textPreview: text.substring(0, 100) });
+
     try {
-      const foods = await parseTextLog(text);
-      setResults(foods);
-      // Select all items by default
-      setSelectedItems(new Set(foods.map((_, i) => i)));
-      setView('review');
+      const result = await parseTextLog(text);
+
+      logRemote.info('Text analysis completed', {
+        durationMs: Date.now() - startTime,
+        success: result.success,
+        foodsCount: result.foods.length,
+        errorCode: result.error?.code
+      });
+
+      setResults(result.foods);
+
+      if (result.success && result.foods.length > 0) {
+        // Select all items by default
+        setSelectedItems(new Set(result.foods.map((_, i) => i)));
+        setView('review');
+      } else if (!result.success && result.error) {
+        setErrorMessage(result.error.message);
+      } else {
+        setErrorMessage('Could not identify any food items. Try describing your meal differently.');
+      }
     } catch (error) {
+      logRemote.error('Text analysis failed', {
+        textLength: text.length,
+        durationMs: Date.now() - startTime,
+        ...getErrorContext(error)
+      });
       console.error('Parse error:', error);
+      setErrorMessage('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -59,13 +89,13 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
   const handleContinueToCategory = () => {
     if (selectedItems.size === 0) return;
-    
+
     // Generate a default meal name from the description or first few items
     const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-    const defaultName = text.length > 40 
-      ? text.substring(0, 40) + '...' 
+    const defaultName = text.length > 40
+      ? text.substring(0, 40) + '...'
       : text || selectedFoods.map(f => f.name).slice(0, 2).join(' & ');
-    
+
     setMealName(defaultName);
     // Default to meal for multi-ingredient, snack for single
     setCategory(selectedFoods.length > 1 ? 'meal' : 'snack');
@@ -84,7 +114,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         return;
       }
       const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-      
+
       // Calculate totals
       const ingredients = selectedFoods.map((food) => ({
         name: food.name,
@@ -95,7 +125,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         fat: food.fat || 0,
         source: food.source,
       }));
-      
+
       const totals = calculateMealTotals(ingredients);
       const now = new Date().toISOString();
 
@@ -170,7 +200,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
   // Category selection view
   if (view === 'category') {
     const selectedFoods = results.filter((_, i) => selectedItems.has(i));
-    
+
     return (
       <div className="p-4 pb-safe">
         <button
@@ -211,7 +241,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
               <p className="text-caption">{selectedFoods.length} ingredient{selectedFoods.length !== 1 ? 's' : ''}</p>
             </div>
           </div>
-          
+
           {/* Ingredients preview */}
           <div className="space-y-1 mb-4 pl-9">
             {selectedFoods.slice(0, 3).map((food, i) => (
@@ -285,19 +315,17 @@ export function TextTab({ onSuccess }: TextTabProps) {
             <button
               key={index}
               onClick={() => toggleItem(index)}
-              className={`card text-left transition-all ${
-                selectedItems.has(index)
-                  ? 'border-macro-calories/50'
-                  : 'opacity-50'
-              }`}
+              className={`card text-left transition-all ${selectedItems.has(index)
+                ? 'border-macro-calories/50'
+                : 'opacity-50'
+                }`}
             >
               <div className="flex items-center gap-3">
                 <div
-                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    selectedItems.has(index)
-                      ? 'border-macro-calories bg-macro-calories'
-                      : 'border-border-subtle'
-                  }`}
+                  className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${selectedItems.has(index)
+                    ? 'border-macro-calories bg-macro-calories'
+                    : 'border-border-subtle'
+                    }`}
                 >
                   {selectedItems.has(index) && (
                     <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -383,6 +411,11 @@ export function TextTab({ onSuccess }: TextTabProps) {
           </>
         )}
       </button>
+
+      {/* Error message */}
+      {errorMessage ? (
+        <ErrorAlert title="Analysis Error" message={errorMessage} className="mt-4" />
+      ) : null}
 
       {/* Examples */}
       <div className="mt-6">

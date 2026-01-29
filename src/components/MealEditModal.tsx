@@ -27,7 +27,7 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
   const [ingredients, setIngredients] = useState<IngredientEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // Add ingredient search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<NormalizedFood[]>([]);
@@ -65,11 +65,11 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
-    
+
     setIsSearching(true);
     try {
-      const results = await searchFoods(searchQuery);
-      setSearchResults(results);
+      const result = await searchFoods(searchQuery);
+      setSearchResults(result.foods);
     } catch (error) {
       logError('Search error', { error });
     } finally {
@@ -84,10 +84,10 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
 
   const handleAddIngredient = () => {
     if (!selectedFood) return;
-    
+
     const weightNum = parseInt(addWeight) || 100;
     const scaled = scaleNutrition(selectedFood, weightNum);
-    
+
     const newIngredient: IngredientEntry = {
       id: `temp-${Date.now()}`, // Temporary ID, will be replaced on save
       mealId: meal.id,
@@ -102,9 +102,9 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
       servingSizeGrams: selectedFood.servingSizeGrams || null,
       sortOrder: ingredients.length,
     };
-    
+
     setIngredients((prev) => [...prev, newIngredient]);
-    
+
     // Reset add ingredient state and go back to edit view
     setView('edit');
     setSearchQuery('');
@@ -115,7 +115,7 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
 
   const handleSave = async () => {
     if (ingredients.length === 0) return;
-    
+
     setIsSaving(true);
     try {
       const updatedMeal: MealEntry = {
@@ -134,7 +134,7 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
 
   const handleDelete = async () => {
     if (!onDelete || !confirm('Are you sure you want to delete this meal?')) return;
-    
+
     setIsDeleting(true);
     try {
       await onDelete(meal.id);
@@ -181,259 +181,259 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
               />
             </div>
 
-              {/* Category picker */}
-              <div className="mb-6">
-                <label className="text-caption block mb-2">Category</label>
-                <CategoryPicker value={category} onChange={setCategory} />
+            {/* Category picker */}
+            <div className="mb-6">
+              <label className="text-caption block mb-2">Category</label>
+              <CategoryPicker value={category} onChange={setCategory} />
+            </div>
+
+            {/* Ingredients list */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-card-title">
+                  Ingredients ({ingredients.length})
+                </h3>
               </div>
 
-              {/* Ingredients list */}
-              <div className="mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-card-title">
-                    Ingredients ({ingredients.length})
-                  </h3>
-                </div>
-
-                {ingredients.length > 0 ? (
-                  <div className="space-y-2 mb-3">
-                    {ingredients.map((ingredient) => (
-                      <IngredientCard
-                        key={ingredient.id}
-                        ingredient={ingredient}
-                        onUpdate={handleUpdateIngredient}
-                        onRemove={handleRemoveIngredient}
-                        isEditable={true}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-6 bg-bg-surface rounded-lg mb-3">
-                    <p className="text-text-secondary text-sm">No ingredients yet</p>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => setView('add-ingredient')}
-                  className="w-full py-2.5 rounded-lg border border-dashed border-border-subtle
-                           text-text-secondary text-sm hover:border-macro-calories hover:text-macro-calories
-                           transition-colors flex items-center justify-center gap-2"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Ingredient
-                </button>
-              </div>
-
-              {/* Totals */}
-              {ingredients.length > 0 && (
-                <div className="card mb-6">
-                  <h4 className="text-card-title mb-3">Total Nutrition</h4>
-                  <div className="macro-grid text-center">
-                    <div>
-                      <p className="text-lg font-mono font-bold text-macro-calories">{totals.totalCalories}</p>
-                      <p className="text-caption">kcal</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-mono font-bold text-macro-protein">{Math.round(totals.totalProtein)}g</p>
-                      <p className="text-caption">protein</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-mono font-bold text-macro-carbs">{Math.round(totals.totalCarbs)}g</p>
-                      <p className="text-caption">carbs</p>
-                    </div>
-                    <div>
-                      <p className="text-lg font-mono font-bold text-macro-fat">{Math.round(totals.totalFat)}g</p>
-                      <p className="text-caption">fat</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Action buttons */}
-              <div className="flex gap-3">
-                {onDelete && (
-                  <button
-                    onClick={handleDelete}
-                    disabled={isDeleting}
-                    className="py-3 px-4 rounded-xl bg-bg-elevated text-red-500 
-                             hover:bg-red-500/20 transition-colors disabled:opacity-50
-                             flex items-center justify-center gap-2"
-                  >
-                    {isDeleting ? (
-                      <div className="spinner" style={{ borderColor: 'rgb(239 68 68)', borderTopColor: 'transparent' }} />
-                    ) : (
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                        />
-                      </svg>
-                    )}
-                  </button>
-                )}
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving || ingredients.length === 0 || !name.trim()}
-                  className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
-                >
-                  {isSaving ? (
-                    <>
-                      <div className="spinner" />
-                      Saving...
-                    </>
-                  ) : (
-                    'Save Changes'
-                  )}
-                </button>
-              </div>
-            </>
-          ) : (
-            /* Add ingredient view */
-            <>
-              {/* Search input */}
-              <div className="relative mb-4">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">🔍</span>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  placeholder="Search foods..."
-                  className="input-field !pl-12"
-                  autoFocus
-                />
-              </div>
-
-              <button
-                onClick={handleSearch}
-                disabled={isSearching || !searchQuery.trim()}
-                className="btn-secondary w-full mb-4 flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isSearching ? (
-                  <>
-                    <div className="spinner" style={{ borderColor: 'var(--text-primary)', borderTopColor: 'transparent' }} />
-                    Searching...
-                  </>
-                ) : (
-                  'Search'
-                )}
-              </button>
-
-              {/* Search results */}
-              {searchResults.length > 0 && !selectedFood && (
-                <div className="space-y-2 mb-4">
-                  {searchResults.map((food, index) => (
-                    <button
-                      key={`${food.source}-${food.originalId || food.name}-${index}`}
-                      onClick={() => handleSelectFood(food)}
-                      className="card-interactive w-full text-left"
-                    >
-                      <p className="font-medium text-text-primary truncate">{food.name}</p>
-                      <p className="text-caption">
-                        {food.calories} kcal per {food.servingSize}g • {food.source}
-                      </p>
-                    </button>
+              {ingredients.length > 0 ? (
+                <div className="space-y-2 mb-3">
+                  {ingredients.map((ingredient) => (
+                    <IngredientCard
+                      key={ingredient.id}
+                      ingredient={ingredient}
+                      onUpdate={handleUpdateIngredient}
+                      onRemove={handleRemoveIngredient}
+                      isEditable={true}
+                    />
                   ))}
                 </div>
+              ) : (
+                <div className="text-center py-6 bg-bg-surface rounded-lg mb-3">
+                  <p className="text-text-secondary text-sm">No ingredients yet</p>
+                </div>
               )}
 
-              {/* Selected food - set weight */}
-              {selectedFood && (
-                <div className="mb-4">
-                  <div className="card mb-4">
-                    <h4 className="text-card-title mb-2">{selectedFood.name}</h4>
-                    <p className="text-caption mb-4">
-                      {selectedFood.calories} kcal per {selectedFood.servingSize}g from {selectedFood.source}
+              <button
+                onClick={() => setView('add-ingredient')}
+                className="w-full py-2.5 rounded-lg border border-dashed border-border-subtle
+                           text-text-secondary text-sm hover:border-macro-calories hover:text-macro-calories
+                           transition-colors flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Ingredient
+              </button>
+            </div>
+
+            {/* Totals */}
+            {ingredients.length > 0 && (
+              <div className="card mb-6">
+                <h4 className="text-card-title mb-3">Total Nutrition</h4>
+                <div className="macro-grid text-center">
+                  <div>
+                    <p className="text-lg font-mono font-bold text-macro-calories">{totals.totalCalories}</p>
+                    <p className="text-caption">kcal</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-mono font-bold text-macro-protein">{Math.round(totals.totalProtein)}g</p>
+                    <p className="text-caption">protein</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-mono font-bold text-macro-carbs">{Math.round(totals.totalCarbs)}g</p>
+                    <p className="text-caption">carbs</p>
+                  </div>
+                  <div>
+                    <p className="text-lg font-mono font-bold text-macro-fat">{Math.round(totals.totalFat)}g</p>
+                    <p className="text-caption">fat</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex gap-3">
+              {onDelete && (
+                <button
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="py-3 px-4 rounded-xl bg-bg-elevated text-red-500 
+                             hover:bg-red-500/20 transition-colors disabled:opacity-50
+                             flex items-center justify-center gap-2"
+                >
+                  {isDeleting ? (
+                    <div className="spinner" style={{ borderColor: 'rgb(239 68 68)', borderTopColor: 'transparent' }} />
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={isSaving || ingredients.length === 0 || !name.trim()}
+                className="flex-1 btn-primary flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <div className="spinner" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </button>
+            </div>
+          </>
+        ) : (
+          /* Add ingredient view */
+          <>
+            {/* Search input */}
+            <div className="relative mb-4">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none">🔍</span>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                placeholder="Search foods..."
+                className="input-field !pl-12"
+                autoFocus
+              />
+            </div>
+
+            <button
+              onClick={handleSearch}
+              disabled={isSearching || !searchQuery.trim()}
+              className="btn-secondary w-full mb-4 flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              {isSearching ? (
+                <>
+                  <div className="spinner" style={{ borderColor: 'var(--text-primary)', borderTopColor: 'transparent' }} />
+                  Searching...
+                </>
+              ) : (
+                'Search'
+              )}
+            </button>
+
+            {/* Search results */}
+            {searchResults.length > 0 && !selectedFood && (
+              <div className="space-y-2 mb-4">
+                {searchResults.map((food, index) => (
+                  <button
+                    key={`${food.source}-${food.originalId || food.name}-${index}`}
+                    onClick={() => handleSelectFood(food)}
+                    className="card-interactive w-full text-left"
+                  >
+                    <p className="font-medium text-text-primary truncate">{food.name}</p>
+                    <p className="text-caption">
+                      {food.calories} kcal per {food.servingSize}g • {food.source}
                     </p>
-                    
-                    <label className="text-caption block mb-2">Weight (grams)</label>
-                    <input
-                      type="number"
-                      value={addWeight}
-                      onChange={(e) => setAddWeight(e.target.value)}
-                      className="input-field text-center text-xl font-mono mb-3"
-                      min="1"
-                    />
-                    
-                    <div className="flex gap-2 mb-4">
-                      {[50, 100, 150, 200].map((preset) => (
-                        <button
-                          key={preset}
-                          onClick={() => setAddWeight(preset.toString())}
-                          className={`preset-button flex-1 ${addWeight === preset.toString() ? 'active' : ''}`}
-                        >
-                          {preset}g
-                        </button>
-                      ))}
-                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
 
-                    {/* Show scaled nutrition */}
-                    {(() => {
-                      const weightNum = parseInt(addWeight) || 100;
-                      const scaled = scaleNutrition(selectedFood, weightNum);
-                      return (
-                        <div className="macro-grid text-center">
-                          <div>
-                            <p className="font-mono font-bold text-macro-calories">{scaled.calories}</p>
-                            <p className="text-caption">kcal</p>
-                          </div>
-                          <div>
-                            <p className="font-mono font-bold text-macro-protein">{scaled.protein}g</p>
-                            <p className="text-caption">protein</p>
-                          </div>
-                          <div>
-                            <p className="font-mono font-bold text-macro-carbs">{scaled.carbs}g</p>
-                            <p className="text-caption">carbs</p>
-                          </div>
-                          <div>
-                            <p className="font-mono font-bold text-macro-fat">{scaled.fat}g</p>
-                            <p className="text-caption">fat</p>
-                          </div>
+            {/* Selected food - set weight */}
+            {selectedFood && (
+              <div className="mb-4">
+                <div className="card mb-4">
+                  <h4 className="text-card-title mb-2">{selectedFood.name}</h4>
+                  <p className="text-caption mb-4">
+                    {selectedFood.calories} kcal per {selectedFood.servingSize}g from {selectedFood.source}
+                  </p>
+
+                  <label className="text-caption block mb-2">Weight (grams)</label>
+                  <input
+                    type="number"
+                    value={addWeight}
+                    onChange={(e) => setAddWeight(e.target.value)}
+                    className="input-field text-center text-xl font-mono mb-3"
+                    min="1"
+                  />
+
+                  <div className="flex gap-2 mb-4">
+                    {[50, 100, 150, 200].map((preset) => (
+                      <button
+                        key={preset}
+                        onClick={() => setAddWeight(preset.toString())}
+                        className={`preset-button flex-1 ${addWeight === preset.toString() ? 'active' : ''}`}
+                      >
+                        {preset}g
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Show scaled nutrition */}
+                  {(() => {
+                    const weightNum = parseInt(addWeight) || 100;
+                    const scaled = scaleNutrition(selectedFood, weightNum);
+                    return (
+                      <div className="macro-grid text-center">
+                        <div>
+                          <p className="font-mono font-bold text-macro-calories">{scaled.calories}</p>
+                          <p className="text-caption">kcal</p>
                         </div>
-                      );
-                    })()}
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setSelectedFood(null)}
-                      className="btn-secondary flex-1"
-                    >
-                      Back
-                    </button>
-                    <button
-                      onClick={handleAddIngredient}
-                      className="btn-primary flex-1"
-                    >
-                      Add to Meal
-                    </button>
-                  </div>
+                        <div>
+                          <p className="font-mono font-bold text-macro-protein">{scaled.protein}g</p>
+                          <p className="text-caption">protein</p>
+                        </div>
+                        <div>
+                          <p className="font-mono font-bold text-macro-carbs">{scaled.carbs}g</p>
+                          <p className="text-caption">carbs</p>
+                        </div>
+                        <div>
+                          <p className="font-mono font-bold text-macro-fat">{scaled.fat}g</p>
+                          <p className="text-caption">fat</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
-              )}
 
-              {/* Empty state */}
-              {!isSearching && searchQuery && searchResults.length === 0 && (
-                <div className="text-center py-8">
-                  <p className="text-4xl mb-4">🔍</p>
-                  <p className="text-body text-text-secondary">No foods found</p>
-                  <p className="text-caption mt-2">Try a different search term</p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setSelectedFood(null)}
+                    className="btn-secondary flex-1"
+                  >
+                    Back
+                  </button>
+                  <button
+                    onClick={handleAddIngredient}
+                    className="btn-primary flex-1"
+                  >
+                    Add to Meal
+                  </button>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Initial state */}
-              {!searchQuery && searchResults.length === 0 && (
-                <div className="text-center py-8">
-                  <p className="text-4xl mb-4">🍎</p>
-                  <p className="text-body text-text-secondary">Search for a food to add</p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+            {/* Empty state */}
+            {!isSearching && searchQuery && searchResults.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-4xl mb-4">🔍</p>
+                <p className="text-body text-text-secondary">No foods found</p>
+                <p className="text-caption mt-2">Try a different search term</p>
+              </div>
+            )}
+
+            {/* Initial state */}
+            {!searchQuery && searchResults.length === 0 && (
+              <div className="text-center py-8">
+                <p className="text-4xl mb-4">🍎</p>
+                <p className="text-body text-text-secondary">Search for a food to add</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </ModalShell>
   );
 }
