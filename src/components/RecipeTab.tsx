@@ -171,7 +171,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
 
       // Create scaled ingredients
       const ingredientResults = await Promise.all(

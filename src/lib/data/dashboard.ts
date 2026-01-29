@@ -221,24 +221,39 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const endOfDay = new Date(startOfDay);
   endOfDay.setDate(endOfDay.getDate() + 1);
 
+  const startISO = startOfDay.toISOString();
+  const endISO = endOfDay.toISOString();
+
   const [mealsResult, legacyLogsResult] = await Promise.all([
     client.models.Meal.list({
       filter: {
         eatenAt: {
-          between: [startOfDay.toISOString(), endOfDay.toISOString()],
+          between: [startISO, endISO],
         },
       },
     }),
     client.models.FoodLog.list({
       filter: {
         eatenAt: {
-          between: [startOfDay.toISOString(), endOfDay.toISOString()],
+          between: [startISO, endISO],
         },
       },
     }),
   ]);
 
   const mealsData = mealsResult.data || [];
+
+  // Debug: log query range and all meal eatenAt values
+  if (typeof window !== 'undefined') {
+    const { logRemote } = await import('@/lib/clientLogger');
+    logRemote.info('MEAL_QUERY_DEBUG', {
+      queryStart: startISO,
+      queryEnd: endISO,
+      localDate: date.toISOString(),
+      mealsFound: mealsData.length,
+      mealDetails: mealsData.map(m => ({ id: m.id, eatenAt: m.eatenAt })),
+    });
+  }
   const legacyLogs = legacyLogsResult.data || [];
 
   const ingredientsByMeal = await fetchIngredientsByMealForDay(

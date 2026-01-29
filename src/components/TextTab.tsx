@@ -158,7 +158,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
 
       // Create all ingredients
       let ingredientsCreated = 0;

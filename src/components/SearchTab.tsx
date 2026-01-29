@@ -254,7 +254,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
 
       // Create the ingredient
       const { data: ingredient } = await client.models.MealIngredient.create({
