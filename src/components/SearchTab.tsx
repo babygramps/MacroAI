@@ -9,6 +9,7 @@ import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse } fr
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { onMealLogged } from '@/lib/metabolicService';
+import { verifyMealCreated } from '@/lib/meal/mealVerification';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
@@ -258,10 +259,10 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
       // Create the ingredient
       // Note: servingSizeGrams must be an integer (schema constraint)
-      const servingSizeGramsInt = selectedFood.servingSizeGrams 
-        ? Math.round(selectedFood.servingSizeGrams) 
+      const servingSizeGramsInt = selectedFood.servingSizeGrams
+        ? Math.round(selectedFood.servingSizeGrams)
         : undefined;
-      
+
       const ingredientResult = await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
@@ -280,44 +281,20 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       if (ingredientResult.data) {
         logRemote.info('INGREDIENT_CREATED', { traceId, ingredientId: ingredientResult.data.id, mealId: meal.id });
       } else {
-        logRemote.error('INGREDIENT_CREATE_FAILED', { 
-          traceId, 
-          mealId: meal.id, 
+        logRemote.error('INGREDIENT_CREATE_FAILED', {
+          traceId,
+          mealId: meal.id,
           errors: ingredientResult.errors?.map(e => ({ message: e.message, errorType: e.errorType })),
         });
       }
 
-      // Verify meal is readable (eventual consistency check)
-      // Longer delay to allow GSI propagation
-      await new Promise(r => setTimeout(r, 300));
-      const { data: verification } = await client.models.Meal.get({ id: meal.id });
-      if (verification) {
-        logRemote.info('MEAL_VERIFIED_GET', { traceId, mealId: meal.id });
-      } else {
-        logRemote.warn('MEAL_VERIFICATION_FAILED', { traceId, mealId: meal.id, error: 'Meal not readable after creation' });
-      }
-
-      // Also verify via list query (uses GSI, may have different consistency)
-      const startOfDay = new Date();
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setDate(endOfDay.getDate() + 1);
-      const { data: listCheck } = await client.models.Meal.list({
-        filter: { eatenAt: { between: [startOfDay.toISOString(), endOfDay.toISOString()] } },
-      });
-      const foundInList = listCheck?.some(m => m.id === meal.id);
-      logRemote.info('MEAL_VERIFIED_LIST', { 
-        traceId, 
-        mealId: meal.id, 
-        foundInList, 
-        totalMealsInList: listCheck?.length ?? 0,
-        allMealIds: listCheck?.map(m => m.id),
-      });
+      // Verify meal is readable with exponential backoff retry
+      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);
 
-      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified: !!verification });
+      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');

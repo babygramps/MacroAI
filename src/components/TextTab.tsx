@@ -7,6 +7,7 @@ import type { NormalizedFood, MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
+import { verifyMealCreated } from '@/lib/meal/mealVerification';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { ErrorAlert } from './ui/ErrorAlert';
@@ -165,10 +166,10 @@ export function TextTab({ onSuccess }: TextTabProps) {
       for (let i = 0; i < selectedFoods.length; i++) {
         const food = selectedFoods[i];
         // Note: servingSizeGrams must be an integer (schema constraint)
-        const servingSizeGramsInt = food.servingSizeGrams 
-          ? Math.round(food.servingSizeGrams) 
+        const servingSizeGramsInt = food.servingSizeGrams
+          ? Math.round(food.servingSizeGrams)
           : undefined;
-        
+
         const { data: ingredient } = await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
@@ -190,19 +191,13 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
       logRemote.info('INGREDIENTS_CREATED', { traceId, mealId: meal.id, count: ingredientsCreated, expected: selectedFoods.length });
 
-      // Verify meal is readable (eventual consistency check)
-      await new Promise(r => setTimeout(r, 100));
-      const { data: verification } = await client.models.Meal.get({ id: meal.id });
-      if (verification) {
-        logRemote.info('MEAL_VERIFIED', { traceId, mealId: meal.id });
-      } else {
-        logRemote.warn('MEAL_VERIFICATION_FAILED', { traceId, mealId: meal.id, error: 'Meal not readable after creation' });
-      }
+      // Verify meal is readable with exponential backoff retry
+      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);
 
-      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified: !!verification });
+      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');

@@ -6,6 +6,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { RecipeEntry, MealCategory, ScaledRecipePortion } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { onMealLogged } from '@/lib/metabolicService';
+import { verifyMealCreated } from '@/lib/meal/mealVerification';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 import { RecipeCard, RecipeCardSkeleton } from './ui/RecipeCard';
 import { CategoryPicker } from './ui/CategoryPicker';
@@ -194,19 +195,13 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
       const ingredientsCreated = ingredientResults.filter(r => r.data).length;
       logRemote.info('INGREDIENTS_CREATED', { traceId, mealId: meal.id, count: ingredientsCreated, expected: selectedRecipe.ingredients.length });
 
-      // Verify meal is readable (eventual consistency check)
-      await new Promise(r => setTimeout(r, 100));
-      const { data: verification } = await client.models.Meal.get({ id: meal.id });
-      if (verification) {
-        logRemote.info('MEAL_VERIFIED', { traceId, mealId: meal.id });
-      } else {
-        logRemote.warn('MEAL_VERIFICATION_FAILED', { traceId, mealId: meal.id, error: 'Meal not readable after creation' });
-      }
+      // Verify meal is readable with exponential backoff retry
+      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);
 
-      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified: !!verification });
+      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedRecipe.name} logged!`, 'success');
@@ -237,7 +232,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
   }, [fetchRecipes]);
 
   const servingLabel = selectedRecipe?.servingDescription || 'serving';
-  const servingSizeG = selectedRecipe?.servingSizeG || 
+  const servingSizeG = selectedRecipe?.servingSizeG ||
     (selectedRecipe ? Math.round(selectedRecipe.totalYieldG / selectedRecipe.totalServings) : 0);
 
   // Category selection view
@@ -431,8 +426,8 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
 
         <div className="card mb-6">
           <h4 className="text-card-title mb-4">
-            Nutrition ({inputMode === 'servings' 
-              ? `${portionAmount} ${servingLabel}${parseFloat(portionAmount) !== 1 ? 's' : ''}` 
+            Nutrition ({inputMode === 'servings'
+              ? `${portionAmount} ${servingLabel}${parseFloat(portionAmount) !== 1 ? 's' : ''}`
               : `${scaledPortion.weightG}g`})
           </h4>
           <div className="grid grid-cols-2 gap-4">
