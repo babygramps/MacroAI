@@ -6,6 +6,8 @@ interface MacroPieChartProps {
   protein: number; // grams
   carbs: number; // grams
   fat: number; // grams
+  size?: number; // optional size override (default 160)
+  hideLegend?: boolean; // hide the percentage legend
 }
 
 // Macro colors matching the design system
@@ -22,7 +24,7 @@ const CALS_PER_GRAM = {
   fat: 9,
 };
 
-export function MacroPieChart({ protein, carbs, fat }: MacroPieChartProps) {
+export function MacroPieChart({ protein, carbs, fat, size: propSize = 160, hideLegend = false }: MacroPieChartProps) {
   const [animationProgress, setAnimationProgress] = useState(0);
 
   // Calculate total calories from macros
@@ -36,12 +38,13 @@ export function MacroPieChart({ protein, carbs, fat }: MacroPieChartProps) {
   const carbsPct = totalCals > 0 ? (carbsCals / totalCals) * 100 : 0;
   const fatPct = totalCals > 0 ? (fatCals / totalCals) * 100 : 0;
 
-  // SVG dimensions
-  const size = 160;
-  const strokeWidth = 20;
+  // SVG dimensions - scale stroke width proportionally
+  const size = propSize;
+  const strokeWidth = Math.max(8, Math.round(propSize * 0.125));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
+  const isSmall = propSize < 120;
 
   // Calculate dash arrays for each segment
   // Order: Protein, Carbs, Fat
@@ -146,43 +149,45 @@ export function MacroPieChart({ protein, carbs, fat }: MacroPieChartProps) {
 
         {/* Center text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-mono font-bold text-text-primary">
+          <span className={`${isSmall ? 'text-sm' : 'text-2xl'} font-mono font-bold text-text-primary`}>
             {Math.round(totalCals)}
           </span>
-          <span className="text-xs text-text-muted">kcal</span>
+          {!isSmall && <span className="text-xs text-text-muted">kcal</span>}
         </div>
       </div>
 
       {/* Legend */}
-      <div className="flex gap-4 mt-4">
-        <div className="flex items-center gap-1.5">
-          <div 
-            className="w-3 h-3 rounded-full" 
-            style={{ backgroundColor: COLORS.protein }}
-          />
-          <span className="text-xs text-text-secondary">
-            {Math.round(proteinPct)}% P
-          </span>
+      {!hideLegend && (
+        <div className="flex gap-4 mt-4">
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: COLORS.protein }}
+            />
+            <span className="text-xs text-text-secondary">
+              {Math.round(proteinPct)}% P
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: COLORS.carbs }}
+            />
+            <span className="text-xs text-text-secondary">
+              {Math.round(carbsPct)}% C
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div
+              className="w-3 h-3 rounded-full"
+              style={{ backgroundColor: COLORS.fat }}
+            />
+            <span className="text-xs text-text-secondary">
+              {Math.round(fatPct)}% F
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <div 
-            className="w-3 h-3 rounded-full" 
-            style={{ backgroundColor: COLORS.carbs }}
-          />
-          <span className="text-xs text-text-secondary">
-            {Math.round(carbsPct)}% C
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div 
-            className="w-3 h-3 rounded-full" 
-            style={{ backgroundColor: COLORS.fat }}
-          />
-          <span className="text-xs text-text-secondary">
-            {Math.round(fatPct)}% F
-          </span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
