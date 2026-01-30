@@ -177,6 +177,13 @@ export interface WeightDataPoint {
   trendWeight: number;
 }
 
+// TDEE data point for charts (includes both raw and smoothed)
+export interface TdeeDataPoint {
+  date: string;
+  rawTdee: number | null;
+  smoothedTdee: number;
+}
+
 // Extended weight stats with trend data
 export interface WeightStatsWithTrend extends WeightStats {
   trendWeight: number | null;

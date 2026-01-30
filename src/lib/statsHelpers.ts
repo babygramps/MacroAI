@@ -1,27 +1,28 @@
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { 
-  DayData, 
-  DailySummary, 
-  FoodLogEntry, 
-  WeeklyStats, 
-  UserGoals, 
-  WeightLogEntry, 
+import type {
+  DayData,
+  DailySummary,
+  FoodLogEntry,
+  WeeklyStats,
+  UserGoals,
+  WeightLogEntry,
   WeightStats,
   DailyLog,
   ComputedState,
   WeeklyCheckIn,
   MetabolicInsights,
   WeightStatsWithTrend,
+  TdeeDataPoint,
 } from './types';
 import { METABOLIC_CONSTANTS } from './types';
 import { calculateTrendWeights, getWeeklyWeightChange } from './trendEngine';
-import { 
-  calculateColdStartTdee, 
+import {
+  calculateColdStartTdee,
   determineConfidenceLevel,
   buildComputedState,
 } from './expenditureEngine';
-import { 
-  buildWeeklyCheckIn, 
+import {
+  buildWeeklyCheckIn,
   calculateCalorieTarget,
   getWeekStartDate,
   getWeekEndDate,
@@ -56,10 +57,10 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
   }
   const end = getStartOfDay(endDate);
   end.setDate(end.getDate() + 1); // End is exclusive, so add 1 day
-  
+
   const start = getStartOfDay(endDate);
   start.setDate(start.getDate() - (days - 1)); // Go back (days - 1) to include endDate
-  
+
   console.log('[statsHelpers] Fetching week data:', {
     startDate: start.toISOString(),
     endDate: end.toISOString(),
@@ -93,7 +94,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
 
     // Group logs by date
     const logsByDate: Map<string, FoodLogEntry[]> = new Map();
-    
+
     // Initialize all days with empty arrays
     for (let i = 0; i < days; i++) {
       const dayDate = new Date(start);
@@ -108,7 +109,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
         if (!log.eatenAt) continue;
         const logDate = new Date(log.eatenAt);
         const dateKey = formatDateKey(logDate);
-        
+
         const entry: FoodLogEntry = {
           id: log.id,
           name: log.name ?? '',
@@ -134,7 +135,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
         if (!meal.eatenAt) continue;
         const mealDate = new Date(meal.eatenAt);
         const dateKey = formatDateKey(mealDate);
-        
+
         // Convert Meal to FoodLogEntry format for consistent handling
         const entry: FoodLogEntry = {
           id: meal.id,
@@ -209,13 +210,13 @@ export async function calculateStreak(): Promise<number> {
   }
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   let streak = 0;
   const currentDate = new Date(today);
-  
+
   // We'll check up to 365 days back (reasonable limit)
   const maxDays = 365;
-  
+
   console.log('[statsHelpers] Calculating streak from:', formatDateKey(today));
 
   try {
@@ -263,19 +264,19 @@ export async function calculateStreak(): Promise<number> {
 export async function calculateStreakEfficient(): Promise<number> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   // Fetch last 30 days of data
   const weekData = await fetchWeekData(today, 30);
-  
+
   // Reverse so we start from today
   const daysReversed = [...weekData].reverse();
-  
+
   let streak = 0;
   let skipToday = true; // Allow today to have no entries
-  
+
   for (const dayData of daysReversed) {
     const hasEntries = dayData.summary.entries.length > 0;
-    
+
     if (skipToday) {
       skipToday = false;
       if (!hasEntries) {
@@ -283,7 +284,7 @@ export async function calculateStreakEfficient(): Promise<number> {
         continue;
       }
     }
-    
+
     if (hasEntries) {
       streak++;
     } else {
@@ -291,7 +292,7 @@ export async function calculateStreakEfficient(): Promise<number> {
       break;
     }
   }
-  
+
   console.log('[statsHelpers] Calculated streak (efficient):', streak);
   return streak;
 }
@@ -303,7 +304,7 @@ export async function calculateStreakEfficient(): Promise<number> {
 export function calculateAverages(weekData: DayData[]): WeeklyStats['averages'] {
   // Filter to only days with entries
   const daysWithData = weekData.filter(d => d.summary.entries.length > 0);
-  
+
   if (daysWithData.length === 0) {
     return {
       calories: 0,
@@ -338,7 +339,7 @@ export function calculateAverages(weekData: DayData[]): WeeklyStats['averages'] 
  */
 export async function fetchWeeklyStats(endDate: Date = new Date()): Promise<WeeklyStats> {
   console.log('[statsHelpers] Fetching weekly stats for:', formatDateKey(endDate));
-  
+
   const days = await fetchWeekData(endDate, 7);
   const averages = calculateAverages(days);
   const streak = await calculateStreakEfficient();
@@ -363,9 +364,9 @@ export async function fetchUserGoals(): Promise<UserGoals | null> {
     if (profiles && profiles.length > 0) {
       const profile = profiles[0];
       // Determine unit system - prefer new field, fall back to legacy
-      const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ?? 
+      const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ??
         (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
-      
+
       return {
         calorieGoal: profile.calorieGoal ?? 2000,
         proteinGoal: profile.proteinGoal ?? 150,
@@ -407,7 +408,7 @@ export async function fetchWeightHistory(days: number = 30): Promise<WeightLogEn
   }
   const today = new Date();
   today.setHours(23, 59, 59, 999);
-  
+
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
   startDate.setHours(0, 0, 0, 0);
@@ -459,7 +460,7 @@ export async function getLatestWeight(): Promise<WeightLogEntry | null> {
     return null;
   }
   console.log('[statsHelpers] Fetching latest weight...');
-  
+
   try {
     const { data: logs } = await client.models.WeightLog.list();
 
@@ -581,38 +582,38 @@ export function formatWeight(weightKg: number, unit: 'kg' | 'lbs' = 'kg'): strin
  */
 export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
   console.log('[statsHelpers] Fetching daily logs for', days, 'days');
-  
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
-  
+
   try {
     // Fetch food data for the range
     const weekData = await fetchWeekData(today, days);
-    
+
     // Fetch weight data for the range
     const weightEntries = await fetchWeightHistory(days);
-    
+
     // Create a map of date -> weight
     const weightByDate = new Map<string, number>();
     for (const entry of weightEntries) {
       const dateKey = formatDateKey(new Date(entry.recordedAt));
       weightByDate.set(dateKey, entry.weightKg);
     }
-    
+
     // Build DailyLog entries
     const dailyLogs: DailyLog[] = weekData.map(dayData => {
       const hasEntries = dayData.summary.entries.length > 0;
       const scaleWeight = weightByDate.get(dayData.date) ?? null;
-      
+
       // Determine log status
       let logStatus: 'complete' | 'partial' | 'skipped' = 'skipped';
       if (hasEntries) {
         logStatus = 'complete';
       }
-      
+
       return {
         date: dayData.date,
         scaleWeightKg: scaleWeight,
@@ -624,7 +625,7 @@ export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
         logStatus,
       };
     });
-    
+
     console.log('[statsHelpers] Built', dailyLogs.length, 'daily logs');
     return dailyLogs;
   } catch (error) {
@@ -643,13 +644,13 @@ export async function fetchComputedStates(days: number = 30): Promise<ComputedSt
     return [];
   }
   console.log('[statsHelpers] Fetching/computing states for', days, 'days');
-  
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
-  
+
   try {
     // Check if we have stored computed states
     const { data: storedStates } = await client.models.ComputedState.list({
@@ -659,10 +660,10 @@ export async function fetchComputedStates(days: number = 30): Promise<ComputedSt
         },
       },
     });
-    
+
     if (storedStates && storedStates.length > 0) {
       console.log('[statsHelpers] Found', storedStates.length, 'stored computed states');
-      
+
       // Convert to our type
       const states: ComputedState[] = storedStates.map(s => ({
         id: s.id,
@@ -674,13 +675,13 @@ export async function fetchComputedStates(days: number = 30): Promise<ComputedSt
         energyDensityUsed: s.energyDensityUsed ?? 7700,
         weightDeltaKg: s.weightDeltaKg ?? 0,
       }));
-      
+
       // Sort by date
       states.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      
+
       return states;
     }
-    
+
     // No stored states - compute on the fly
     console.log('[statsHelpers] No stored states, computing on-the-fly');
     return await computeStatesOnTheFly(days);
@@ -691,28 +692,59 @@ export async function fetchComputedStates(days: number = 30): Promise<ComputedSt
 }
 
 /**
+ * Fetch TDEE history for charting
+ * Maps ComputedState data to TdeeDataPoint format
+ */
+export async function fetchTdeeHistory(days: number = 30): Promise<TdeeDataPoint[]> {
+  console.log('[statsHelpers] Fetching TDEE history for', days, 'days');
+
+  const computedStates = await fetchComputedStates(days);
+
+  if (computedStates.length === 0) {
+    console.log('[statsHelpers] No computed states for TDEE history');
+    return [];
+  }
+
+  // Map to chart data format
+  const tdeeHistory: TdeeDataPoint[] = computedStates.map(state => ({
+    date: state.date,
+    rawTdee: state.rawTdeeKcal !== state.estimatedTdeeKcal ? state.rawTdeeKcal : null,
+    smoothedTdee: state.estimatedTdeeKcal,
+  }));
+
+  console.log('[statsHelpers] TDEE history:', {
+    points: tdeeHistory.length,
+    firstDate: tdeeHistory[0]?.date,
+    lastDate: tdeeHistory[tdeeHistory.length - 1]?.date,
+    latestTdee: tdeeHistory[tdeeHistory.length - 1]?.smoothedTdee,
+  });
+
+  return tdeeHistory;
+}
+
+/**
  * Compute states on-the-fly when no stored data exists
  */
 async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const startDate = new Date(today);
   startDate.setDate(startDate.getDate() - days);
-  
+
   // Get daily logs and weight entries
   const dailyLogs = await fetchDailyLogs(days);
   const weightEntries = await fetchWeightHistory(days);
   const userGoals = await fetchUserGoals();
-  
+
   if (weightEntries.length === 0) {
     console.log('[statsHelpers] No weight data for computing states');
     return [];
   }
-  
+
   // Calculate trend weights
   const trendData = calculateTrendWeights(weightEntries, startDate, today);
-  
+
   // Get initial TDEE estimate
   let prevTdee = 2000; // Default
   if (userGoals && weightEntries.length > 0) {
@@ -721,15 +753,15 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
       prevTdee = coldStartTdee;
     }
   }
-  
+
   // Build computed states
   const states: ComputedState[] = [];
-  
+
   for (let i = 0; i < trendData.length; i++) {
     const point = trendData[i];
     const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
     const dailyLog = dailyLogs.find(d => d.date === point.date) ?? null;
-    
+
     const state = buildComputedState(
       point.date,
       point.trendWeight,
@@ -737,11 +769,11 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
       dailyLog,
       prevTdee
     );
-    
+
     states.push(state);
     prevTdee = state.estimatedTdeeKcal;
   }
-  
+
   console.log('[statsHelpers] Computed', states.length, 'states on-the-fly');
   return states;
 }
@@ -751,10 +783,10 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
  */
 export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend> {
   console.log('[statsHelpers] Fetching weight stats with trend...');
-  
+
   const baseStats = await fetchWeightStats();
   const entries = baseStats.entries;
-  
+
   if (entries.length === 0) {
     return {
       ...baseStats,
@@ -762,25 +794,25 @@ export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend>
       trendData: [],
     };
   }
-  
+
   // Calculate trend weights for all entries
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  
+
   const startDate = new Date(entries[0].recordedAt);
   startDate.setHours(0, 0, 0, 0);
-  
+
   const trendData = calculateTrendWeights(entries, startDate, today);
-  const latestTrend = trendData.length > 0 
-    ? trendData[trendData.length - 1].trendWeight 
+  const latestTrend = trendData.length > 0
+    ? trendData[trendData.length - 1].trendWeight
     : null;
-  
+
   console.log('[statsHelpers] Trend data calculated:', {
     points: trendData.length,
     latestTrend,
     scaleWeight: baseStats.currentWeight,
   });
-  
+
   return {
     ...baseStats,
     trendWeight: latestTrend,
@@ -794,7 +826,7 @@ export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend>
  */
 export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null> {
   console.log('[statsHelpers] Fetching metabolic insights...');
-  
+
   try {
     // Fetch all required data in parallel
     // Note: We need 30 days of dailyLogs for accurate daysTracked calculation
@@ -805,23 +837,23 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       fetchDailyLogs(30), // Full 30 days for daysTracked calculation
       fetchDailyLogs(7), // Last 7 days for weekly check-in
     ]);
-    
+
     if (!userGoals) {
       console.log('[statsHelpers] No user goals found');
       return null;
     }
-    
+
     // Determine days tracked - count days where user actually logged weight OR food
     // A day is "tracked" if it has real data, not just interpolated values
-    const daysTracked = dailyLogs30.filter(d => 
+    const daysTracked = dailyLogs30.filter(d =>
       d.logStatus !== 'skipped' || d.scaleWeightKg !== null
     ).length;
     const isInColdStart = daysTracked < METABOLIC_CONSTANTS.COLD_START_DAYS;
-    
+
     // Get current TDEE
     let currentTdee = 2000; // Default
     let coldStartTdee: number | null = null;
-    
+
     if (isInColdStart) {
       // Use Mifflin-St Jeor during cold start
       if (weightStatsWithTrend.currentWeight) {
@@ -833,19 +865,19 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       const latest = computedStates[computedStates.length - 1];
       currentTdee = latest.estimatedTdeeKcal;
     }
-    
+
     // Calculate weekly weight change
     const weeklyWeightChange = getWeeklyWeightChange(weightStatsWithTrend.trendData);
-    
+
     // Determine confidence level (use last 7 days for recent missing days)
     const recentMissingDays = dailyLogs7.filter(d => d.logStatus === 'skipped').length;
     const confidenceLevel = determineConfidenceLevel(daysTracked, recentMissingDays);
-    
+
     // Calculate suggested calories
     const goalType = userGoals.goalType ?? 'maintain';
     const goalRate = userGoals.goalRate ?? 0.5;
     const suggestedCalories = calculateCalorieTarget(currentTdee, goalType, goalRate);
-    
+
     // Build weekly check-in if we have enough data
     // Pass currentTdee to ensure consistency with MetabolicInsights
     let weeklyCheckIn: WeeklyCheckIn | null = null;
@@ -861,7 +893,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
         currentTdee // Use the same TDEE as MetabolicInsights for consistent recommendations
       );
     }
-    
+
     const insights: MetabolicInsights = {
       currentTdee,
       trendWeight: weightStatsWithTrend.trendWeight ?? weightStatsWithTrend.currentWeight ?? 0,
@@ -875,7 +907,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       isInColdStart,
       coldStartTdee,
     };
-    
+
     console.log('[statsHelpers] Metabolic insights:', {
       tdee: insights.currentTdee,
       trendWeight: insights.trendWeight,
@@ -883,7 +915,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       isInColdStart: insights.isInColdStart,
       daysTracked: insights.daysTracked,
     });
-    
+
     return insights;
   } catch (error) {
     console.error('[statsHelpers] Error fetching metabolic insights:', error);

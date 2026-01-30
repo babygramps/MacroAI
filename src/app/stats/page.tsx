@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
 import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
 import { WeightChart, WeightChartSkeleton } from '@/components/ui/WeightChart';
+import { TdeeChart, TdeeChartSkeleton } from '@/components/ui/TdeeChart';
 import { WeightLogModal } from '@/components/WeightLogModal';
 import { FoodLogModal } from '@/components/FoodLogModal';
 import { MetabolicInsightsCard, MetabolicInsightsCardSkeleton } from '@/components/ui/MetabolicInsightsCard';
@@ -11,14 +12,15 @@ import { TdeeProgressCard, TdeeProgressCardSkeleton } from '@/components/ui/Tdee
 import { WeeklyCheckInCard, WeeklyCheckInCardSkeleton } from '@/components/ui/WeeklyCheckInCard';
 import { AppHeader } from '@/components/ui/AppHeader';
 import { BottomNav } from '@/components/ui/BottomNav';
-import { 
-  fetchWeeklyStats, 
-  fetchUserGoals, 
-  fetchWeightStatsWithTrend, 
+import {
+  fetchWeeklyStats,
+  fetchUserGoals,
+  fetchWeightStatsWithTrend,
   formatWeight,
   fetchMetabolicInsights,
+  fetchTdeeHistory,
 } from '@/lib/statsHelpers';
-import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights } from '@/lib/types';
+import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights, TdeeDataPoint } from '@/lib/types';
 
 export default function StatsPage() {
   const [isLoading, setIsLoading] = useState(true);
@@ -26,6 +28,7 @@ export default function StatsPage() {
   const [goals, setGoals] = useState<UserGoals | null>(null);
   const [weightStats, setWeightStats] = useState<WeightStatsWithTrend | null>(null);
   const [metabolicInsights, setMetabolicInsights] = useState<MetabolicInsights | null>(null);
+  const [tdeeHistory, setTdeeHistory] = useState<TdeeDataPoint[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
@@ -33,13 +36,14 @@ export default function StatsPage() {
   const loadStats = useCallback(async () => {
     console.log('[StatsPage] Loading stats...');
     try {
-      const [weeklyStats, userGoals, weightData, insights] = await Promise.all([
+      const [weeklyStats, userGoals, weightData, insights, tdeeData] = await Promise.all([
         fetchWeeklyStats(),
         fetchUserGoals(),
         fetchWeightStatsWithTrend(),
         fetchMetabolicInsights(),
+        fetchTdeeHistory(30),
       ]);
-      
+
       console.log('[StatsPage] Stats loaded:', {
         daysCount: weeklyStats.days.length,
         streak: weeklyStats.streak,
@@ -58,6 +62,7 @@ export default function StatsPage() {
       setGoals(userGoals);
       setWeightStats(weightData);
       setMetabolicInsights(insights);
+      setTdeeHistory(tdeeData);
     } catch (err) {
       console.error('[StatsPage] Error loading stats:', err);
       setError('Failed to load statistics. Please try again.');
@@ -77,16 +82,16 @@ export default function StatsPage() {
   };
 
   // Determine weight unit from unit system (new) or legacy field
-  const preferredUnit = goals?.preferredUnitSystem === 'imperial' 
-    ? 'lbs' 
+  const preferredUnit = goals?.preferredUnitSystem === 'imperial'
+    ? 'lbs'
     : goals?.preferredWeightUnit || 'kg';
 
   return (
     <div className="page-container-compact">
-      <AppHeader 
-        title="Statistics" 
-        showBack 
-        showSettings 
+      <AppHeader
+        title="Statistics"
+        showBack
+        showSettings
       />
 
       {/* Main Content */}
@@ -94,8 +99,8 @@ export default function StatsPage() {
         {error ? (
           <div className="card text-center py-8">
             <p className="text-red-500 mb-4">{error}</p>
-            <button 
-              onClick={() => window.location.reload()} 
+            <button
+              onClick={() => window.location.reload()}
               className="btn-secondary"
             >
               Retry
@@ -125,7 +130,7 @@ export default function StatsPage() {
               </section>
             ) : metabolicInsights && !metabolicInsights.isInColdStart && (
               <section className="mb-6">
-                <MetabolicInsightsCard 
+                <MetabolicInsightsCard
                   insights={metabolicInsights}
                   unit={preferredUnit}
                 />
@@ -139,11 +144,31 @@ export default function StatsPage() {
               </section>
             ) : metabolicInsights?.weeklyCheckIn && (
               <section className="mb-6">
-                <WeeklyCheckInCard 
+                <WeeklyCheckInCard
                   checkIn={metabolicInsights.weeklyCheckIn}
                   goals={goals}
                   unit={preferredUnit}
                 />
+              </section>
+            )}
+
+            {/* TDEE Over Time Chart (shown after cold start) */}
+            {isLoading ? (
+              <section className="card mb-6 animate-fade-in-up">
+                <h2 className="text-card-title text-text-secondary mb-4">TDEE Over Time</h2>
+                <TdeeChartSkeleton />
+              </section>
+            ) : tdeeHistory.length >= 2 && !metabolicInsights?.isInColdStart && (
+              <section className="card mb-6 animate-fade-in-up">
+                <h2 className="text-card-title text-text-secondary mb-4">TDEE Over Time</h2>
+                <TdeeChart
+                  data={tdeeHistory}
+                  targetCalories={goals?.calorieGoal}
+                  showRawPoints={true}
+                />
+                <p className="text-caption text-text-muted text-center mt-2">
+                  Your daily energy expenditure over the last 30 days
+                </p>
               </section>
             )}
 
@@ -324,15 +349,14 @@ export default function StatsPage() {
                   <div className="flex-1 card-stat">
                     <p className="text-caption text-text-muted mb-1">7-Day Change</p>
                     {weightStats.changeFromWeekAgo !== null ? (
-                      <p className={`text-2xl font-mono font-bold ${
-                        weightStats.changeFromWeekAgo > 0 
-                          ? 'text-red-400' 
-                          : weightStats.changeFromWeekAgo < 0 
-                            ? 'text-green-400' 
-                            : 'text-text-secondary'
-                      }`}>
+                      <p className={`text-2xl font-mono font-bold ${weightStats.changeFromWeekAgo > 0
+                        ? 'text-red-400'
+                        : weightStats.changeFromWeekAgo < 0
+                          ? 'text-green-400'
+                          : 'text-text-secondary'
+                        }`}>
                         {weightStats.changeFromWeekAgo > 0 ? '+' : ''}
-                        {preferredUnit === 'lbs' 
+                        {preferredUnit === 'lbs'
                           ? Math.round(weightStats.changeFromWeekAgo * 2.20462 * 10) / 10
                           : weightStats.changeFromWeekAgo
                         }
@@ -357,8 +381,8 @@ export default function StatsPage() {
               {isLoading ? (
                 <WeightChartSkeleton />
               ) : weightStats && weightStats.entries.length >= 2 ? (
-                <WeightChart 
-                  data={weightStats.entries} 
+                <WeightChart
+                  data={weightStats.entries}
                   unit={preferredUnit}
                   targetWeight={goals?.targetWeightKg}
                   trendData={weightStats.trendData}
