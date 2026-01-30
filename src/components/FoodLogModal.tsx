@@ -8,7 +8,7 @@ import type { RecentFoodsResponse } from '@/lib/types';
 interface FoodLogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (options?: { verified?: boolean }) => void;
   prefetchedRecents?: RecentFoodsResponse | null;
 }
 

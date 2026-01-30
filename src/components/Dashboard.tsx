@@ -42,7 +42,7 @@ export function Dashboard() {
           setUserContext({ email: attributes.email });
           return;
         }
-        
+
         // Fallback to signInDetails
         const user = await getCurrentUser();
         setUserEmail(user.signInDetails?.loginId);
@@ -159,8 +159,8 @@ export function Dashboard() {
     }
   }, [refresh]);
 
-  const handleLogSuccess = useCallback(async () => {
-    logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate) });
+  const handleLogSuccess = useCallback(async (options?: { verified?: boolean }) => {
+    logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate), verified: options?.verified });
     setIsModalOpen(false);
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
@@ -171,6 +171,16 @@ export function Dashboard() {
       logRemote.info('DASHBOARD_REFRESH_TRIGGERED', { trigger: 'log_success' });
       await refresh();
       logRemote.info('DASHBOARD_REFRESH_COMPLETE', { mealCount: summary.meals.length });
+
+      // If verification failed, schedule a delayed refresh as fallback
+      if (options?.verified === false) {
+        logRemote.info('DASHBOARD_DELAYED_REFRESH_SCHEDULED', { delayMs: 5000 });
+        setTimeout(async () => {
+          logRemote.info('DASHBOARD_DELAYED_REFRESH_TRIGGERED', { trigger: 'verification_fallback' });
+          await refresh();
+          logRemote.info('DASHBOARD_DELAYED_REFRESH_COMPLETE', { mealCount: summary.meals.length });
+        }, 5000);
+      }
     }
     // Refresh prefetched recents so they're up-to-date for next modal open
     try {
@@ -216,8 +226,8 @@ export function Dashboard() {
       <main className="content-wrapper">
         {/* Date Navigator */}
         <div className="flex justify-center mt-6 mb-6">
-          <DateNavigator 
-            selectedDate={selectedDate} 
+          <DateNavigator
+            selectedDate={selectedDate}
             onDateChange={handleDateChange}
             dayStatuses={dayStatusMap}
           />
@@ -264,8 +274,8 @@ export function Dashboard() {
       </main>
 
       {/* Bottom Navigation */}
-      <BottomNav 
-        onAddClick={() => setIsModalOpen(true)} 
+      <BottomNav
+        onAddClick={() => setIsModalOpen(true)}
         showAdd={canAddFood}
       />
 

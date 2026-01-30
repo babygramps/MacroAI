@@ -14,7 +14,7 @@ import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface TextTabProps {
-  onSuccess: () => void;
+  onSuccess: (options?: { verified?: boolean }) => void;
 }
 
 type View = 'input' | 'review' | 'category';
@@ -201,7 +201,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
-      onSuccess();
+      onSuccess({ verified });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging meal:', error);

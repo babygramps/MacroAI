@@ -14,7 +14,7 @@ import { showToast } from './ui/Toast';
 import { RecipeModal } from './RecipeModal';
 
 interface RecipeTabProps {
-  onSuccess: () => void;
+  onSuccess: (options?: { verified?: boolean }) => void;
 }
 
 type View = 'list' | 'portion' | 'category';
@@ -205,7 +205,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedRecipe.name} logged!`, 'success');
-      onSuccess();
+      onSuccess({ verified });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging recipe portion:', error);

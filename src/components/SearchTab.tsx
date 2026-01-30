@@ -17,7 +17,7 @@ import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface SearchTabProps {
-  onSuccess: () => void;
+  onSuccess: (options?: { verified?: boolean }) => void;
   prefetchedRecents?: RecentFoodsResponse | null;
 }
 
@@ -298,7 +298,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
-      onSuccess();
+      onSuccess({ verified });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging food:', error);

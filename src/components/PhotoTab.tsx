@@ -13,7 +13,7 @@ import { showToast } from './ui/Toast';
 import { logRemote, getFileContext, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface PhotoTabProps {
-  onSuccess: () => void;
+  onSuccess: (options?: { verified?: boolean }) => void;
 }
 
 type View = 'input' | 'describe' | 'loading' | 'review' | 'category';
@@ -263,7 +263,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
-      onSuccess();
+      onSuccess({ verified });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging meal:', error);
