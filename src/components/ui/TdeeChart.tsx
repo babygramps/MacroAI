@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import type { TdeeDataPoint } from '@/lib/types';
 
 interface TdeeChartProps {
@@ -23,6 +23,8 @@ export function TdeeChart({
     showRawPoints = true,
 }: TdeeChartProps) {
     const [animatedProgress, setAnimatedProgress] = useState(0);
+    const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
+    const svgRef = useRef<SVGSVGElement>(null);
 
     // Chart dimensions
     const chartWidth = 320;
@@ -58,15 +60,15 @@ export function TdeeChart({
             if (entry.rawTdee === null) return null;
             const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
             const y = padding.top + graphHeight - ((entry.rawTdee - yMin) / yRange) * graphHeight;
-            return { x, y, value: entry.rawTdee, date: entry.date };
+            return { x, y, value: entry.rawTdee, date: entry.date, index };
         })
-        .filter((p): p is { x: number; y: number; value: number; date: string } => p !== null);
+        .filter((p): p is { x: number; y: number; value: number; date: string; index: number } => p !== null);
 
     // Generate points for smoothed TDEE (smooth line)
     const smoothedPoints = data.map((entry, index) => {
         const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
         const y = padding.top + graphHeight - ((entry.smoothedTdee - yMin) / yRange) * graphHeight;
-        return { x, y, value: entry.smoothedTdee, date: entry.date };
+        return { x, y, value: entry.smoothedTdee, date: entry.date, index };
     });
 
     // Create smooth curve path using catmull-rom spline
@@ -123,6 +125,32 @@ export function TdeeChart({
             ]
             : [];
 
+    // Handle mouse move for hover
+    const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        if (!svgRef.current || data.length === 0) return;
+
+        const svg = svgRef.current;
+        const rect = svg.getBoundingClientRect();
+        const scaleX = chartWidth / rect.width;
+        const mouseX = (e.clientX - rect.left) * scaleX;
+
+        // Find the closest data point
+        const graphMouseX = mouseX - padding.left;
+        const dataIndex = Math.round((graphMouseX / graphWidth) * (data.length - 1));
+        const clampedIndex = Math.max(0, Math.min(data.length - 1, dataIndex));
+
+        // Only show hover if within the graph area
+        if (mouseX >= padding.left && mouseX <= chartWidth - padding.right) {
+            setHoveredIndex(clampedIndex);
+        } else {
+            setHoveredIndex(null);
+        }
+    };
+
+    const handleMouseLeave = () => {
+        setHoveredIndex(null);
+    };
+
     // Animate on mount
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -139,8 +167,12 @@ export function TdeeChart({
         );
     }
 
-    // Get latest value for display
+    // Get latest value for display (when not hovering)
     const latestSmoothedTdee = smoothedPoints.length > 0 ? smoothedPoints[smoothedPoints.length - 1].value : null;
+
+    // Get hovered point data
+    const hoveredPoint = hoveredIndex !== null ? smoothedPoints[hoveredIndex] : null;
+    const hoveredRawPoint = hoveredIndex !== null ? rawPoints.find(p => p.index === hoveredIndex) : null;
 
     return (
         <div className="w-full">
@@ -159,9 +191,12 @@ export function TdeeChart({
             )}
 
             <svg
+                ref={svgRef}
                 viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-                className="w-full max-w-[320px] mx-auto"
+                className="w-full max-w-[320px] mx-auto cursor-crosshair"
                 preserveAspectRatio="xMidYMid meet"
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
             >
                 {/* Definitions */}
                 <defs>
@@ -259,6 +294,20 @@ export function TdeeChart({
                     </>
                 )}
 
+                {/* Hover vertical line */}
+                {hoveredPoint && (
+                    <line
+                        x1={hoveredPoint.x}
+                        y1={padding.top}
+                        x2={hoveredPoint.x}
+                        y2={padding.top + graphHeight}
+                        stroke="#FF6B35"
+                        strokeWidth={1}
+                        strokeDasharray="4 2"
+                        opacity={0.5}
+                    />
+                )}
+
                 {/* Area fill under smoothed line */}
                 <path
                     d={areaPath}
@@ -287,26 +336,46 @@ export function TdeeChart({
                 )}
 
                 {/* Raw TDEE points (scatter) */}
-                {showRawPoints && rawPoints.map((point, index) => (
-                    <g key={`raw-${index}`}>
+                {showRawPoints && rawPoints.map((point) => (
+                    <g key={`raw-${point.index}`}>
                         <circle
                             cx={point.x}
                             cy={point.y}
-                            r={3}
+                            r={hoveredIndex === point.index ? 5 : 3}
                             fill="#141419"
                             stroke="#FF6B35"
                             strokeWidth={1.5}
-                            opacity={animatedProgress * 0.7}
+                            opacity={animatedProgress * (hoveredIndex === point.index ? 1 : 0.7)}
                             style={{
-                                transition: 'opacity 0.6s ease-out',
-                                transitionDelay: `${index * 30}ms`,
+                                transition: 'r 0.15s ease-out, opacity 0.15s ease-out',
                             }}
                         />
                     </g>
                 ))}
 
-                {/* Smoothed endpoint highlight */}
-                {smoothedPoints.length > 0 && (
+                {/* Hovered point highlight on smoothed line */}
+                {hoveredPoint && (
+                    <g>
+                        {/* Outer glow */}
+                        <circle
+                            cx={hoveredPoint.x}
+                            cy={hoveredPoint.y}
+                            r={10}
+                            fill="#FF6B35"
+                            opacity={0.2}
+                        />
+                        {/* Inner point */}
+                        <circle
+                            cx={hoveredPoint.x}
+                            cy={hoveredPoint.y}
+                            r={5}
+                            fill="#FF6B35"
+                        />
+                    </g>
+                )}
+
+                {/* Smoothed endpoint highlight (when not hovering) */}
+                {smoothedPoints.length > 0 && hoveredIndex === null && (
                     <g>
                         {/* Outer glow */}
                         <circle
@@ -327,8 +396,61 @@ export function TdeeChart({
                     </g>
                 )}
 
-                {/* Latest smoothed TDEE label */}
-                {latestSmoothedTdee !== null && smoothedPoints.length > 0 && (
+                {/* Hover tooltip */}
+                {hoveredPoint && (
+                    <g>
+                        {/* Tooltip background */}
+                        <rect
+                            x={Math.min(Math.max(hoveredPoint.x - 45, padding.left), chartWidth - padding.right - 90)}
+                            y={Math.max(hoveredPoint.y - 45, padding.top)}
+                            width={90}
+                            height={hoveredRawPoint ? 38 : 28}
+                            rx={4}
+                            fill="#1E1E26"
+                            stroke="#2A2A35"
+                            strokeWidth={1}
+                        />
+                        {/* Date */}
+                        <text
+                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
+                            y={Math.max(hoveredPoint.y - 32, padding.top + 13)}
+                            textAnchor="middle"
+                            fill="#9CA3AF"
+                            fontSize="9"
+                            fontFamily="'Satoshi', sans-serif"
+                        >
+                            {formatShortDate(hoveredPoint.date)}
+                        </text>
+                        {/* Smoothed value */}
+                        <text
+                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
+                            y={Math.max(hoveredPoint.y - 20, padding.top + 25)}
+                            textAnchor="middle"
+                            fill="#FF6B35"
+                            fontSize="11"
+                            fontFamily="'Space Mono', monospace"
+                            fontWeight="600"
+                        >
+                            {Math.round(hoveredPoint.value)} kcal
+                        </text>
+                        {/* Raw value (if different) */}
+                        {hoveredRawPoint && (
+                            <text
+                                x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
+                                y={Math.max(hoveredPoint.y - 10, padding.top + 35)}
+                                textAnchor="middle"
+                                fill="#9CA3AF"
+                                fontSize="9"
+                                fontFamily="'Space Mono', monospace"
+                            >
+                                Raw: {Math.round(hoveredRawPoint.value)}
+                            </text>
+                        )}
+                    </g>
+                )}
+
+                {/* Latest smoothed TDEE label (when not hovering) */}
+                {latestSmoothedTdee !== null && smoothedPoints.length > 0 && hoveredIndex === null && (
                     <text
                         x={smoothedPoints[smoothedPoints.length - 1].x}
                         y={smoothedPoints[smoothedPoints.length - 1].y - 14}
