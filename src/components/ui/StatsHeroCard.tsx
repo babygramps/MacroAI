@@ -1,6 +1,7 @@
 'use client';
 
 import { METABOLIC_CONSTANTS, type ConfidenceLevel, type GoalType } from '@/lib/types';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 
 interface StatsHeroCardProps {
     targetCalories: number;
@@ -108,6 +109,7 @@ export function StatsHeroCard({
                                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                         </svg>
                         <span className="text-xs text-text-muted">Target</span>
+                        <InfoTooltip text="Your daily calorie goal based on your TDEE and weight goal" />
                     </div>
                     <p className="text-2xl font-mono font-bold text-macro-protein">
                         {targetCalories.toLocaleString()}
@@ -123,6 +125,7 @@ export function StatsHeroCard({
                                 d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
                         <span className="text-xs text-text-muted">Burn</span>
+                        <InfoTooltip text="TDEE: Total Daily Energy Expenditure - calories your body burns each day" />
                     </div>
                     <p className="text-2xl font-mono font-bold text-macro-calories">
                         {tdee.toLocaleString()}

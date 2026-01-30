@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { TdeeChart } from '@/components/ui/TdeeChart';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import type { GoalType, WeeklyCheckIn, TdeeDataPoint } from '@/lib/types';
 
 interface InsightsCardProps {
@@ -179,7 +180,10 @@ export function InsightsCard({
                 {/* Adherence */}
                 {adherenceScore !== null && (
                     <div className="bg-bg-elevated rounded-xl p-3">
-                        <p className="text-caption text-text-muted mb-1">Adherence</p>
+                        <div className="flex items-center gap-1 mb-1">
+                            <p className="text-caption text-text-muted">Adherence</p>
+                            <InfoTooltip text="% of days you logged food this week. Higher is better for accurate TDEE." />
+                        </div>
                         <div className="flex items-center gap-2">
                             <p
                                 className="text-xl font-mono font-bold"
@@ -199,7 +203,10 @@ export function InsightsCard({
 
                 {/* Weekly Weight Change */}
                 <div className="bg-bg-elevated rounded-xl p-3">
-                    <p className="text-caption text-text-muted mb-1">This Week</p>
+                    <div className="flex items-center gap-1 mb-1">
+                        <p className="text-caption text-text-muted">This Week</p>
+                        <InfoTooltip text="Your weight change over the past 7 days" />
+                    </div>
                     <p
                         className="text-xl font-mono font-bold"
                         style={{

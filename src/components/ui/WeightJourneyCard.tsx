@@ -1,6 +1,7 @@
 'use client';
 
 import { WeightChart } from '@/components/ui/WeightChart';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import type { WeightLogEntry, WeightDataPoint } from '@/lib/types';
 
 interface WeightJourneyCardProps {
@@ -80,6 +81,7 @@ export function WeightJourneyCard({
                                         d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                                 </svg>
                                 <p className="text-caption text-text-muted">Trend</p>
+                                <InfoTooltip text="Smoothed weight that filters out daily fluctuations from water, food, etc." />
                             </div>
                             <p className="text-2xl font-mono font-bold" style={{ color: '#60A5FA' }}>
                                 {formatWeight(trendWeight ?? scaleWeight ?? 0, unit)}
@@ -100,6 +102,7 @@ export function WeightJourneyCard({
                                         d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                                 </svg>
                                 <p className="text-caption text-text-muted">7-Day</p>
+                                <InfoTooltip text="How much your weight has changed over the past week" />
                             </div>
                             {weeklyChange !== null ? (
                                 <p className="text-2xl font-mono font-bold" style={{ color: changeColor }}>
