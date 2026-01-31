@@ -9,7 +9,7 @@ import type { MealEntry, RecentFoodsResponse } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
 import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
-import { deleteMealEntry, updateMeal, duplicateMealEntry } from '@/lib/data/dashboard';
+import { deleteMealEntry, updateMeal, duplicateMealEntry, calculateDailyTotals } from '@/lib/data/dashboard';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
 import { DashboardHeader } from './dashboard/DashboardHeader';
 import { DashboardRings } from './dashboard/DashboardRings';
@@ -93,6 +93,7 @@ export function Dashboard() {
     dayStatusMap,
     refresh,
     updateDayStatus,
+    setSummary,
   } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
@@ -159,9 +160,27 @@ export function Dashboard() {
     }
   }, [refresh]);
 
-  const handleLogSuccess = useCallback(async (options?: { verified?: boolean }) => {
+  const handleLogSuccess = useCallback(async (options?: { verified?: boolean; meal?: MealEntry }) => {
     logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate), verified: options?.verified });
     setIsModalOpen(false);
+
+    // Optimistic Update: If we have the meal and it's for today, update UI immediately
+    if (options?.meal && isToday(selectedDate)) {
+      logRemote.info('DASHBOARD_OPTIMISTIC_UPDATE', { mealId: options.meal.id });
+      setSummary((prevSummary) => {
+        const newMeals = [...prevSummary.meals, options.meal!];
+        // Sort by eatenAt descending to match standard order
+        newMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
+
+        // Calculate new totals using the shared helper
+        // Use a dynamic import or the one we just exported if available
+        // Since we can't easily import dynamically inside setState, we rely on the imported helper
+        // We need to import calculateDailyTotals at the top of the file first
+        // But for now, let's just update the state
+        return calculateDailyTotals(newMeals);
+      });
+    }
+
     // Return to today and refresh if we were viewing a past date
     if (!isToday(selectedDate)) {
       const today = new Date();
@@ -169,6 +188,7 @@ export function Dashboard() {
       setSelectedDate(today);
     } else {
       logRemote.info('DASHBOARD_REFRESH_TRIGGERED', { trigger: 'log_success' });
+      // We still refresh to ensure data consistency, but the user sees the result instantly
       await refresh();
       logRemote.info('DASHBOARD_REFRESH_COMPLETE', { mealCount: summary.meals.length });
 

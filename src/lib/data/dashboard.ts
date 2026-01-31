@@ -47,7 +47,7 @@ function mapLegacyFoodLogsToMeals(legacyLogs: Schema['FoodLog']['type'][]): Meal
   }));
 }
 
-function calculateDailyTotals(meals: MealEntry[]): DailySummary {
+export function calculateDailyTotals(meals: MealEntry[]): DailySummary {
   const totals = meals.reduce(
     (acc, meal) => ({
       totalCalories: acc.totalCalories + meal.totalCalories,
@@ -187,11 +187,11 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
 
   const selectedDateWeight = weightResult.data && weightResult.data.length > 0
     ? {
-        id: weightResult.data[0].id,
-        weightKg: weightResult.data[0].weightKg,
-        recordedAt: weightResult.data[0].recordedAt,
-        note: weightResult.data[0].note ?? undefined,
-      }
+      id: weightResult.data[0].id,
+      weightKg: weightResult.data[0].weightKg,
+      recordedAt: weightResult.data[0].recordedAt,
+      note: weightResult.data[0].note ?? undefined,
+    }
     : null;
 
   const { data: profiles } = profilesResult;
@@ -320,10 +320,10 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
 
     if (ingredient.id.startsWith('temp-')) {
       // Note: servingSizeGrams must be an integer (schema constraint)
-      const servingSizeGramsInt = ingredient.servingSizeGrams 
-        ? Math.round(ingredient.servingSizeGrams) 
+      const servingSizeGramsInt = ingredient.servingSizeGrams
+        ? Math.round(ingredient.servingSizeGrams)
         : undefined;
-      
+
       await client.models.MealIngredient.create({
         mealId: updatedMeal.id,
         name: ingredient.name,
@@ -359,16 +359,16 @@ export async function updateMeal(updatedMeal: MealEntry): Promise<void> {
 export async function deleteMealEntry(mealId: string): Promise<void> {
   const client = getAmplifyDataClient();
   if (!client) return;
-  
+
   // For legacy food logs, we need to get the date first for metabolic recalculation
   if (mealId.startsWith('legacy-')) {
     const realId = mealId.replace('legacy-', '');
     // Get the food log first to know its date
     const { data: foodLog } = await client.models.FoodLog.get({ id: realId });
     const eatenAt = foodLog?.eatenAt;
-    
+
     await client.models.FoodLog.delete({ id: realId });
-    
+
     // Trigger metabolic recalculation
     if (eatenAt) {
       await onMealLogged(eatenAt);
@@ -463,10 +463,10 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
     await Promise.all(
       ingredients.map((ing) => {
         // Note: servingSizeGrams must be an integer (schema constraint)
-        const servingSizeGramsInt = ing.servingSizeGrams 
-          ? Math.round(ing.servingSizeGrams) 
+        const servingSizeGramsInt = ing.servingSizeGrams
+          ? Math.round(ing.servingSizeGrams)
           : undefined;
-        
+
         return client.models.MealIngredient.create({
           mealId: newMeal.id,
           name: ing.name,

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { analyzeImage, type ImageAnalysisResult, type ImageAnalysisErrorCode } from '@/actions/analyzeImage';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory } from '@/lib/types';
+import type { NormalizedFood, MealCategory, MealEntry, IngredientEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
@@ -13,7 +13,7 @@ import { showToast } from './ui/Toast';
 import { logRemote, getFileContext, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface PhotoTabProps {
-  onSuccess: (options?: { verified?: boolean }) => void;
+  onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
 }
 
 type View = 'input' | 'describe' | 'loading' | 'review' | 'category';
@@ -225,6 +225,8 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       // Create all ingredients
       let ingredientsCreated = 0;
+      const createdIngredients: IngredientEntry[] = [];
+
       for (let i = 0; i < selectedFoods.length; i++) {
         const food = selectedFoods[i];
         // Note: servingSizeGrams must be an integer (schema constraint)
@@ -246,8 +248,23 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
           servingSizeGrams: servingSizeGramsInt,
           sortOrder: i,
         });
+
         if (ingredient) {
           ingredientsCreated++;
+          createdIngredients.push({
+            id: ingredient.id,
+            mealId: meal.id,
+            name: ingredient.name,
+            weightG: ingredient.weightG,
+            calories: ingredient.calories,
+            protein: ingredient.protein,
+            carbs: ingredient.carbs,
+            fat: ingredient.fat,
+            source: ingredient.source,
+            servingDescription: ingredient.servingDescription,
+            servingSizeGrams: ingredient.servingSizeGrams,
+            sortOrder: ingredient.sortOrder ?? i,
+          });
         }
       }
 
@@ -261,9 +278,23 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
+      // Construct optimistic meal entry
+      const optimisticMeal: MealEntry = {
+        id: meal.id,
+        name: meal.name,
+        category: meal.category as MealCategory,
+        eatenAt: meal.eatenAt,
+        totalCalories: meal.totalCalories,
+        totalProtein: meal.totalProtein,
+        totalCarbs: meal.totalCarbs,
+        totalFat: meal.totalFat,
+        totalWeightG: meal.totalWeightG,
+        ingredients: createdIngredients,
+      };
+
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName} logged!`, 'success');
-      onSuccess({ verified });
+      onSuccess({ verified, meal: optimisticMeal });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging meal:', error);

@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { searchFoods, type SearchResult } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse } from '@/lib/types';
+import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { onMealLogged } from '@/lib/metabolicService';
@@ -17,7 +17,7 @@ import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 
 interface SearchTabProps {
-  onSuccess: (options?: { verified?: boolean }) => void;
+  onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
   prefetchedRecents?: RecentFoodsResponse | null;
 }
 
@@ -296,9 +296,36 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
       logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
+      // Construct optimistic meal entry
+      const optimisticMeal: MealEntry = {
+        id: meal.id,
+        name: meal.name,
+        category: meal.category as MealCategory,
+        eatenAt: meal.eatenAt,
+        totalCalories: meal.totalCalories,
+        totalProtein: meal.totalProtein,
+        totalCarbs: meal.totalCarbs,
+        totalFat: meal.totalFat,
+        totalWeightG: meal.totalWeightG,
+        ingredients: [{
+          id: ingredientResult.data?.id ?? 'temp-id',
+          mealId: meal.id,
+          name: ingredientResult.data?.name ?? scaled.name,
+          weightG: ingredientResult.data?.weightG ?? weightNum,
+          calories: ingredientResult.data?.calories ?? scaled.calories,
+          protein: ingredientResult.data?.protein ?? scaled.protein,
+          carbs: ingredientResult.data?.carbs ?? scaled.carbs,
+          fat: ingredientResult.data?.fat ?? scaled.fat,
+          source: ingredientResult.data?.source ?? scaled.source,
+          servingDescription: ingredientResult.data?.servingDescription ?? (selectedFood.servingDescription || undefined),
+          servingSizeGrams: ingredientResult.data?.servingSizeGrams ?? servingSizeGramsInt,
+          sortOrder: 0,
+        }]
+      };
+
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
-      onSuccess({ verified });
+      onSuccess({ verified, meal: optimisticMeal });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging food:', error);

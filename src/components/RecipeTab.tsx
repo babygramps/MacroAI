@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getRecipes } from '@/actions/getRecipes';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { RecipeEntry, MealCategory, ScaledRecipePortion } from '@/lib/types';
+import type { RecipeEntry, MealCategory, ScaledRecipePortion, MealEntry, IngredientEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { onMealLogged } from '@/lib/metabolicService';
 import { verifyMealCreated } from '@/lib/meal/mealVerification';
@@ -14,7 +14,7 @@ import { showToast } from './ui/Toast';
 import { RecipeModal } from './RecipeModal';
 
 interface RecipeTabProps {
-  onSuccess: (options?: { verified?: boolean }) => void;
+  onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
 }
 
 type View = 'list' | 'portion' | 'category';
@@ -203,9 +203,43 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
 
       logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 
+      // Construct optimistic meal entry
+      const createdIngredients: IngredientEntry[] = ingredientResults
+        .filter(r => r.data)
+        .map(r => {
+          const ing = r.data!;
+          return {
+            id: ing.id,
+            mealId: meal.id,
+            name: ing.name,
+            weightG: ing.weightG,
+            calories: ing.calories,
+            protein: ing.protein,
+            carbs: ing.carbs,
+            fat: ing.fat,
+            source: ing.source,
+            servingDescription: ing.servingDescription,
+            servingSizeGrams: ing.servingSizeGrams,
+            sortOrder: ing.sortOrder ?? 0,
+          };
+        });
+
+      const optimisticMeal: MealEntry = {
+        id: meal.id,
+        name: meal.name,
+        category: meal.category as MealCategory,
+        eatenAt: meal.eatenAt,
+        totalCalories: meal.totalCalories,
+        totalProtein: meal.totalProtein,
+        totalCarbs: meal.totalCarbs,
+        totalFat: meal.totalFat,
+        totalWeightG: meal.totalWeightG,
+        ingredients: createdIngredients,
+      };
+
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedRecipe.name} logged!`, 'success');
-      onSuccess({ verified });
+      onSuccess({ verified, meal: optimisticMeal });
     } catch (error) {
       logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
       console.error('Error logging recipe portion:', error);

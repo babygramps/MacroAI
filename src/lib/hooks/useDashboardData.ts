@@ -17,6 +17,7 @@ interface UseDashboardDataResult {
   dayStatusMap: Map<string, LogStatus>;
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
+  setSummary: React.Dispatch<React.SetStateAction<DailySummary>>;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -198,5 +199,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     dayStatusMap,
     refresh,
     updateDayStatus: updateDayStatusLocal,
+    setSummary,
   };
 }
