@@ -3,12 +3,12 @@
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
 import { ModalShell } from './ui/ModalShell';
-import type { RecentFoodsResponse } from '@/lib/types';
+import type { RecentFoodsResponse, MealEntry } from '@/lib/types';
 
 interface FoodLogModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (options?: { verified?: boolean; meal?: any }) => void;
+  onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
   prefetchedRecents?: RecentFoodsResponse | null;
 }
 

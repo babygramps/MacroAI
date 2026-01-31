@@ -209,7 +209,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [refresh, selectedDate, summary.meals.length]);
+  }, [refresh, selectedDate, summary.meals.length, setSummary]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
