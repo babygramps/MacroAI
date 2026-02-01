@@ -112,10 +112,19 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setErrorMessage(null);
 
     // Log analysis start with file details
+    const traceId = generateTraceId();
+    const estimatedBase64Bytes = Math.ceil((pendingFile.size * 4) / 3);
+    const estimatedUploadBytes = pendingFile.size + (description.trim().length || 0) + 1024;
+
     logRemote.info('Photo analysis started', {
+      traceId,
       ...getFileContext(pendingFile),
       hasDescription: !!description.trim(),
       descriptionLength: description.trim().length,
+      estimatedBase64Bytes,
+      estimatedBase64MB: Math.round((estimatedBase64Bytes / 1024 / 1024) * 100) / 100,
+      estimatedUploadBytes,
+      estimatedUploadMB: Math.round((estimatedUploadBytes / 1024 / 1024) * 100) / 100,
     });
 
     setView('loading');
@@ -132,12 +141,15 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       // Log the result
       logRemote.info('Photo analysis completed', {
+        traceId,
         ...getFileContext(pendingFile),
         durationMs: Date.now() - startTime,
         success: result.success,
         foodsDetected: result.foods.length,
         foodNames: result.foods.map((f: NormalizedFood) => f.name),
         errorCode: result.error?.code,
+        errorMessage: result.error?.message,
+        errorDetails: result.error?.details ? String(result.error.details).slice(0, 500) : undefined,
       });
 
       if (!result.success || result.foods.length === 0) {
@@ -154,10 +166,16 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     } catch (error) {
       // Log detailed error for debugging
       logRemote.error('Photo analysis failed', {
+        traceId,
         ...getFileContext(pendingFile),
         ...getErrorContext(error),
         durationMs: Date.now() - startTime,
         hasDescription: !!description.trim(),
+        descriptionLength: description.trim().length,
+        estimatedBase64Bytes,
+        estimatedBase64MB: Math.round((estimatedBase64Bytes / 1024 / 1024) * 100) / 100,
+        estimatedUploadBytes,
+        estimatedUploadMB: Math.round((estimatedUploadBytes / 1024 / 1024) * 100) / 100,
       });
 
       console.error('Image analysis error:', error);

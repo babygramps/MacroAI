@@ -169,6 +169,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
 
   const imageFile = formData.get('image') as File | null;
   const userDescription = formData.get('description') as string | null;
+  const startedAt = Date.now();
 
   if (!imageFile) {
     console.error('No image provided');
@@ -189,6 +190,8 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     fileSize: imageFile.size,
     fileSizeMB: Math.round(imageFile.size / 1024 / 1024 * 100) / 100,
     hasDescription: !!userDescription,
+    descriptionLength: userDescription?.length ?? 0,
+    estimatedBase64Bytes: Math.ceil((imageFile.size * 4) / 3),
   });
 
   try {
@@ -199,6 +202,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     console.info('Image converted to base64', {
       base64Length: base64Image.length,
       mimeType: imageFile.type || 'image/jpeg',
+      durationMs: Date.now() - startedAt,
     });
 
     const client = new GoogleGenAI({ apiKey: geminiKey });
@@ -374,6 +378,10 @@ Return ONLY a valid JSON array. Example:
     );
 
     console.info(`Returning ${results.length} food items with nutrition data`);
+    console.info('analyzeImage completed', {
+      durationMs: Date.now() - startedAt,
+      foodsReturned: results.length,
+    });
     return {
       success: true,
       foods: results,
@@ -387,6 +395,7 @@ Return ONLY a valid JSON array. Example:
       stack: errorStack?.split('\n').slice(0, 5).join('\n'),
       imageType: imageFile.type,
       imageSize: imageFile.size,
+      durationMs: Date.now() - startedAt,
     });
 
     // Check for specific Gemini API errors
