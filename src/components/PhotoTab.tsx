@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { analyzeImage, type ImageAnalysisResult, type ImageAnalysisErrorCode } from '@/actions/analyzeImage';
+import { analyzeImage } from '@/actions/analyzeImage';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, MealEntry, IngredientEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';

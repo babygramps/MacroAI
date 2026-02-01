@@ -1,6 +1,6 @@
 'use client';
 
-import { METABOLIC_CONSTANTS, type ConfidenceLevel, type GoalType } from '@/lib/types';
+import type { ConfidenceLevel, GoalType } from '@/lib/types';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 
 interface StatsHeroCardProps {

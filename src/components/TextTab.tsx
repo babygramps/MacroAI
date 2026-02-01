@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { parseTextLog, type TextParseResult } from '@/actions/parseTextLog';
+import { parseTextLog } from '@/actions/parseTextLog';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, MealEntry, IngredientEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';

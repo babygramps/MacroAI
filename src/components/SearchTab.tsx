@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { searchFoods, type SearchResult } from '@/actions/searchFoods';
+import { searchFoods } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, MealEntry } from '@/lib/types';

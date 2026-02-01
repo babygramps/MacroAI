@@ -1,7 +1,7 @@
 'use client';
 
-import { WeeklyChart, WeeklyChartSkeleton } from '@/components/ui/WeeklyChart';
-import { MacroPieChart, MacroPieChartSkeleton } from '@/components/ui/MacroPieChart';
+import { WeeklyChart } from '@/components/ui/WeeklyChart';
+import { MacroPieChart } from '@/components/ui/MacroPieChart';
 import type { DayData, UserGoals, LogStatus } from '@/lib/types';
 
 interface WeeklyNutritionCardProps {

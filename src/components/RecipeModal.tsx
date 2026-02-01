@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { parseRecipe, type RecipeParseResult } from '@/actions/parseRecipe';
+import { parseRecipe } from '@/actions/parseRecipe';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { ParsedRecipe, ParsedRecipeIngredient } from '@/lib/types';
 import { ModalShell } from './ui/ModalShell';

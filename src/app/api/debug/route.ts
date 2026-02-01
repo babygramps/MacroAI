@@ -22,14 +22,17 @@ function sanitizeHeaders(headers: Headers): Record<string, string> {
 }
 
 function buildRequestContext(request: NextRequest) {
+  const forwardedFor = request.headers.get('x-forwarded-for');
+  const realIp = request.headers.get('x-real-ip');
+  const inferredIp = realIp ?? forwardedFor?.split(',')[0]?.trim() ?? null;
   return {
     method: request.method,
     url: request.nextUrl.toString(),
     path: request.nextUrl.pathname,
     searchParams: Object.fromEntries(request.nextUrl.searchParams.entries()),
     userAgent: request.headers.get('user-agent'),
-    ip: request.ip,
-    forwardedFor: request.headers.get('x-forwarded-for'),
+    ip: inferredIp,
+    forwardedFor,
     forwardedProto: request.headers.get('x-forwarded-proto'),
     forwardedHost: request.headers.get('x-forwarded-host'),
     contentType: request.headers.get('content-type'),
