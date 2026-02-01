@@ -33,8 +33,8 @@ const STATUS_CONFIG = {
     description: 'Some entries may be missing',
     icon: (
       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+          d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
       </svg>
     ),
   },
@@ -87,8 +87,8 @@ export function DayStatusAction({
       if (result.success) {
         onStatusChange(newStatus);
         showToast(
-          newStatus === 'skipped' 
-            ? 'Day marked as skipped' 
+          newStatus === 'skipped'
+            ? 'Day marked as skipped'
             : 'Day marked as complete',
           'success'
         );
@@ -112,16 +112,70 @@ export function DayStatusAction({
   const isLate = isLateInDay();
   const isLowCalories = hasFood && totalCalories < estimatedTdee * 0.5;
 
-  // If already has a status, show status indicator
+  const renderOptions = () => (
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={() => handleUpdateStatus('complete')}
+        disabled={isUpdating}
+        className="flex items-center gap-2 p-3 rounded-lg transition-colors"
+        style={{
+          backgroundColor: STATUS_CONFIG.complete.bgColor,
+          color: STATUS_CONFIG.complete.color,
+        }}
+      >
+        {STATUS_CONFIG.complete.icon}
+        <span className="text-sm font-medium">Mark as Complete</span>
+      </button>
+
+      <button
+        onClick={() => handleUpdateStatus('skipped')}
+        disabled={isUpdating}
+        className="flex items-center gap-2 p-3 rounded-lg transition-colors"
+        style={{
+          backgroundColor: STATUS_CONFIG.skipped.bgColor,
+          color: STATUS_CONFIG.skipped.color,
+        }}
+      >
+        {STATUS_CONFIG.skipped.icon}
+        <span className="text-sm font-medium">Skip Day (Exclude from TDEE)</span>
+      </button>
+
+      <button
+        onClick={() => setShowOptions(false)}
+        className="text-xs text-text-muted hover:text-text-secondary py-2"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+
+  // If already has a status, show status indicator OR options if "Change" was clicked
   if (currentStatus) {
+    if (showOptions) {
+      return (
+        <div className="mt-4 rounded-xl p-4 bg-bg-surface border border-border-subtle">
+          <p className="text-sm text-text-secondary mb-3">Change day status:</p>
+          {renderOptions()}
+          {isUpdating && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-bg-surface rounded-xl p-6 flex items-center gap-3">
+                <div className="w-5 h-5 border-2 border-macro-calories border-t-transparent rounded-full animate-spin" />
+                <span className="text-text-secondary">Updating...</span>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     const config = STATUS_CONFIG[currentStatus];
     return (
-      <div 
+      <div
         className="mt-4 rounded-xl p-4 flex items-center justify-between"
         style={{ backgroundColor: config.bgColor }}
       >
         <div className="flex items-center gap-3">
-          <div 
+          <div
             className="w-10 h-10 rounded-full flex items-center justify-center"
             style={{ backgroundColor: `${config.color}20`, color: config.color }}
           >
@@ -135,7 +189,7 @@ export function DayStatusAction({
           </div>
         </div>
         <button
-          onClick={() => setShowOptions(!showOptions)}
+          onClick={() => setShowOptions(true)}
           className="text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
           Change
@@ -170,43 +224,8 @@ export function DayStatusAction({
       {/* Prompt Card */}
       <div className="card-stat rounded-xl p-4">
         <p className="text-sm text-text-secondary mb-3">{promptMessage}</p>
-        
-        {showOptions ? (
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => handleUpdateStatus('complete')}
-              disabled={isUpdating}
-              className="flex items-center gap-2 p-3 rounded-lg transition-colors"
-              style={{ 
-                backgroundColor: STATUS_CONFIG.complete.bgColor,
-                color: STATUS_CONFIG.complete.color,
-              }}
-            >
-              {STATUS_CONFIG.complete.icon}
-              <span className="text-sm font-medium">Mark as Complete</span>
-            </button>
-            
-            <button
-              onClick={() => handleUpdateStatus('skipped')}
-              disabled={isUpdating}
-              className="flex items-center gap-2 p-3 rounded-lg transition-colors"
-              style={{ 
-                backgroundColor: STATUS_CONFIG.skipped.bgColor,
-                color: STATUS_CONFIG.skipped.color,
-              }}
-            >
-              {STATUS_CONFIG.skipped.icon}
-              <span className="text-sm font-medium">Skip Day (Exclude from TDEE)</span>
-            </button>
-            
-            <button
-              onClick={() => setShowOptions(false)}
-              className="text-xs text-text-muted hover:text-text-secondary py-2"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
+
+        {showOptions ? renderOptions() : (
           <div className="flex gap-2">
             <button
               onClick={() => setShowOptions(true)}
