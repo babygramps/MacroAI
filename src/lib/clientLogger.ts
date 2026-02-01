@@ -91,8 +91,39 @@ function getDeviceContext(): LogContext {
     };
 }
 
+function isDebugEnabled(): boolean {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('debug') === '1';
+}
+
+function getNetworkContext(): LogContext {
+    if (typeof navigator === 'undefined') return {};
+
+    const connection = (navigator as unknown as {
+        connection?: {
+            effectiveType?: string;
+            downlink?: number;
+            rtt?: number;
+            saveData?: boolean;
+        };
+    }).connection;
+
+    return {
+        connection: connection ? {
+            effectiveType: connection.effectiveType,
+            downlink: connection.downlink,
+            rtt: connection.rtt,
+            saveData: connection.saveData,
+        } : undefined,
+        visibilityState: typeof document !== 'undefined' ? document.visibilityState : undefined,
+    };
+}
+
 async function sendLog(level: LogLevel, message: string, context?: LogContext): Promise<void> {
     const timestamp = Date.now();
+    const debugEnabled = isDebugEnabled();
+    const logId = `log_${timestamp}_${Math.random().toString(36).slice(2, 8)}`;
     
     // Add to debug buffer for overlay
     const traceId = context?.traceId as string | undefined;
@@ -107,6 +138,8 @@ async function sendLog(level: LogLevel, message: string, context?: LogContext): 
     // Don't block the UI - fire and forget
     try {
         const payload = {
+            logId,
+            debug: debugEnabled,
             level,
             message,
             timestamp,
@@ -114,6 +147,7 @@ async function sendLog(level: LogLevel, message: string, context?: LogContext): 
                 ...context,
                 ...userContext, // Include user context in all logs
                 device: getDeviceContext(),
+                network: getNetworkContext(),
                 url: typeof window !== 'undefined' ? window.location.pathname : undefined,
             },
         };
@@ -122,6 +156,9 @@ async function sendLog(level: LogLevel, message: string, context?: LogContext): 
         if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
             const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
             navigator.sendBeacon('/api/log', blob);
+            if (debugEnabled) {
+                navigator.sendBeacon('/api/debug?debug=1', blob);
+            }
             return;
         }
 
@@ -133,6 +170,15 @@ async function sendLog(level: LogLevel, message: string, context?: LogContext): 
             // Don't wait for response
             keepalive: true,
         });
+
+        if (debugEnabled) {
+            await fetch('/api/debug?debug=1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                keepalive: true,
+            });
+        }
     } catch {
         // Silently fail - we don't want logging to break the app
         // Still log to console for local debugging
