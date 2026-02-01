@@ -1,6 +1,8 @@
 'use server';
 
-import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
+import type { Schema } from '@/amplify/data/resource';
+import { cookies } from 'next/headers';
 import type { LogStatus } from '@/lib/types';
 import { recalculateTdeeFromDate } from '@/lib/metabolicService';
 
@@ -20,6 +22,20 @@ interface UpdateDayStatusResult {
   logStatus?: LogStatus;
 }
 
+// Get client with cookies for server-side operations
+async function getServerClient() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const outputs = require('@/amplify_outputs.json');
+    return generateServerClientUsingCookies<Schema>({
+      config: outputs,
+      cookies: cookies,
+    });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Update the log status for a specific day
  * Creates a DailyLog record if it doesn't exist
@@ -30,7 +46,7 @@ export async function updateDayStatus(
 ): Promise<UpdateDayStatusResult> {
   console.log('[updateDayStatus] Updating status for', date, 'to', status);
 
-  const client = getAmplifyDataClient();
+  const client = await getServerClient();
   if (!client) {
     return { success: false, error: 'Not authenticated' };
   }
@@ -132,9 +148,9 @@ export async function updateDayStatus(
     return { success: true, logStatus: status };
   } catch (error) {
     console.error('[updateDayStatus] Error:', error);
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : 'Unknown error' 
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -143,7 +159,7 @@ export async function updateDayStatus(
  * Fetch the log status for a specific day
  */
 export async function fetchDayStatus(date: Date): Promise<LogStatus | null> {
-  const client = getAmplifyDataClient();
+  const client = await getServerClient();
   if (!client) {
     return null;
   }
@@ -174,7 +190,7 @@ export async function fetchDayStatusRange(
   startDate: Date,
   endDate: Date
 ): Promise<Map<string, LogStatus>> {
-  const client = getAmplifyDataClient();
+  const client = await getServerClient();
   const statusMap = new Map<string, LogStatus>();
 
   if (!client) {
