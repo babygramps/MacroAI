@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { analyzeImage, type ImageAnalysisResult, type ImageAnalysisErrorCode } from '@/actions/analyzeImage';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, MealEntry, IngredientEntry } from '@/lib/types';
@@ -38,14 +38,11 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   // Error state for analysis failures
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Log file selection for debugging mobile issues
+  const processFile = useCallback((file: File, source: 'camera' | 'gallery' | 'paste') => {
+    // Log file selection for debugging
     logRemote.info('Photo selected', {
       ...getFileContext(file),
-      inputType: e.target.capture ? 'camera' : 'gallery',
+      inputType: source,
     });
 
     // Check for potential issues early
@@ -76,6 +73,37 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setPendingFile(file);
     setView('describe');
   }, []);
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    processFile(file, e.target.capture ? 'camera' : 'gallery');
+  }, [processFile]);
+
+  // Handle paste events
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      // Only handle paste in the input view or describe view (to replace)
+      if (view !== 'input' && view !== 'describe') return;
+
+      const items = e.clipboardData?.items;
+      if (!items) return;
+
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            processFile(file, 'paste');
+            e.preventDefault(); // Prevent default paste behavior
+            break;
+          }
+        }
+      }
+    };
+
+    window.addEventListener('paste', handlePaste);
+    return () => window.removeEventListener('paste', handlePaste);
+  }, [view, processFile]);
 
   const handleAnalyze = useCallback(async () => {
     if (!pendingFile || !image) return;
@@ -619,7 +647,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   return (
     <div className="p-4 pb-safe">
       <p className="text-body text-text-secondary mb-6 text-center">
-        Take a photo of your meal and our AI will identify the foods and estimate nutrition.
+        Take a photo, choose from gallery, or paste an image (Ctrl+V)
       </p>
 
       {/* Hidden file inputs */}
