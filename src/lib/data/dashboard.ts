@@ -275,12 +275,27 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   });
   if (typeof window !== 'undefined') {
     const { logRemote } = await import('@/lib/clientLogger');
+    const analyzedMeals = mealsData
+      .map((meal) => {
+        const eatenAtMs = new Date(meal.eatenAt).getTime();
+        const inDay = eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
+        return {
+          id: meal.id,
+          eatenAt: meal.eatenAt,
+          inDay,
+          deltaToStartMin: Math.round((eatenAtMs - startOfDay.getTime()) / 60000),
+          deltaToEndMin: Math.round((endOfDay.getTime() - eatenAtMs) / 60000),
+        };
+      })
+      .sort((a, b) => Math.abs(a.deltaToStartMin) - Math.abs(b.deltaToStartMin));
+
     logRemote.info('MEAL_QUERY_FILTERED', {
       dayStart: startOfDay.toISOString(),
       dayEnd: endOfDay.toISOString(),
       inDayMealsCount: inDayMeals.length,
       inDayLegacyCount: inDayLegacyLogs.length,
       inDayMealsSample: inDayMeals.slice(0, 6).map(m => ({ id: m.id, eatenAt: m.eatenAt })),
+      nearestToStart: analyzedMeals.slice(0, 6),
     });
   }
 

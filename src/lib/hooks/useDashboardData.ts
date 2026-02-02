@@ -48,9 +48,17 @@ function saveOptimisticToStorage(entries: Map<string, OptimisticEntry>): void {
   if (typeof window === 'undefined') return;
   try {
     const serializable = Array.from(entries.entries());
-    localStorage.setItem(OPTIMISTIC_STORAGE_KEY, JSON.stringify(serializable));
-  } catch {
-    // localStorage might be full or disabled
+    const payload = JSON.stringify(serializable);
+    localStorage.setItem(OPTIMISTIC_STORAGE_KEY, payload);
+    logRemote.info('DASHBOARD_OPTIMISTIC_STORAGE_WRITE', {
+      count: serializable.length,
+      bytes: payload.length,
+      mealIds: serializable.slice(0, 8).map(([mealId]) => mealId),
+    });
+  } catch (error) {
+    logRemote.warn('DASHBOARD_OPTIMISTIC_STORAGE_WRITE_ERROR', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 }
 
@@ -63,12 +71,22 @@ function loadOptimisticFromStorage(): Map<string, OptimisticEntry> {
     const nowMs = Date.now();
     // Filter out expired entries on load
     const valid = parsed.filter(([, entry]) => nowMs - entry.addedAt <= OPTIMISTIC_TTL_MS);
-    if (valid.length !== parsed.length) {
+    const dropped = parsed.length - valid.length;
+    if (dropped > 0) {
       // Some expired, update storage
       localStorage.setItem(OPTIMISTIC_STORAGE_KEY, JSON.stringify(valid));
     }
+    logRemote.info('DASHBOARD_OPTIMISTIC_STORAGE_READ', {
+      count: parsed.length,
+      validCount: valid.length,
+      dropped,
+      mealIds: valid.slice(0, 8).map(([mealId]) => mealId),
+    });
     return new Map(valid);
-  } catch {
+  } catch (error) {
+    logRemote.warn('DASHBOARD_OPTIMISTIC_STORAGE_READ_ERROR', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return new Map();
   }
 }
