@@ -94,6 +94,7 @@ export function Dashboard() {
     refresh,
     updateDayStatus,
     setSummary,
+    addOptimisticMeal,
   } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
@@ -167,6 +168,7 @@ export function Dashboard() {
     // Optimistic Update: If we have the meal and it's for today, update UI immediately
     if (options?.meal && isToday(selectedDate)) {
       logRemote.info('DASHBOARD_OPTIMISTIC_UPDATE', { mealId: options.meal.id });
+      addOptimisticMeal(options.meal, options.verified);
       setSummary((prevSummary) => {
         const newMeals = [...prevSummary.meals, options.meal!];
         // Sort by eatenAt descending to match standard order
@@ -209,7 +211,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [refresh, selectedDate, summary.meals.length, setSummary]);
+  }, [addOptimisticMeal, refresh, selectedDate, summary.meals.length, setSummary]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);

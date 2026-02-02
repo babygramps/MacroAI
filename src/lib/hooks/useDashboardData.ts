@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DailySummary, UserGoals, WeightLogEntry, LogStatus } from '@/lib/types';
-import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
+import type { DailySummary, UserGoals, WeightLogEntry, LogStatus, MealEntry } from '@/lib/types';
+import { DEFAULT_GOALS, fetchDashboardData, calculateDailyTotals } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
@@ -18,6 +18,7 @@ interface UseDashboardDataResult {
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
   setSummary: React.Dispatch<React.SetStateAction<DailySummary>>;
+  addOptimisticMeal: (meal: MealEntry, verified?: boolean) => void;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -29,12 +30,70 @@ const EMPTY_SUMMARY: DailySummary = {
   entries: [],
 };
 
+const OPTIMISTIC_TTL_MS = 2 * 60 * 1000;
+
 // Helper to format date to YYYY-MM-DD
 function formatDateKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function getDateBoundsMs(date: Date): { startMs: number; endMs: number } {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+function mergeOptimisticMeals(
+  summary: DailySummary,
+  selectedDate: Date,
+  optimisticMealsRef: React.MutableRefObject<Map<string, { meal: MealEntry; addedAt: number; verified?: boolean }>>
+): DailySummary {
+  if (optimisticMealsRef.current.size === 0) {
+    return summary;
+  }
+
+  const nowMs = Date.now();
+  const { startMs, endMs } = getDateBoundsMs(selectedDate);
+  const fetchedMealIds = new Set(summary.meals.map((meal) => meal.id));
+  const optimisticMeals: MealEntry[] = [];
+
+  for (const [mealId, entry] of optimisticMealsRef.current.entries()) {
+    const ageMs = nowMs - entry.addedAt;
+    if (ageMs > OPTIMISTIC_TTL_MS) {
+      optimisticMealsRef.current.delete(mealId);
+      logRemote.info('DASHBOARD_OPTIMISTIC_EXPIRED', { mealId, ageMs });
+      continue;
+    }
+
+    if (fetchedMealIds.has(mealId)) {
+      optimisticMealsRef.current.delete(mealId);
+      continue;
+    }
+
+    const eatenAtMs = new Date(entry.meal.eatenAt).getTime();
+    if (eatenAtMs >= startMs && eatenAtMs < endMs) {
+      optimisticMeals.push(entry.meal);
+    }
+  }
+
+  if (optimisticMeals.length === 0) {
+    return summary;
+  }
+
+  const mergedMeals = [...summary.meals, ...optimisticMeals];
+  mergedMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
+
+  logRemote.info('DASHBOARD_OPTIMISTIC_MERGE', {
+    mergedCount: optimisticMeals.length,
+    mealIds: optimisticMeals.map((meal) => meal.id),
+  });
+
+  return calculateDailyTotals(mergedMeals);
 }
 
 export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
@@ -48,6 +107,16 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
+  const optimisticMealsRef = useRef<Map<string, { meal: MealEntry; addedAt: number; verified?: boolean }>>(new Map());
+
+  const addOptimisticMeal = useCallback((meal: MealEntry, verified?: boolean) => {
+    optimisticMealsRef.current.set(meal.id, {
+      meal,
+      addedAt: Date.now(),
+      verified,
+    });
+    logRemote.info('DASHBOARD_OPTIMISTIC_STORED', { mealId: meal.id, verified });
+  }, []);
 
   // One-time auto-backfill for existing users who don't have ComputedState data yet
   useEffect(() => {
@@ -124,7 +193,8 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       });
 
       setGoals(data.goals);
-      setSummary(data.summary);
+      const mergedSummary = mergeOptimisticMeals(data.summary, selectedDate, optimisticMealsRef);
+      setSummary(mergedSummary);
       setLatestWeight(data.latestWeight);
       setNeedsOnboarding(data.needsOnboarding);
       setDayStatus(status);
@@ -200,5 +270,6 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     refresh,
     updateDayStatus: updateDayStatusLocal,
     setSummary,
+    addOptimisticMeal,
   };
 }
