@@ -40,7 +40,7 @@ const EMPTY_SUMMARY: DailySummary = {
   entries: [],
 };
 
-const OPTIMISTIC_TTL_MS = 2 * 60 * 1000;
+const OPTIMISTIC_TTL_MS = 12 * 60 * 60 * 1000;
 const OPTIMISTIC_STORAGE_KEY = 'macroai_optimistic_meals';
 
 // Persist optimistic meals to localStorage so they survive page refresh

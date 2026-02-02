@@ -137,7 +137,7 @@ describe('useDashboardData optimistic merge', () => {
 
     const selectedDate = new Date('2026-02-01T10:00:00.000Z');
     const optimisticMeal = createMeal('meal-3', '2026-02-01T20:00:00.000Z');
-    const ttlMs = 2 * 60 * 1000 + 1;
+    const ttlMs = 12 * 60 * 60 * 1000 + 1;
 
     const { result } = renderHook(() => useDashboardData(selectedDate));
 
