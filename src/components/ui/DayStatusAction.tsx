@@ -150,7 +150,11 @@ export function DayStatusAction({
   );
 
   // If already has a status, show status indicator OR options if "Change" was clicked
+  // For today: hide status indicators to avoid confusion early in the day
   if (currentStatus) {
+    if (isTodayDate) {
+      return null;
+    }
     if (showOptions) {
       return (
         <div className="mt-4 rounded-xl p-4 bg-bg-surface border border-border-subtle">
@@ -219,6 +223,24 @@ export function DayStatusAction({
     promptMessage = 'No food logged. Mark this day as skipped?';
   }
 
+  if (isTodayDate) {
+    return (
+      <div className="mt-4">
+        <div className="card-stat rounded-xl p-4">
+          <p className="text-sm text-text-secondary mb-3">{promptMessage}</p>
+          <button
+            onClick={() => handleUpdateStatus('skipped')}
+            disabled={isUpdating}
+            className="w-full py-2.5 px-4 rounded-lg bg-bg-elevated text-text-secondary
+                       text-sm font-medium hover:bg-bg-surface transition-colors disabled:opacity-50"
+          >
+            {isUpdating ? 'Updating...' : 'Mark Day Skipped'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4">
       {/* Prompt Card */}
@@ -232,7 +254,7 @@ export function DayStatusAction({
               className="flex-1 py-2.5 px-4 rounded-lg bg-bg-elevated text-text-secondary 
                          text-sm font-medium hover:bg-bg-surface transition-colors"
             >
-              Mark Day Status
+              Mark Day Skipped
             </button>
           </div>
         )}
