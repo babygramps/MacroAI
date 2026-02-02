@@ -41,6 +41,37 @@ const EMPTY_SUMMARY: DailySummary = {
 };
 
 const OPTIMISTIC_TTL_MS = 2 * 60 * 1000;
+const OPTIMISTIC_STORAGE_KEY = 'macroai_optimistic_meals';
+
+// Persist optimistic meals to localStorage so they survive page refresh
+function saveOptimisticToStorage(entries: Map<string, OptimisticEntry>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const serializable = Array.from(entries.entries());
+    localStorage.setItem(OPTIMISTIC_STORAGE_KEY, JSON.stringify(serializable));
+  } catch {
+    // localStorage might be full or disabled
+  }
+}
+
+function loadOptimisticFromStorage(): Map<string, OptimisticEntry> {
+  if (typeof window === 'undefined') return new Map();
+  try {
+    const stored = localStorage.getItem(OPTIMISTIC_STORAGE_KEY);
+    if (!stored) return new Map();
+    const parsed: [string, OptimisticEntry][] = JSON.parse(stored);
+    const nowMs = Date.now();
+    // Filter out expired entries on load
+    const valid = parsed.filter(([, entry]) => nowMs - entry.addedAt <= OPTIMISTIC_TTL_MS);
+    if (valid.length !== parsed.length) {
+      // Some expired, update storage
+      localStorage.setItem(OPTIMISTIC_STORAGE_KEY, JSON.stringify(valid));
+    }
+    return new Map(valid);
+  } catch {
+    return new Map();
+  }
+}
 
 // Helper to format date to YYYY-MM-DD
 function formatDateKey(date: Date): string {
@@ -72,16 +103,21 @@ function mergeOptimisticMeals(
   const fetchedMealIds = new Set(summary.meals.map((meal) => meal.id));
   const optimisticMeals: MealEntry[] = [];
 
+  let storageNeedsUpdate = false;
+
   for (const [mealId, entry] of optimisticMealsRef.current.entries()) {
     const ageMs = nowMs - entry.addedAt;
     if (ageMs > OPTIMISTIC_TTL_MS) {
       optimisticMealsRef.current.delete(mealId);
+      storageNeedsUpdate = true;
       logRemote.info('DASHBOARD_OPTIMISTIC_EXPIRED', { mealId, ageMs });
       continue;
     }
 
     if (fetchedMealIds.has(mealId)) {
       optimisticMealsRef.current.delete(mealId);
+      storageNeedsUpdate = true;
+      logRemote.info('DASHBOARD_OPTIMISTIC_SYNCED', { mealId });
       continue;
     }
 
@@ -91,6 +127,11 @@ function mergeOptimisticMeals(
       const syncStatus: MealSyncStatus = entry.status === 'confirmed' ? 'confirmed' : 'pending';
       optimisticMeals.push({ ...entry.meal, syncStatus });
     }
+  }
+
+  // Persist changes to localStorage
+  if (storageNeedsUpdate) {
+    saveOptimisticToStorage(optimisticMealsRef.current);
   }
 
   if (optimisticMeals.length === 0) {
@@ -119,7 +160,19 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
+  const optimisticInitializedRef = useRef(false);
   const optimisticMealsRef = useRef<Map<string, OptimisticEntry>>(new Map());
+
+  // Initialize optimistic store from localStorage on first render (client-side only)
+  useEffect(() => {
+    if (optimisticInitializedRef.current) return;
+    optimisticInitializedRef.current = true;
+    const stored = loadOptimisticFromStorage();
+    if (stored.size > 0) {
+      optimisticMealsRef.current = stored;
+      logRemote.info('DASHBOARD_OPTIMISTIC_RESTORED', { count: stored.size, mealIds: Array.from(stored.keys()) });
+    }
+  }, []);
 
   const addOptimisticMeal = useCallback((meal: MealEntry, status: OptimisticMealStatus = 'pending') => {
     optimisticMealsRef.current.set(meal.id, {
@@ -127,6 +180,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       addedAt: Date.now(),
       status,
     });
+    saveOptimisticToStorage(optimisticMealsRef.current);
     logRemote.info('DASHBOARD_OPTIMISTIC_STORED', { mealId: meal.id, status });
   }, []);
 
@@ -137,6 +191,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
         ...entry,
         status: 'confirmed',
       });
+      saveOptimisticToStorage(optimisticMealsRef.current);
       logRemote.info('DASHBOARD_OPTIMISTIC_CONFIRMED', { mealId });
     }
   }, []);
