@@ -21,6 +21,11 @@ export interface IngredientEntry {
   sortOrder: number;
 }
 
+/**
+ * Sync status for optimistic meals (UI-only, not persisted)
+ */
+export type MealSyncStatus = 'pending' | 'confirmed' | 'synced';
+
 export interface MealEntry {
   id: string;
   name: string;
@@ -32,4 +37,6 @@ export interface MealEntry {
   totalFat: number;
   totalWeightG: number;
   ingredients: IngredientEntry[];
+  /** UI-only: sync status for optimistic meals */
+  syncStatus?: MealSyncStatus;
 }

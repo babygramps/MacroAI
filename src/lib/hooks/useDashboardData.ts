@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DailySummary, UserGoals, WeightLogEntry, LogStatus, MealEntry } from '@/lib/types';
+import type { DailySummary, UserGoals, WeightLogEntry, LogStatus, MealEntry, MealSyncStatus } from '@/lib/types';
 import { DEFAULT_GOALS, fetchDashboardData, calculateDailyTotals } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
+
+export type OptimisticMealStatus = 'pending' | 'confirmed';
+
+interface OptimisticEntry {
+  meal: MealEntry;
+  addedAt: number;
+  status: OptimisticMealStatus;
+}
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -18,7 +26,9 @@ interface UseDashboardDataResult {
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
   setSummary: React.Dispatch<React.SetStateAction<DailySummary>>;
-  addOptimisticMeal: (meal: MealEntry, verified?: boolean) => void;
+  addOptimisticMeal: (meal: MealEntry, status?: OptimisticMealStatus) => void;
+  confirmOptimisticMeal: (mealId: string) => void;
+  getOptimisticStatus: (mealId: string) => OptimisticMealStatus | null;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -51,7 +61,7 @@ function getDateBoundsMs(date: Date): { startMs: number; endMs: number } {
 function mergeOptimisticMeals(
   summary: DailySummary,
   selectedDate: Date,
-  optimisticMealsRef: React.MutableRefObject<Map<string, { meal: MealEntry; addedAt: number; verified?: boolean }>>
+  optimisticMealsRef: React.MutableRefObject<Map<string, OptimisticEntry>>
 ): DailySummary {
   if (optimisticMealsRef.current.size === 0) {
     return summary;
@@ -77,7 +87,9 @@ function mergeOptimisticMeals(
 
     const eatenAtMs = new Date(entry.meal.eatenAt).getTime();
     if (eatenAtMs >= startMs && eatenAtMs < endMs) {
-      optimisticMeals.push(entry.meal);
+      // Attach syncStatus based on optimistic entry status
+      const syncStatus: MealSyncStatus = entry.status === 'confirmed' ? 'confirmed' : 'pending';
+      optimisticMeals.push({ ...entry.meal, syncStatus });
     }
   }
 
@@ -107,15 +119,31 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
-  const optimisticMealsRef = useRef<Map<string, { meal: MealEntry; addedAt: number; verified?: boolean }>>(new Map());
+  const optimisticMealsRef = useRef<Map<string, OptimisticEntry>>(new Map());
 
-  const addOptimisticMeal = useCallback((meal: MealEntry, verified?: boolean) => {
+  const addOptimisticMeal = useCallback((meal: MealEntry, status: OptimisticMealStatus = 'pending') => {
     optimisticMealsRef.current.set(meal.id, {
       meal,
       addedAt: Date.now(),
-      verified,
+      status,
     });
-    logRemote.info('DASHBOARD_OPTIMISTIC_STORED', { mealId: meal.id, verified });
+    logRemote.info('DASHBOARD_OPTIMISTIC_STORED', { mealId: meal.id, status });
+  }, []);
+
+  const confirmOptimisticMeal = useCallback((mealId: string) => {
+    const entry = optimisticMealsRef.current.get(mealId);
+    if (entry && entry.status === 'pending') {
+      optimisticMealsRef.current.set(mealId, {
+        ...entry,
+        status: 'confirmed',
+      });
+      logRemote.info('DASHBOARD_OPTIMISTIC_CONFIRMED', { mealId });
+    }
+  }, []);
+
+  const getOptimisticStatus = useCallback((mealId: string): OptimisticMealStatus | null => {
+    const entry = optimisticMealsRef.current.get(mealId);
+    return entry ? entry.status : null;
   }, []);
 
   // One-time auto-backfill for existing users who don't have ComputedState data yet
@@ -271,5 +299,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     updateDayStatus: updateDayStatusLocal,
     setSummary,
     addOptimisticMeal,
+    confirmOptimisticMeal,
+    getOptimisticStatus,
   };
 }

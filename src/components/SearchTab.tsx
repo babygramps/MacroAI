@@ -9,7 +9,7 @@ import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, Mea
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
 import { onMealLogged } from '@/lib/metabolicService';
-import { verifyMealCreated } from '@/lib/meal/mealVerification';
+import { verifyMealById } from '@/lib/meal/mealVerification';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
@@ -288,8 +288,8 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         });
       }
 
-      // Verify meal is readable with exponential backoff retry
-      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
+      // Verify meal is readable using strongly consistent get
+      const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);

@@ -95,6 +95,7 @@ export function Dashboard() {
     updateDayStatus,
     setSummary,
     addOptimisticMeal,
+    confirmOptimisticMeal,
   } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
@@ -167,18 +168,22 @@ export function Dashboard() {
 
     // Optimistic Update: If we have the meal and it's for today, update UI immediately
     if (options?.meal && isToday(selectedDate)) {
-      logRemote.info('DASHBOARD_OPTIMISTIC_UPDATE', { mealId: options.meal.id });
-      addOptimisticMeal(options.meal, options.verified);
+      const mealId = options.meal.id;
+      const status = options?.verified ? 'confirmed' : 'pending';
+      logRemote.info('DASHBOARD_OPTIMISTIC_UPDATE', { mealId, status });
+      addOptimisticMeal(options.meal, status);
+
+      // If verified, mark as confirmed immediately
+      if (options?.verified) {
+        confirmOptimisticMeal(mealId);
+      }
+
       setSummary((prevSummary) => {
         const newMeals = [...prevSummary.meals, options.meal!];
         // Sort by eatenAt descending to match standard order
         newMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
 
         // Calculate new totals using the shared helper
-        // Use a dynamic import or the one we just exported if available
-        // Since we can't easily import dynamically inside setState, we rely on the imported helper
-        // We need to import calculateDailyTotals at the top of the file first
-        // But for now, let's just update the state
         return calculateDailyTotals(newMeals);
       });
     }
@@ -211,7 +216,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [addOptimisticMeal, refresh, selectedDate, summary.meals.length, setSummary]);
+  }, [addOptimisticMeal, confirmOptimisticMeal, refresh, selectedDate, summary.meals.length, setSummary]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);

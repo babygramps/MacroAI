@@ -93,7 +93,7 @@ describe('useDashboardData optimistic merge', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, false);
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
       result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
     });
 
@@ -119,7 +119,7 @@ describe('useDashboardData optimistic merge', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, true);
+      result.current.addOptimisticMeal(optimisticMeal, 'confirmed');
       result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
     });
 
@@ -144,7 +144,7 @@ describe('useDashboardData optimistic merge', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, false);
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
       result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
     });
 
@@ -168,7 +168,7 @@ describe('useDashboardData optimistic merge', () => {
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
     act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, false);
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
     });
 
     await act(async () => {
@@ -176,5 +176,77 @@ describe('useDashboardData optimistic merge', () => {
     });
 
     expect(result.current.summary.meals.some((meal) => meal.id === optimisticMeal.id)).toBe(false);
+  });
+
+  it('transitions from pending to confirmed via confirmOptimisticMeal', async () => {
+    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
+    const optimisticMeal = createMeal('meal-5', '2026-02-01T18:00:00.000Z');
+
+    const { result } = renderHook(() => useDashboardData(selectedDate));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
+      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
+    });
+
+    // Should start as pending
+    expect(result.current.getOptimisticStatus('meal-5')).toBe('pending');
+
+    act(() => {
+      result.current.confirmOptimisticMeal('meal-5');
+    });
+
+    // Should now be confirmed
+    expect(result.current.getOptimisticStatus('meal-5')).toBe('confirmed');
+  });
+
+  it('attaches syncStatus to optimistic meals after merge', async () => {
+    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
+    const optimisticMeal = createMeal('meal-6', '2026-02-01T18:00:00.000Z');
+
+    const { result } = renderHook(() => useDashboardData(selectedDate));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
+      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
+    });
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    const mergedMeal = result.current.summary.meals.find((meal) => meal.id === optimisticMeal.id);
+    expect(mergedMeal).toBeDefined();
+    expect(mergedMeal?.syncStatus).toBe('pending');
+  });
+
+  it('attaches confirmed syncStatus after confirmOptimisticMeal', async () => {
+    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
+    const optimisticMeal = createMeal('meal-7', '2026-02-01T18:00:00.000Z');
+
+    const { result } = renderHook(() => useDashboardData(selectedDate));
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+    act(() => {
+      result.current.addOptimisticMeal(optimisticMeal, 'pending');
+      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
+    });
+
+    act(() => {
+      result.current.confirmOptimisticMeal('meal-7');
+    });
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    const mergedMeal = result.current.summary.meals.find((meal) => meal.id === optimisticMeal.id);
+    expect(mergedMeal).toBeDefined();
+    expect(mergedMeal?.syncStatus).toBe('confirmed');
   });
 });

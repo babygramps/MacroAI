@@ -7,7 +7,7 @@ import type { NormalizedFood, MealCategory, MealEntry, IngredientEntry } from '@
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { onMealLogged } from '@/lib/metabolicService';
-import { verifyMealCreated } from '@/lib/meal/mealVerification';
+import { verifyMealById } from '@/lib/meal/mealVerification';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { ErrorAlert } from './ui/ErrorAlert';
@@ -208,8 +208,8 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
       logRemote.info('INGREDIENTS_CREATED', { traceId, mealId: meal.id, count: ingredientsCreated, expected: selectedFoods.length });
 
-      // Verify meal is readable with exponential backoff retry
-      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
+      // Verify meal is readable using strongly consistent get
+      const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);

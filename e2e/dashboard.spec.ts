@@ -161,3 +161,70 @@ test('type modal logs complex meal', async ({ page }) => {
   console.log('[E2E] Waiting for meal to appear');
   await expect(page.getByText(mealName)).toBeVisible({ timeout: 30000 });
 });
+
+test('syncing badge appears and disappears after verification', async ({ page }) => {
+  test.setTimeout(120000);
+  console.log('[E2E] Test start: syncing badge appears and disappears');
+
+  await login(page);
+
+  const logFoodButton = page.getByRole('button', { name: /log food/i });
+  console.log('[E2E] Waiting for Log Food button');
+  await expect(logFoodButton).toBeVisible({ timeout: 30000 });
+  console.log('[E2E] Opening Food Log modal');
+  await logFoodButton.click();
+
+  await expect(page.getByRole('heading', { name: /log food/i })).toBeVisible();
+  console.log('[E2E] Selecting Search tab');
+  await page.getByRole('button', { name: /search/i }).click();
+
+  const searchInput = page.getByPlaceholder('Search foods...');
+  console.log('[E2E] Searching for apple');
+  await searchInput.fill('apple');
+  await searchInput.press('Enter');
+
+  const firstResult = page.getByRole('button', { name: /kcal per/i }).first();
+  console.log('[E2E] Waiting for search results');
+  await expect(firstResult).toBeVisible({ timeout: 30000 });
+  console.log('[E2E] Selecting first result');
+  await firstResult.click();
+
+  const continueButton = page.getByRole('button', { name: /^continue$/i });
+  console.log('[E2E] Continuing to category');
+  await expect(continueButton).toBeVisible();
+  await continueButton.click();
+
+  const mealName = `E2E Sync Test ${Date.now()}`;
+  await expect(page.getByRole('heading', { name: /what is this/i })).toBeVisible({ timeout: 15000 });
+  const nameInput = page.locator(
+    'input[placeholder*="afternoon snack" i], input[placeholder*="lunch" i], input[placeholder*="snack" i], input.input-field'
+  ).first();
+  console.log('[E2E] Filling meal name:', mealName);
+  await expect(nameInput).toBeVisible({ timeout: 15000 });
+  await nameInput.fill(mealName);
+
+  const logButton = page.getByRole('button', { name: /log (meal|snack|drink)/i });
+  console.log('[E2E] Logging meal');
+  await expect(logButton).toBeEnabled();
+  await logButton.click();
+
+  console.log('[E2E] Waiting for meal to appear');
+  await expect(page.getByText(mealName)).toBeVisible({ timeout: 30000 });
+
+  // Check for syncing badge - may appear briefly then disappear
+  // The badge may already be gone if verification was fast
+  const syncingBadge = page.getByText('Syncing');
+  const syncingWasVisible = await syncingBadge.isVisible({ timeout: 2000 }).catch(() => false);
+  console.log('[E2E] Syncing badge was visible:', syncingWasVisible);
+
+  // After refresh, syncing badge should NOT be visible (meal should be fully synced)
+  console.log('[E2E] Refreshing page');
+  await page.reload();
+  await expect(page.getByText(mealName)).toBeVisible({ timeout: 30000 });
+
+  console.log('[E2E] Verifying no Syncing badge after refresh');
+  // After reload, meal is fetched from backend so no syncStatus
+  const syncingAfterReload = await syncingBadge.isVisible({ timeout: 1000 }).catch(() => false);
+  expect(syncingAfterReload).toBe(false);
+  console.log('[E2E] Test passed: syncing badge not present after reload');
+});

@@ -1,13 +1,26 @@
 import { logRemote } from '@/lib/clientLogger';
 
 /**
- * Type for Amplify data client
+ * Type for Amplify data client (list-based verification)
  */
-type AmplifyClient = {
+type AmplifyClientList = {
     models: {
         Meal: {
             list: (options: { filter: { eatenAt: { between: [string, string] } } }) => Promise<{
                 data: { id: string }[] | null;
+            }>;
+        };
+    };
+};
+
+/**
+ * Type for Amplify data client (get-based verification)
+ */
+type AmplifyClientGet = {
+    models: {
+        Meal: {
+            get: (options: { id: string }) => Promise<{
+                data: { id: string } | null;
             }>;
         };
     };
@@ -56,7 +69,7 @@ function getDayBounds(isoTimestamp: string): { startOfDay: string; endOfDay: str
  * @returns Object with verified status and number of attempts made
  */
 export async function verifyMealCreated(
-    client: AmplifyClient,
+    client: AmplifyClientList,
     mealId: string,
     eatenAt: string,
     options: VerifyMealOptions = {}
@@ -119,6 +132,77 @@ export async function verifyMealCreated(
         mealId,
         maxAttempts,
         totalDelayMs: baseDelay * (Math.pow(2, maxAttempts) - 1),
+    });
+
+    return { verified: false, attempts: maxAttempts };
+}
+
+/**
+ * Verify a meal is readable after creation using Meal.get (strongly consistent).
+ * This avoids the GSI eventual consistency lag by reading directly from the table.
+ *
+ * @param client - Amplify data client with Meal.get support
+ * @param mealId - ID of the meal to verify
+ * @param options - Optional configuration
+ * @returns Object with verified status and number of attempts made
+ */
+export async function verifyMealById(
+    client: AmplifyClientGet,
+    mealId: string,
+    options: VerifyMealOptions = {}
+): Promise<VerifyMealResult> {
+    const { maxAttempts = 2, traceId } = options;
+
+    // Short delays because get is strongly consistent
+    const baseDelay = 50;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // Small delay to let write propagate on first attempt
+        const delayMs = baseDelay * attempt;
+        await delay(delayMs);
+
+        try {
+            const startTime = Date.now();
+            const { data: meal } = await client.models.Meal.get({ id: mealId });
+            const elapsed = Date.now() - startTime;
+
+            if (meal && meal.id === mealId) {
+                logRemote.info('MEAL_VERIFY_BY_ID_SUCCESS', {
+                    traceId,
+                    mealId,
+                    attempt,
+                    delayMs,
+                    elapsedMs: elapsed,
+                });
+                return { verified: true, attempts: attempt };
+            }
+
+            // Not found yet, log and retry if more attempts remain
+            if (attempt < maxAttempts) {
+                logRemote.info('MEAL_VERIFY_BY_ID_RETRY', {
+                    traceId,
+                    mealId,
+                    attempt,
+                    nextDelayMs: baseDelay * (attempt + 1),
+                    elapsedMs: elapsed,
+                });
+            }
+        } catch (error) {
+            logRemote.warn('MEAL_VERIFY_BY_ID_ERROR', {
+                traceId,
+                mealId,
+                attempt,
+                error: error instanceof Error ? error.message : 'Unknown error',
+            });
+            // Continue to next attempt
+        }
+    }
+
+    // Exhausted all attempts
+    logRemote.warn('MEAL_VERIFY_BY_ID_EXHAUSTED', {
+        traceId,
+        mealId,
+        maxAttempts,
     });
 
     return { verified: false, attempts: maxAttempts };

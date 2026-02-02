@@ -6,7 +6,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { RecipeEntry, MealCategory, ScaledRecipePortion, MealEntry, IngredientEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { onMealLogged } from '@/lib/metabolicService';
-import { verifyMealCreated } from '@/lib/meal/mealVerification';
+import { verifyMealById } from '@/lib/meal/mealVerification';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 import { RecipeCard, RecipeCardSkeleton } from './ui/RecipeCard';
 import { CategoryPicker } from './ui/CategoryPicker';
@@ -195,8 +195,8 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
       const ingredientsCreated = ingredientResults.filter(r => r.data).length;
       logRemote.info('INGREDIENTS_CREATED', { traceId, mealId: meal.id, count: ingredientsCreated, expected: selectedRecipe.ingredients.length });
 
-      // Verify meal is readable with exponential backoff retry
-      const { verified, attempts } = await verifyMealCreated(client, meal.id, now, { traceId });
+      // Verify meal is readable using strongly consistent get
+      const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
 
       // Trigger metabolic recalculation
       await onMealLogged(now);
