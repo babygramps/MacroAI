@@ -102,6 +102,14 @@ function mergeOptimisticMeals(
   const { startMs, endMs } = getDateBoundsMs(selectedDate);
   const fetchedMealIds = new Set(summary.meals.map((meal) => meal.id));
   const optimisticMeals: MealEntry[] = [];
+  const debugEntries: Array<{
+    mealId: string;
+    status: OptimisticMealStatus;
+    eatenAt: string;
+    ageMs: number;
+    inRange: boolean;
+    reason: string;
+  }> = [];
 
   let storageNeedsUpdate = false;
 
@@ -111,6 +119,14 @@ function mergeOptimisticMeals(
       optimisticMealsRef.current.delete(mealId);
       storageNeedsUpdate = true;
       logRemote.info('DASHBOARD_OPTIMISTIC_EXPIRED', { mealId, ageMs });
+      debugEntries.push({
+        mealId,
+        status: entry.status,
+        eatenAt: entry.meal.eatenAt,
+        ageMs,
+        inRange: false,
+        reason: 'expired',
+      });
       continue;
     }
 
@@ -118,6 +134,14 @@ function mergeOptimisticMeals(
       optimisticMealsRef.current.delete(mealId);
       storageNeedsUpdate = true;
       logRemote.info('DASHBOARD_OPTIMISTIC_SYNCED', { mealId });
+      debugEntries.push({
+        mealId,
+        status: entry.status,
+        eatenAt: entry.meal.eatenAt,
+        ageMs,
+        inRange: false,
+        reason: 'fetched',
+      });
       continue;
     }
 
@@ -126,6 +150,23 @@ function mergeOptimisticMeals(
       // Attach syncStatus based on optimistic entry status
       const syncStatus: MealSyncStatus = entry.status === 'confirmed' ? 'confirmed' : 'pending';
       optimisticMeals.push({ ...entry.meal, syncStatus });
+      debugEntries.push({
+        mealId,
+        status: entry.status,
+        eatenAt: entry.meal.eatenAt,
+        ageMs,
+        inRange: true,
+        reason: 'in_range',
+      });
+    } else {
+      debugEntries.push({
+        mealId,
+        status: entry.status,
+        eatenAt: entry.meal.eatenAt,
+        ageMs,
+        inRange: false,
+        reason: 'out_of_range',
+      });
     }
   }
 
@@ -133,6 +174,15 @@ function mergeOptimisticMeals(
   if (storageNeedsUpdate) {
     saveOptimisticToStorage(optimisticMealsRef.current);
   }
+
+  logRemote.info('DASHBOARD_OPTIMISTIC_MERGE_EVAL', {
+    selectedDate: selectedDate.toISOString(),
+    dayStart: new Date(startMs).toISOString(),
+    dayEnd: new Date(endMs).toISOString(),
+    optimisticCount: optimisticMealsRef.current.size,
+    fetchedCount: fetchedMealIds.size,
+    entries: debugEntries.slice(0, 8),
+  });
 
   if (optimisticMeals.length === 0) {
     return summary;
@@ -170,8 +220,11 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     const stored = loadOptimisticFromStorage();
     if (stored.size > 0) {
       optimisticMealsRef.current = stored;
-      logRemote.info('DASHBOARD_OPTIMISTIC_RESTORED', { count: stored.size, mealIds: Array.from(stored.keys()) });
     }
+    logRemote.info('DASHBOARD_OPTIMISTIC_RESTORED', {
+      count: stored.size,
+      mealIds: Array.from(stored.keys()).slice(0, 8),
+    });
   }, []);
 
   const addOptimisticMeal = useCallback((meal: MealEntry, status: OptimisticMealStatus = 'pending') => {
@@ -233,8 +286,16 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     const shouldShowLoading = !hasLoadedRef.current;
     const dateStr = formatDateKey(selectedDate);
     const startTime = Date.now();
+    const now = new Date();
 
-    logRemote.info('FETCH_DASHBOARD_START', { date: dateStr, isFirstLoad: shouldShowLoading });
+    logRemote.info('FETCH_DASHBOARD_START', {
+      date: dateStr,
+      isFirstLoad: shouldShowLoading,
+      selectedDate: selectedDate.toISOString(),
+      now: now.toISOString(),
+      timezoneOffsetMinutes: now.getTimezoneOffset(),
+      locale: typeof navigator !== 'undefined' ? navigator.language : undefined,
+    });
 
     if (shouldShowLoading) {
       setIsLoading(true);
@@ -273,6 +334,8 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
         mealCount: data.summary.meals.length,
         mealIds: data.summary.meals.map(m => m.id),
         totalCalories: data.summary.totalCalories,
+        localDayStart: new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 0, 0, 0).toISOString(),
+        localDayEnd: new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), 23, 59, 59).toISOString(),
       });
 
       setGoals(data.goals);

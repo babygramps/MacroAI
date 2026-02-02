@@ -221,8 +221,15 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const endOfDay = new Date(startOfDay);
   endOfDay.setDate(endOfDay.getDate() + 1);
 
-  const startISO = startOfDay.toISOString();
-  const endISO = endOfDay.toISOString();
+  // Expand query range to avoid cross-device timezone mismatches.
+  // This keeps results stable when a meal is logged from another device
+  // with a different local timezone or clock skew.
+  const QUERY_PADDING_MS = 14 * 60 * 60 * 1000; // 14 hours
+  const queryStart = new Date(startOfDay.getTime() - QUERY_PADDING_MS);
+  const queryEnd = new Date(endOfDay.getTime() + QUERY_PADDING_MS);
+
+  const startISO = queryStart.toISOString();
+  const endISO = queryEnd.toISOString();
 
   const [mealsResult, legacyLogsResult] = await Promise.all([
     client.models.Meal.list({
@@ -250,20 +257,41 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
       queryStart: startISO,
       queryEnd: endISO,
       localDate: date.toISOString(),
+      localOffsetMinutes: new Date().getTimezoneOffset(),
       mealsFound: mealsData.length,
       mealDetails: mealsData.map(m => ({ id: m.id, eatenAt: m.eatenAt })),
     });
   }
   const legacyLogs = legacyLogsResult.data || [];
 
+  // Filter to the selected local day after widened query
+  const inDayMeals = mealsData.filter((meal) => {
+    const eatenAtMs = new Date(meal.eatenAt).getTime();
+    return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
+  });
+  const inDayLegacyLogs = legacyLogs.filter((log) => {
+    const eatenAtMs = new Date(log.eatenAt ?? '').getTime();
+    return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
+  });
+  if (typeof window !== 'undefined') {
+    const { logRemote } = await import('@/lib/clientLogger');
+    logRemote.info('MEAL_QUERY_FILTERED', {
+      dayStart: startOfDay.toISOString(),
+      dayEnd: endOfDay.toISOString(),
+      inDayMealsCount: inDayMeals.length,
+      inDayLegacyCount: inDayLegacyLogs.length,
+      inDayMealsSample: inDayMeals.slice(0, 6).map(m => ({ id: m.id, eatenAt: m.eatenAt })),
+    });
+  }
+
   const ingredientsByMeal = await fetchIngredientsByMealForDay(
     client,
-    mealsData,
+    inDayMeals,
     startOfDay.toISOString(),
     endOfDay.toISOString()
   );
 
-  const mealsWithIngredients = mealsData.map((meal) => ({
+  const mealsWithIngredients = inDayMeals.map((meal) => ({
     id: meal.id,
     name: meal.name,
     category: meal.category as MealCategory,
@@ -275,7 +303,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     totalWeightG: meal.totalWeightG,
     ingredients: ingredientsByMeal.get(meal.id) ?? [],
   }));
-  const legacyMeals = mapLegacyFoodLogsToMeals(legacyLogs);
+  const legacyMeals = mapLegacyFoodLogsToMeals(inDayLegacyLogs);
 
   const allMeals = [...mealsWithIngredients, ...legacyMeals];
   allMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());

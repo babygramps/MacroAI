@@ -42,7 +42,7 @@ export interface DebugLogEntry {
     context?: LogContext;
 }
 
-const DEBUG_LOG_BUFFER_SIZE = 20;
+const DEBUG_LOG_BUFFER_SIZE = 60;
 const debugLogBuffer: DebugLogEntry[] = [];
 const debugLogListeners: Set<(entries: DebugLogEntry[]) => void> = new Set();
 

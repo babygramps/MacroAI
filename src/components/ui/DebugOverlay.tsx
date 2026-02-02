@@ -126,7 +126,7 @@ export function DebugOverlay() {
                 <div className="mt-1 text-text-muted pl-12 break-all">
                   {Object.entries(log.context)
                     .filter(([key]) => key !== 'traceId' && key !== 'device')
-                    .slice(0, 4)
+                    .slice(0, 8)
                     .map(([key, value]) => (
                       <span key={key} className="mr-2">
                         {key}:{' '}
