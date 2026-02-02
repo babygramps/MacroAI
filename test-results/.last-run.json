@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "failedTests": []
+}
+
+$env:E2E_BASE_URL="http://localhost:3001"; $env:E2E_USERNAME="richardarothbart@gmail.com"; $env:E2E_PASSWORD="!I3^bQNNPY2F@j4"; npm run test:e2e
