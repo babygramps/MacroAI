@@ -9,7 +9,7 @@ import type { MealEntry, RecentFoodsResponse } from '@/lib/types';
 import { WeightLogModal } from './WeightLogModal';
 import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
-import { deleteMealEntry, updateMeal, duplicateMealEntry, calculateDailyTotals } from '@/lib/data/dashboard';
+import { deleteMealEntry, updateMeal, duplicateMealEntry } from '@/lib/data/dashboard';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
 import { DashboardHeader } from './dashboard/DashboardHeader';
 import { DashboardRings } from './dashboard/DashboardRings';
@@ -93,9 +93,6 @@ export function Dashboard() {
     dayStatusMap,
     refresh,
     updateDayStatus,
-    setSummary,
-    addOptimisticMeal,
-    confirmOptimisticMeal,
   } = useDashboardData(selectedDate);
 
   const handleDateChange = useCallback((newDate: Date) => {
@@ -162,53 +159,22 @@ export function Dashboard() {
     }
   }, [refresh]);
 
-  const handleLogSuccess = useCallback(async (options?: { verified?: boolean; meal?: MealEntry }) => {
-    logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate), verified: options?.verified });
+  const handleLogSuccess = useCallback(async () => {
+    logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate) });
     setIsModalOpen(false);
 
-    // Optimistic Update: If we have the meal and it's for today, update UI immediately
-    if (options?.meal && isToday(selectedDate)) {
-      const mealId = options.meal.id;
-      const status = options?.verified ? 'confirmed' : 'pending';
-      logRemote.info('DASHBOARD_OPTIMISTIC_UPDATE', { mealId, status });
-      addOptimisticMeal(options.meal, status);
-
-      // If verified, mark as confirmed immediately
-      if (options?.verified) {
-        confirmOptimisticMeal(mealId);
-      }
-
-      setSummary((prevSummary) => {
-        const newMeals = [...prevSummary.meals, options.meal!];
-        // Sort by eatenAt descending to match standard order
-        newMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
-
-        // Calculate new totals using the shared helper
-        return calculateDailyTotals(newMeals);
-      });
-    }
-
-    // Return to today and refresh if we were viewing a past date
+    // Simple approach: just refresh from the database
+    // This ensures dashboard always shows exactly what's in DynamoDB
     if (!isToday(selectedDate)) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       setSelectedDate(today);
-    } else {
-      logRemote.info('DASHBOARD_REFRESH_TRIGGERED', { trigger: 'log_success' });
-      // We still refresh to ensure data consistency, but the user sees the result instantly
-      await refresh();
-      logRemote.info('DASHBOARD_REFRESH_COMPLETE', { mealCount: summary.meals.length });
-
-      // If verification failed, schedule a delayed refresh as fallback
-      if (options?.verified === false) {
-        logRemote.info('DASHBOARD_DELAYED_REFRESH_SCHEDULED', { delayMs: 5000 });
-        setTimeout(async () => {
-          logRemote.info('DASHBOARD_DELAYED_REFRESH_TRIGGERED', { trigger: 'verification_fallback' });
-          await refresh();
-          logRemote.info('DASHBOARD_DELAYED_REFRESH_COMPLETE', { mealCount: summary.meals.length });
-        }, 5000);
-      }
     }
+    
+    logRemote.info('DASHBOARD_REFRESH_TRIGGERED', { trigger: 'log_success' });
+    await refresh();
+    logRemote.info('DASHBOARD_REFRESH_COMPLETE', { mealCount: summary.meals.length });
+
     // Refresh prefetched recents so they're up-to-date for next modal open
     try {
       const data = await getRecentFoods();
@@ -216,7 +182,7 @@ export function Dashboard() {
     } catch {
       // Silent fail - will fetch fresh next time
     }
-  }, [addOptimisticMeal, confirmOptimisticMeal, refresh, selectedDate, summary.meals.length, setSummary]);
+  }, [refresh, selectedDate, summary.meals.length]);
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);

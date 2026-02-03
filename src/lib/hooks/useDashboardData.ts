@@ -1,19 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { DailySummary, UserGoals, WeightLogEntry, LogStatus, MealEntry, MealSyncStatus } from '@/lib/types';
-import { DEFAULT_GOALS, fetchDashboardData, calculateDailyTotals } from '@/lib/data/dashboard';
+import type { DailySummary, UserGoals, WeightLogEntry, LogStatus } from '@/lib/types';
+import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
-
-export type OptimisticMealStatus = 'pending' | 'confirmed';
-
-interface OptimisticEntry {
-  meal: MealEntry;
-  addedAt: number;
-  status: OptimisticMealStatus;
-}
 
 interface UseDashboardDataResult {
   goals: UserGoals;
@@ -25,10 +17,6 @@ interface UseDashboardDataResult {
   dayStatusMap: Map<string, LogStatus>;
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
-  setSummary: React.Dispatch<React.SetStateAction<DailySummary>>;
-  addOptimisticMeal: (meal: MealEntry, status?: OptimisticMealStatus) => void;
-  confirmOptimisticMeal: (mealId: string) => void;
-  getOptimisticStatus: (mealId: string) => OptimisticMealStatus | null;
 }
 
 const EMPTY_SUMMARY: DailySummary = {
@@ -40,54 +28,18 @@ const EMPTY_SUMMARY: DailySummary = {
   entries: [],
 };
 
-const OPTIMISTIC_TTL_MS = 12 * 60 * 60 * 1000;
+// Clear any stale optimistic data from previous versions
 const OPTIMISTIC_STORAGE_KEY = 'macroai_optimistic_meals';
-
-// Persist optimistic meals to localStorage so they survive page refresh
-function saveOptimisticToStorage(entries: Map<string, OptimisticEntry>): void {
+function clearLegacyOptimisticStorage(): void {
   if (typeof window === 'undefined') return;
   try {
-    const serializable = Array.from(entries.entries());
-    const payload = JSON.stringify(serializable);
-    localStorage.setItem(OPTIMISTIC_STORAGE_KEY, payload);
-    logRemote.info('DASHBOARD_OPTIMISTIC_STORAGE_WRITE', {
-      count: serializable.length,
-      bytes: payload.length,
-      mealIds: serializable.slice(0, 8).map(([mealId]) => mealId),
-    });
-  } catch (error) {
-    logRemote.warn('DASHBOARD_OPTIMISTIC_STORAGE_WRITE_ERROR', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-  }
-}
-
-function loadOptimisticFromStorage(): Map<string, OptimisticEntry> {
-  if (typeof window === 'undefined') return new Map();
-  try {
     const stored = localStorage.getItem(OPTIMISTIC_STORAGE_KEY);
-    if (!stored) return new Map();
-    const parsed: [string, OptimisticEntry][] = JSON.parse(stored);
-    const nowMs = Date.now();
-    // Filter out expired entries on load
-    const valid = parsed.filter(([, entry]) => nowMs - entry.addedAt <= OPTIMISTIC_TTL_MS);
-    const dropped = parsed.length - valid.length;
-    if (dropped > 0) {
-      // Some expired, update storage
-      localStorage.setItem(OPTIMISTIC_STORAGE_KEY, JSON.stringify(valid));
+    if (stored) {
+      localStorage.removeItem(OPTIMISTIC_STORAGE_KEY);
+      logRemote.info('DASHBOARD_LEGACY_OPTIMISTIC_CLEARED', {});
     }
-    logRemote.info('DASHBOARD_OPTIMISTIC_STORAGE_READ', {
-      count: parsed.length,
-      validCount: valid.length,
-      dropped,
-      mealIds: valid.slice(0, 8).map(([mealId]) => mealId),
-    });
-    return new Map(valid);
-  } catch (error) {
-    logRemote.warn('DASHBOARD_OPTIMISTIC_STORAGE_READ_ERROR', {
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-    return new Map();
+  } catch {
+    // Ignore errors
   }
 }
 
@@ -97,124 +49,6 @@ function formatDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
-}
-
-function getDateBoundsMs(date: Date): { startMs: number; endMs: number } {
-  const start = new Date(date);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
-  return { startMs: start.getTime(), endMs: end.getTime() };
-}
-
-function mergeOptimisticMeals(
-  summary: DailySummary,
-  selectedDate: Date,
-  optimisticMealsRef: React.MutableRefObject<Map<string, OptimisticEntry>>
-): DailySummary {
-  if (optimisticMealsRef.current.size === 0) {
-    return summary;
-  }
-
-  const nowMs = Date.now();
-  const { startMs, endMs } = getDateBoundsMs(selectedDate);
-  const fetchedMealIds = new Set(summary.meals.map((meal) => meal.id));
-  const optimisticMeals: MealEntry[] = [];
-  const debugEntries: Array<{
-    mealId: string;
-    status: OptimisticMealStatus;
-    eatenAt: string;
-    ageMs: number;
-    inRange: boolean;
-    reason: string;
-  }> = [];
-
-  let storageNeedsUpdate = false;
-
-  for (const [mealId, entry] of optimisticMealsRef.current.entries()) {
-    const ageMs = nowMs - entry.addedAt;
-    if (ageMs > OPTIMISTIC_TTL_MS) {
-      optimisticMealsRef.current.delete(mealId);
-      storageNeedsUpdate = true;
-      logRemote.info('DASHBOARD_OPTIMISTIC_EXPIRED', { mealId, ageMs });
-      debugEntries.push({
-        mealId,
-        status: entry.status,
-        eatenAt: entry.meal.eatenAt,
-        ageMs,
-        inRange: false,
-        reason: 'expired',
-      });
-      continue;
-    }
-
-    if (fetchedMealIds.has(mealId)) {
-      optimisticMealsRef.current.delete(mealId);
-      storageNeedsUpdate = true;
-      logRemote.info('DASHBOARD_OPTIMISTIC_SYNCED', { mealId });
-      debugEntries.push({
-        mealId,
-        status: entry.status,
-        eatenAt: entry.meal.eatenAt,
-        ageMs,
-        inRange: false,
-        reason: 'fetched',
-      });
-      continue;
-    }
-
-    const eatenAtMs = new Date(entry.meal.eatenAt).getTime();
-    if (eatenAtMs >= startMs && eatenAtMs < endMs) {
-      // Attach syncStatus based on optimistic entry status
-      const syncStatus: MealSyncStatus = entry.status === 'confirmed' ? 'confirmed' : 'pending';
-      optimisticMeals.push({ ...entry.meal, syncStatus });
-      debugEntries.push({
-        mealId,
-        status: entry.status,
-        eatenAt: entry.meal.eatenAt,
-        ageMs,
-        inRange: true,
-        reason: 'in_range',
-      });
-    } else {
-      debugEntries.push({
-        mealId,
-        status: entry.status,
-        eatenAt: entry.meal.eatenAt,
-        ageMs,
-        inRange: false,
-        reason: 'out_of_range',
-      });
-    }
-  }
-
-  // Persist changes to localStorage
-  if (storageNeedsUpdate) {
-    saveOptimisticToStorage(optimisticMealsRef.current);
-  }
-
-  logRemote.info('DASHBOARD_OPTIMISTIC_MERGE_EVAL', {
-    selectedDate: selectedDate.toISOString(),
-    dayStart: new Date(startMs).toISOString(),
-    dayEnd: new Date(endMs).toISOString(),
-    optimisticCount: optimisticMealsRef.current.size,
-    fetchedCount: fetchedMealIds.size,
-    entries: debugEntries.slice(0, 8),
-  });
-
-  if (optimisticMeals.length === 0) {
-    return summary;
-  }
-
-  const mergedMeals = [...summary.meals, ...optimisticMeals];
-  mergedMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
-
-  logRemote.info('DASHBOARD_OPTIMISTIC_MERGE', {
-    mergedCount: optimisticMeals.length,
-    mealIds: optimisticMeals.map((meal) => meal.id),
-  });
-
-  return calculateDailyTotals(mergedMeals);
 }
 
 export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
@@ -228,48 +62,13 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
-  const optimisticInitializedRef = useRef(false);
-  const optimisticMealsRef = useRef<Map<string, OptimisticEntry>>(new Map());
+  const legacyClearedRef = useRef(false);
 
-  // Initialize optimistic store from localStorage on first render (client-side only)
+  // Clear any stale optimistic data from previous version on first render
   useEffect(() => {
-    if (optimisticInitializedRef.current) return;
-    optimisticInitializedRef.current = true;
-    const stored = loadOptimisticFromStorage();
-    if (stored.size > 0) {
-      optimisticMealsRef.current = stored;
-    }
-    logRemote.info('DASHBOARD_OPTIMISTIC_RESTORED', {
-      count: stored.size,
-      mealIds: Array.from(stored.keys()).slice(0, 8),
-    });
-  }, []);
-
-  const addOptimisticMeal = useCallback((meal: MealEntry, status: OptimisticMealStatus = 'pending') => {
-    optimisticMealsRef.current.set(meal.id, {
-      meal,
-      addedAt: Date.now(),
-      status,
-    });
-    saveOptimisticToStorage(optimisticMealsRef.current);
-    logRemote.info('DASHBOARD_OPTIMISTIC_STORED', { mealId: meal.id, status });
-  }, []);
-
-  const confirmOptimisticMeal = useCallback((mealId: string) => {
-    const entry = optimisticMealsRef.current.get(mealId);
-    if (entry && entry.status === 'pending') {
-      optimisticMealsRef.current.set(mealId, {
-        ...entry,
-        status: 'confirmed',
-      });
-      saveOptimisticToStorage(optimisticMealsRef.current);
-      logRemote.info('DASHBOARD_OPTIMISTIC_CONFIRMED', { mealId });
-    }
-  }, []);
-
-  const getOptimisticStatus = useCallback((mealId: string): OptimisticMealStatus | null => {
-    const entry = optimisticMealsRef.current.get(mealId);
-    return entry ? entry.status : null;
+    if (legacyClearedRef.current) return;
+    legacyClearedRef.current = true;
+    clearLegacyOptimisticStorage();
   }, []);
 
   // One-time auto-backfill for existing users who don't have ComputedState data yet
@@ -357,8 +156,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       });
 
       setGoals(data.goals);
-      const mergedSummary = mergeOptimisticMeals(data.summary, selectedDate, optimisticMealsRef);
-      setSummary(mergedSummary);
+      setSummary(data.summary);
       setLatestWeight(data.latestWeight);
       setNeedsOnboarding(data.needsOnboarding);
       setDayStatus(status);
@@ -386,7 +184,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     }
   }, [selectedDate]);
 
-  // Callback to update day status locally (optimistic update)
+  // Callback to update day status locally (optimistic update for day status only)
   const updateDayStatusLocal = useCallback((status: LogStatus) => {
     setDayStatus(status);
     setDayStatusMap(prev => {
@@ -433,9 +231,5 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     dayStatusMap,
     refresh,
     updateDayStatus: updateDayStatusLocal,
-    setSummary,
-    addOptimisticMeal,
-    confirmOptimisticMeal,
-    getOptimisticStatus,
   };
 }

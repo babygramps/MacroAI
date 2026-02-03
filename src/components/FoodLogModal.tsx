@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { ModalShell } from './ui/ModalShell';
 import type { RecentFoodsResponse, MealEntry } from '@/lib/types';
@@ -16,6 +16,17 @@ type Tab = 'search' | 'type' | 'photo' | 'recipe';
 
 export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Wrap onSuccess to show saving overlay while dashboard refreshes
+  const handleSuccess = useCallback(async (options?: { verified?: boolean; meal?: MealEntry }) => {
+    setIsSaving(true);
+    try {
+      await onSuccess(options);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [onSuccess]);
 
   // Lazy load tabs with next/dynamic (bundle-dynamic-imports rule)
   const SearchTab = useMemo(
@@ -96,11 +107,20 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {activeTab === 'search' && <SearchTab onSuccess={onSuccess} prefetchedRecents={prefetchedRecents} />}
-        {activeTab === 'type' && <TextTab onSuccess={onSuccess} />}
-        {activeTab === 'photo' && <PhotoTab onSuccess={onSuccess} />}
-        {activeTab === 'recipe' && <RecipeTab onSuccess={onSuccess} />}
+        {activeTab === 'search' && <SearchTab onSuccess={handleSuccess} prefetchedRecents={prefetchedRecents} />}
+        {activeTab === 'type' && <TextTab onSuccess={handleSuccess} />}
+        {activeTab === 'photo' && <PhotoTab onSuccess={handleSuccess} />}
+        {activeTab === 'recipe' && <RecipeTab onSuccess={handleSuccess} />}
       </div>
+
+      {/* Saving overlay */}
+      {isSaving && (
+        <div className="absolute inset-0 bg-bg-primary/90 flex flex-col items-center justify-center z-50 animate-fade-in">
+          <div className="spinner w-8 h-8 mb-4" />
+          <p className="text-lg font-medium text-text-primary">Saving...</p>
+          <p className="text-sm text-text-secondary mt-1">Syncing with database</p>
+        </div>
+      )}
     </ModalShell>
   );
 }
