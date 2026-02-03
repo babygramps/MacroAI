@@ -8,6 +8,7 @@ import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { onMealLogged } from '@/lib/metabolicService';
 import { verifyMealById } from '@/lib/meal/mealVerification';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
+import { getLocalDateString } from '@/lib/date';
 import { RecipeCard, RecipeCardSkeleton } from './ui/RecipeCard';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
@@ -153,13 +154,16 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
         return;
       }
 
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowISO = now.toISOString();
+      const localDate = getLocalDateString(now);
 
       // Create the meal
       const { data: meal } = await client.models.Meal.create({
         name: mealName || selectedRecipe.name,
         category,
-        eatenAt: now,
+        eatenAt: nowISO,
+        localDate, // Store user's local date for unambiguous day queries
         totalCalories: scaledPortion.calories,
         totalProtein: scaledPortion.protein,
         totalCarbs: scaledPortion.carbs,
@@ -172,7 +176,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: nowISO, localDate });
 
       // Create scaled ingredients
       const ingredientResults = await Promise.all(
@@ -180,7 +184,8 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
           client.models.MealIngredient.create({
             mealId: meal.id,
             name: ing.name,
-            eatenAt: now,
+            eatenAt: nowISO,
+            localDate, // Store user's local date for unambiguous day queries
             weightG: Math.round(ing.weightG * scaledPortion.scaleFactor),
             calories: Math.round(ing.calories * scaledPortion.scaleFactor),
             protein: Math.round(ing.protein * scaledPortion.scaleFactor * 10) / 10,
@@ -199,7 +204,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
       const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
 
       // Trigger metabolic recalculation
-      await onMealLogged(now);
+      await onMealLogged(nowISO);
 
       logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
 

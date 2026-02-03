@@ -67,7 +67,8 @@ const schema = a.schema({
     .model({
       name: a.string().required(), // "Tom Kha Soup with Rice", "Protein Bar"
       category: a.string().required(), // "meal" | "snack" | "drink"
-      eatenAt: a.datetime().required(), // When consumed
+      eatenAt: a.datetime().required(), // When consumed (UTC timestamp)
+      localDate: a.date(), // User's local date when logged (YYYY-MM-DD) - for unambiguous day queries
       // Aggregated totals (computed from ingredients for fast loading)
       totalCalories: a.integer().required(),
       totalProtein: a.float().required(),
@@ -76,7 +77,7 @@ const schema = a.schema({
       totalWeightG: a.integer().required(),
     })
     .authorization((allow) => [allow.owner()])
-    .secondaryIndexes((index) => [index('eatenAt')]),
+    .secondaryIndexes((index) => [index('eatenAt'), index('localDate')]),
 
   // MealIngredient - Individual ingredients within a meal
   MealIngredient: a
@@ -84,6 +85,7 @@ const schema = a.schema({
       mealId: a.string().required(), // Reference to parent Meal
       name: a.string().required(), // "Chicken breast", "Rice"
       eatenAt: a.datetime(), // Copied from parent Meal for day-based queries
+      localDate: a.date(), // User's local date (YYYY-MM-DD) - for unambiguous day queries
       weightG: a.integer().required(),
       calories: a.integer().required(),
       protein: a.float().required(),
@@ -96,7 +98,7 @@ const schema = a.schema({
       sortOrder: a.integer(), // For consistent ordering within meal
     })
     .authorization((allow) => [allow.owner()])
-    .secondaryIndexes((index) => [index('mealId'), index('eatenAt')]),
+    .secondaryIndexes((index) => [index('mealId'), index('eatenAt'), index('localDate')]),
 
   // Shared cache for API responses (reduces duplicate API calls)
   FoodCache: a

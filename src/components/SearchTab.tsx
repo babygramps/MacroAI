@@ -15,6 +15,7 @@ import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
+import { getLocalDateString } from '@/lib/date';
 
 interface SearchTabProps {
   onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
@@ -236,13 +237,16 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         setIsSaving(false);
         return;
       }
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowISO = now.toISOString();
+      const localDate = getLocalDateString(now);
 
       // Create the meal
       const { data: meal } = await client.models.Meal.create({
         name: mealName || scaled.name,
         category,
-        eatenAt: now,
+        eatenAt: nowISO,
+        localDate, // Store user's local date for unambiguous day queries
         totalCalories: scaled.calories,
         totalProtein: scaled.protein,
         totalCarbs: scaled.carbs,
@@ -255,7 +259,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: nowISO, localDate });
 
       // Create the ingredient
       // Note: servingSizeGrams must be an integer (schema constraint)
@@ -266,7 +270,8 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       const ingredientResult = await client.models.MealIngredient.create({
         mealId: meal.id,
         name: scaled.name,
-        eatenAt: now,
+        eatenAt: nowISO,
+        localDate, // Store user's local date for unambiguous day queries
         weightG: weightNum,
         calories: scaled.calories,
         protein: scaled.protein,

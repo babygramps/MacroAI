@@ -12,6 +12,7 @@ import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { ErrorAlert } from './ui/ErrorAlert';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
+import { getLocalDateString } from '@/lib/date';
 
 interface TextTabProps {
   onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
@@ -140,13 +141,16 @@ export function TextTab({ onSuccess }: TextTabProps) {
       }));
 
       const totals = calculateMealTotals(ingredients);
-      const now = new Date().toISOString();
+      const now = new Date();
+      const nowISO = now.toISOString();
+      const localDate = getLocalDateString(now);
 
       // Create the meal
       const { data: meal } = await client.models.Meal.create({
         name: mealName || 'Meal',
         category,
-        eatenAt: now,
+        eatenAt: nowISO,
+        localDate, // Store user's local date for unambiguous day queries
         totalCalories: totals.totalCalories,
         totalProtein: totals.totalProtein,
         totalCarbs: totals.totalCarbs,
@@ -159,7 +163,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         throw new Error('Failed to create meal');
       }
 
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: now });
+      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: nowISO, localDate });
 
       // Create all ingredients
       let ingredientsCreated = 0;
@@ -175,7 +179,8 @@ export function TextTab({ onSuccess }: TextTabProps) {
         const { data: ingredient } = await client.models.MealIngredient.create({
           mealId: meal.id,
           name: food.name,
-          eatenAt: now,
+          eatenAt: nowISO,
+          localDate, // Store user's local date for unambiguous day queries
           weightG: food.servingSize || 100,
           calories: food.calories || 0,
           protein: food.protein || 0,

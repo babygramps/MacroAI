@@ -2,6 +2,7 @@ import type { Schema } from '@/amplify/data/resource';
 import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry, RecipeEntry, ScaledRecipePortion } from '@/lib/types';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { onMealLogged } from '@/lib/metabolicService';
+import { getLocalDateString } from '@/lib/date';
 
 export const DEFAULT_GOALS: UserGoals = {
   calorieGoal: 2000,
@@ -221,24 +222,33 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const endOfDay = new Date(startOfDay);
   endOfDay.setDate(endOfDay.getDate() + 1);
 
-  // Expand query range to avoid cross-device timezone mismatches.
-  // This keeps results stable when a meal is logged from another device
-  // with a different local timezone or clock skew.
+  // Use localDate (YYYY-MM-DD) for unambiguous day queries
+  // This solves cross-device timezone issues - meals always appear on the day they were logged
+  const targetLocalDate = getLocalDateString(date);
+
+  // For legacy meals without localDate, we still need the widened time-based query
   const QUERY_PADDING_MS = 14 * 60 * 60 * 1000; // 14 hours
   const queryStart = new Date(startOfDay.getTime() - QUERY_PADDING_MS);
   const queryEnd = new Date(endOfDay.getTime() + QUERY_PADDING_MS);
-
   const startISO = queryStart.toISOString();
   const endISO = queryEnd.toISOString();
 
-  const [mealsResult, legacyLogsResult] = await Promise.all([
+  // Query meals by localDate (new meals) AND by eatenAt range (for legacy meals without localDate)
+  const [mealsWithLocalDateResult, mealsWithoutLocalDateResult, legacyLogsResult] = await Promise.all([
+    // Primary query: meals with localDate set (new meals)
+    client.models.Meal.listMealByLocalDate({
+      localDate: targetLocalDate,
+    }),
+    // Fallback query: meals without localDate (legacy) using widened time range
     client.models.Meal.list({
       filter: {
-        eatenAt: {
-          between: [startISO, endISO],
-        },
+        and: [
+          { localDate: { attributeExists: false } },
+          { eatenAt: { between: [startISO, endISO] } },
+        ],
       },
     }),
+    // Legacy FoodLog entries
     client.models.FoodLog.list({
       filter: {
         eatenAt: {
@@ -248,24 +258,26 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     }),
   ]);
 
-  const mealsData = mealsResult.data || [];
+  const mealsWithLocalDate = mealsWithLocalDateResult.data || [];
+  const mealsWithoutLocalDate = mealsWithoutLocalDateResult.data || [];
 
-  // Debug: log query range and all meal eatenAt values
+  // Debug: log query results
   if (typeof window !== 'undefined') {
     const { logRemote } = await import('@/lib/clientLogger');
     logRemote.info('MEAL_QUERY_DEBUG', {
+      targetLocalDate,
       queryStart: startISO,
       queryEnd: endISO,
-      localDate: date.toISOString(),
       localOffsetMinutes: new Date().getTimezoneOffset(),
-      mealsFound: mealsData.length,
-      mealDetails: mealsData.map(m => ({ id: m.id, eatenAt: m.eatenAt })),
+      mealsWithLocalDateCount: mealsWithLocalDate.length,
+      mealsWithoutLocalDateCount: mealsWithoutLocalDate.length,
+      mealsWithLocalDateIds: mealsWithLocalDate.map(m => m.id),
     });
   }
   const legacyLogs = legacyLogsResult.data || [];
 
-  // Filter to the selected local day after widened query
-  const inDayMeals = mealsData.filter((meal) => {
+  // Filter legacy meals (without localDate) to the selected local day
+  const inDayLegacyMeals = mealsWithoutLocalDate.filter((meal) => {
     const eatenAtMs = new Date(meal.eatenAt).getTime();
     return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
   });
@@ -273,29 +285,20 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     const eatenAtMs = new Date(log.eatenAt ?? '').getTime();
     return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
   });
+
+  // Combine meals with localDate and filtered legacy meals
+  const inDayMeals = [...mealsWithLocalDate, ...inDayLegacyMeals];
+
   if (typeof window !== 'undefined') {
     const { logRemote } = await import('@/lib/clientLogger');
-    const analyzedMeals = mealsData
-      .map((meal) => {
-        const eatenAtMs = new Date(meal.eatenAt).getTime();
-        const inDay = eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
-        return {
-          id: meal.id,
-          eatenAt: meal.eatenAt,
-          inDay,
-          deltaToStartMin: Math.round((eatenAtMs - startOfDay.getTime()) / 60000),
-          deltaToEndMin: Math.round((endOfDay.getTime() - eatenAtMs) / 60000),
-        };
-      })
-      .sort((a, b) => Math.abs(a.deltaToStartMin) - Math.abs(b.deltaToStartMin));
-
     logRemote.info('MEAL_QUERY_FILTERED', {
+      targetLocalDate,
       dayStart: startOfDay.toISOString(),
       dayEnd: endOfDay.toISOString(),
       inDayMealsCount: inDayMeals.length,
       inDayLegacyCount: inDayLegacyLogs.length,
-      inDayMealsSample: inDayMeals.slice(0, 6).map(m => ({ id: m.id, eatenAt: m.eatenAt })),
-      nearestToStart: analyzedMeals.slice(0, 6),
+      mealsWithLocalDateCount: mealsWithLocalDate.length,
+      inDayLegacyMealsCount: inDayLegacyMeals.length,
     });
   }
 
@@ -446,7 +449,9 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
   const client = getAmplifyDataClient();
   if (!client) return;
 
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowISO = now.toISOString();
+  const localDate = getLocalDateString(now);
 
   // Handle legacy food logs
   if (mealId.startsWith('legacy-')) {
@@ -465,12 +470,12 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
       carbs: foodLog.carbs,
       fat: foodLog.fat,
       source: foodLog.source,
-      eatenAt: now,
+      eatenAt: nowISO,
       servingDescription: foodLog.servingDescription ?? undefined,
       servingSizeGrams: foodLog.servingSizeGrams ?? undefined,
     });
 
-    await onMealLogged(now);
+    await onMealLogged(nowISO);
     return;
   }
 
@@ -489,7 +494,8 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
   const { data: newMeal } = await client.models.Meal.create({
     name: meal.name,
     category: meal.category,
-    eatenAt: now,
+    eatenAt: nowISO,
+    localDate, // Store user's local date for unambiguous day queries
     totalCalories: meal.totalCalories,
     totalProtein: meal.totalProtein,
     totalCarbs: meal.totalCarbs,
@@ -513,7 +519,8 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
         return client.models.MealIngredient.create({
           mealId: newMeal.id,
           name: ing.name,
-          eatenAt: now,
+          eatenAt: nowISO,
+          localDate, // Store user's local date for unambiguous day queries
           weightG: ing.weightG,
           calories: ing.calories,
           protein: ing.protein,
@@ -529,7 +536,7 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
   }
 
   // Trigger metabolic recalculation
-  await onMealLogged(now);
+  await onMealLogged(nowISO);
 }
 
 /**
@@ -575,13 +582,16 @@ export async function logRecipePortion(
   if (!client) return;
 
   const scaled = scaleRecipePortion(recipe, portionAmount, portionMode);
-  const now = new Date().toISOString();
+  const now = new Date();
+  const nowISO = now.toISOString();
+  const localDate = getLocalDateString(now);
 
   // Create the meal
   const { data: meal } = await client.models.Meal.create({
     name: mealName || recipe.name,
     category,
-    eatenAt: now,
+    eatenAt: nowISO,
+    localDate, // Store user's local date for unambiguous day queries
     totalCalories: scaled.calories,
     totalProtein: scaled.protein,
     totalCarbs: scaled.carbs,
@@ -599,7 +609,8 @@ export async function logRecipePortion(
       client.models.MealIngredient.create({
         mealId: meal.id,
         name: ing.name,
-        eatenAt: now,
+        eatenAt: nowISO,
+        localDate, // Store user's local date for unambiguous day queries
         weightG: Math.round(ing.weightG * scaled.scaleFactor),
         calories: Math.round(ing.calories * scaled.scaleFactor),
         protein: Math.round(ing.protein * scaled.scaleFactor * 10) / 10,
@@ -612,5 +623,5 @@ export async function logRecipePortion(
   );
 
   // Trigger metabolic recalculation
-  await onMealLogged(now);
+  await onMealLogged(nowISO);
 }
