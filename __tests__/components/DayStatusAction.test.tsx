@@ -13,24 +13,31 @@ jest.mock('@/components/ui/Toast', () => ({
 
 describe('DayStatusAction', () => {
   const mockOnStatusChange = jest.fn();
-  const today = new Date();
-  today.setHours(21, 0, 0, 0); // 9 PM to trigger end-of-day prompts
+  
+  // Create a past date (yesterday) for testing status display
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  yesterday.setHours(12, 0, 0, 0);
+  
+  // Today at 9 PM to trigger end-of-day prompts
+  const todayLate = new Date();
+  todayLate.setHours(21, 0, 0, 0);
   
   beforeEach(() => {
     jest.clearAllMocks();
     // Mock time to be after 8 PM for "late in day" logic
     jest.useFakeTimers();
-    jest.setSystemTime(today);
+    jest.setSystemTime(todayLate);
   });
 
   afterEach(() => {
     jest.useRealTimers();
   });
 
-  it('renders nothing when day already has complete status', () => {
+  it('renders nothing for today when day already has complete status', () => {
     const { container } = render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={todayLate}
         currentStatus="complete"
         totalCalories={2000}
         estimatedTdee={2500}
@@ -38,15 +45,29 @@ describe('DayStatusAction', () => {
       />
     );
     
-    // Should show status indicator, not be empty
+    // For today with status, component returns null to avoid confusion
+    expect(container.firstChild).toBeNull();
+  });
+
+  it('shows complete status indicator for past days', () => {
+    render(
+      <DayStatusAction
+        selectedDate={yesterday}
+        currentStatus="complete"
+        totalCalories={2000}
+        estimatedTdee={2500}
+        onStatusChange={mockOnStatusChange}
+      />
+    );
+    
     expect(screen.getByText('Day Complete')).toBeInTheDocument();
     expect(screen.getByText('Included in TDEE calculations')).toBeInTheDocument();
   });
 
-  it('shows skipped status indicator', () => {
+  it('shows skipped status indicator for past days', () => {
     render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={yesterday}
         currentStatus="skipped"
         totalCalories={0}
         estimatedTdee={2500}
@@ -58,10 +79,10 @@ describe('DayStatusAction', () => {
     expect(screen.getByText('Excluded from TDEE calculations')).toBeInTheDocument();
   });
 
-  it('shows prompt for low calories', () => {
+  it('shows prompt for low calories today', () => {
     render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={todayLate}
         currentStatus={null}
         totalCalories={800}
         estimatedTdee={2500}
@@ -72,10 +93,10 @@ describe('DayStatusAction', () => {
     expect(screen.getByText(/Only 800 kcal logged/)).toBeInTheDocument();
   });
 
-  it('shows Mark Day Status button when prompted', () => {
+  it('shows Mark Day Skipped button for today when prompted', () => {
     render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={todayLate}
         currentStatus={null}
         totalCalories={800}
         estimatedTdee={2500}
@@ -83,30 +104,32 @@ describe('DayStatusAction', () => {
       />
     );
     
-    expect(screen.getByText('Mark Day Status')).toBeInTheDocument();
+    // For today, shows simplified "Mark Day Skipped" button
+    expect(screen.getByText('Mark Day Skipped')).toBeInTheDocument();
   });
 
-  it('shows options when button is clicked', () => {
+  it('shows options for past days when Mark Day Skipped is clicked', () => {
     render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={yesterday}
         currentStatus={null}
-        totalCalories={800}
+        totalCalories={0}
         estimatedTdee={2500}
         onStatusChange={mockOnStatusChange}
       />
     );
     
-    fireEvent.click(screen.getByText('Mark Day Status'));
+    // Click the button to show options
+    fireEvent.click(screen.getByText('Mark Day Skipped'));
     
     expect(screen.getByText('Mark as Complete')).toBeInTheDocument();
     expect(screen.getByText('Skip Day (Exclude from TDEE)')).toBeInTheDocument();
   });
 
-  it('allows changing status from complete', () => {
+  it('allows changing status from complete on past days', () => {
     render(
       <DayStatusAction
-        selectedDate={today}
+        selectedDate={yesterday}
         currentStatus="complete"
         totalCalories={2000}
         estimatedTdee={2500}

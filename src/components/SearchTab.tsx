@@ -428,7 +428,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
           {isSaving ? (
             <>
               <div className="spinner" />
-              Logging...
+              Saving...
             </>
           ) : (
             `Log ${MEAL_CATEGORY_INFO[category].label}`

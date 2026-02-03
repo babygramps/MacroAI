@@ -348,7 +348,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
           {isSaving ? (
             <>
               <div className="spinner" />
-              Logging...
+              Saving...
             </>
           ) : (
             `Log ${MEAL_CATEGORY_INFO[category].label}`

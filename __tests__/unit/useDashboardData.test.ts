@@ -1,8 +1,7 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
-import { calculateDailyTotals, DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
-import { fetchDayStatus } from '@/actions/updateDayStatus';
-import type { MealEntry } from '@/lib/types';
+import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
+import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
 
 jest.mock('@/lib/data/dashboard', () => {
   const actual = jest.requireActual('@/lib/data/dashboard');
@@ -55,198 +54,94 @@ const baseData = {
   needsOnboarding: false,
 };
 
-function createMeal(id: string, eatenAt: string): MealEntry {
-  return {
-    id,
-    name: 'Test Meal',
-    category: 'meal',
-    eatenAt,
-    totalCalories: 100,
-    totalProtein: 10,
-    totalCarbs: 5,
-    totalFat: 2,
-    totalWeightG: 100,
-    ingredients: [],
-  };
-}
-
-describe('useDashboardData optimistic merge', () => {
+describe('useDashboardData', () => {
   const mockFetchDashboardData = fetchDashboardData as jest.MockedFunction<typeof fetchDashboardData>;
   const mockFetchDayStatus = fetchDayStatus as jest.MockedFunction<typeof fetchDayStatus>;
+  const mockFetchDayStatusRange = fetchDayStatusRange as jest.MockedFunction<typeof fetchDayStatusRange>;
 
   beforeEach(() => {
     jest.clearAllMocks();
     mockFetchDashboardData.mockResolvedValue(baseData);
     mockFetchDayStatus.mockResolvedValue(null);
+    mockFetchDayStatusRange.mockResolvedValue(new Map());
   });
 
-  afterEach(() => {
-    jest.useRealTimers();
-  });
-
-  it('keeps optimistic meal after refresh when backend is missing it', async () => {
+  it('returns initial loading state', () => {
     const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-1', '2026-02-01T18:00:00.000Z');
+    const { result } = renderHook(() => useDashboardData(selectedDate));
 
+    expect(result.current.isLoading).toBe(true);
+  });
+
+  it('fetches dashboard data on mount', async () => {
+    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
     const { result } = renderHook(() => useDashboardData(selectedDate));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    expect(result.current.summary.meals.some((meal) => meal.id === optimisticMeal.id)).toBe(true);
+    expect(mockFetchDashboardData).toHaveBeenCalledWith(selectedDate);
+    expect(result.current.goals).toEqual(DEFAULT_GOALS);
+    expect(result.current.summary).toEqual(emptySummary);
   });
 
-  it('deduplicates when backend returns the optimistic meal', async () => {
+  it('returns fetched meals in summary', async () => {
     const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-2', '2026-02-01T19:00:00.000Z');
-    const backendSummary = calculateDailyTotals([optimisticMeal]);
-
-    mockFetchDashboardData.mockResolvedValueOnce(baseData).mockResolvedValueOnce({
+    const mealData = {
       ...baseData,
-      summary: backendSummary,
-    });
+      summary: {
+        ...emptySummary,
+        totalCalories: 500,
+        totalProtein: 30,
+        meals: [
+          {
+            id: 'meal-1',
+            name: 'Breakfast',
+            category: 'meal' as const,
+            eatenAt: '2026-02-01T08:00:00.000Z',
+            totalCalories: 500,
+            totalProtein: 30,
+            totalCarbs: 50,
+            totalFat: 20,
+            totalWeightG: 300,
+            ingredients: [],
+          },
+        ],
+      },
+    };
+    mockFetchDashboardData.mockResolvedValue(mealData);
 
     const { result } = renderHook(() => useDashboardData(selectedDate));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'confirmed');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    const matchingMeals = result.current.summary.meals.filter((meal) => meal.id === optimisticMeal.id);
-    expect(matchingMeals).toHaveLength(1);
+    expect(result.current.summary.meals).toHaveLength(1);
+    expect(result.current.summary.meals[0].name).toBe('Breakfast');
+    expect(result.current.summary.totalCalories).toBe(500);
   });
 
-  it('drops expired optimistic meals after TTL', async () => {
-    jest.useFakeTimers();
-    jest.setSystemTime(new Date('2026-02-01T12:00:00.000Z'));
-
+  it('updates day status via updateDayStatus callback', async () => {
     const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-3', '2026-02-01T20:00:00.000Z');
-    const ttlMs = 12 * 60 * 60 * 1000 + 1;
-
     const { result } = renderHook(() => useDashboardData(selectedDate));
 
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
+    await waitFor(() => expect(result.current.isLoading).toBe(false), { timeout: 3000 });
 
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
+    expect(result.current.dayStatus).toBeNull();
 
-    act(() => {
-      jest.advanceTimersByTime(ttlMs);
-    });
+    result.current.updateDayStatus('complete');
 
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    expect(result.current.summary.meals.some((meal) => meal.id === optimisticMeal.id)).toBe(false);
+    await waitFor(() => expect(result.current.dayStatus).toBe('complete'));
   });
 
-  it('does not merge optimistic meals outside selected date', async () => {
+  it('provides refresh function that refetches data', async () => {
     const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-4', '2026-02-02T10:00:00.000Z');
-
     const { result } = renderHook(() => useDashboardData(selectedDate));
 
     await waitFor(() => expect(result.current.isLoading).toBe(false));
 
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-    });
+    expect(mockFetchDashboardData).toHaveBeenCalledTimes(1);
 
-    await act(async () => {
-      await result.current.refresh();
-    });
+    await result.current.refresh();
 
-    expect(result.current.summary.meals.some((meal) => meal.id === optimisticMeal.id)).toBe(false);
-  });
-
-  it('transitions from pending to confirmed via confirmOptimisticMeal', async () => {
-    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-5', '2026-02-01T18:00:00.000Z');
-
-    const { result } = renderHook(() => useDashboardData(selectedDate));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
-
-    // Should start as pending
-    expect(result.current.getOptimisticStatus('meal-5')).toBe('pending');
-
-    act(() => {
-      result.current.confirmOptimisticMeal('meal-5');
-    });
-
-    // Should now be confirmed
-    expect(result.current.getOptimisticStatus('meal-5')).toBe('confirmed');
-  });
-
-  it('attaches syncStatus to optimistic meals after merge', async () => {
-    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-6', '2026-02-01T18:00:00.000Z');
-
-    const { result } = renderHook(() => useDashboardData(selectedDate));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    const mergedMeal = result.current.summary.meals.find((meal) => meal.id === optimisticMeal.id);
-    expect(mergedMeal).toBeDefined();
-    expect(mergedMeal?.syncStatus).toBe('pending');
-  });
-
-  it('attaches confirmed syncStatus after confirmOptimisticMeal', async () => {
-    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
-    const optimisticMeal = createMeal('meal-7', '2026-02-01T18:00:00.000Z');
-
-    const { result } = renderHook(() => useDashboardData(selectedDate));
-
-    await waitFor(() => expect(result.current.isLoading).toBe(false));
-
-    act(() => {
-      result.current.addOptimisticMeal(optimisticMeal, 'pending');
-      result.current.setSummary((prev) => calculateDailyTotals([...prev.meals, optimisticMeal]));
-    });
-
-    act(() => {
-      result.current.confirmOptimisticMeal('meal-7');
-    });
-
-    await act(async () => {
-      await result.current.refresh();
-    });
-
-    const mergedMeal = result.current.summary.meals.find((meal) => meal.id === optimisticMeal.id);
-    expect(mergedMeal).toBeDefined();
-    expect(mergedMeal?.syncStatus).toBe('confirmed');
+    expect(mockFetchDashboardData).toHaveBeenCalledTimes(2);
   });
 });

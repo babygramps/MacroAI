@@ -343,7 +343,7 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
           {isSaving ? (
             <>
               <div className="spinner" />
-              Logging...
+              Saving...
             </>
           ) : (
             `Log ${MEAL_CATEGORY_INFO[category].label}`

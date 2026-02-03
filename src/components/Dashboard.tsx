@@ -89,6 +89,7 @@ export function Dashboard() {
     latestWeight,
     needsOnboarding,
     isLoading,
+    isSyncing,
     dayStatus,
     dayStatusMap,
     refresh,
@@ -225,6 +226,14 @@ export function Dashboard() {
             dayStatuses={dayStatusMap}
           />
         </div>
+
+        {/* Sync Indicator */}
+        {isSyncing && (
+          <div className="flex items-center justify-center gap-2 py-2 px-4 mb-4 bg-blue-500/10 border border-blue-500/30 rounded-lg animate-fade-in">
+            <div className="spinner w-4 h-4" />
+            <span className="text-sm text-blue-400">Syncing with cloud...</span>
+          </div>
+        )}
 
         {/* Day Status Banner (for past days) */}
         <DayStatusBanner

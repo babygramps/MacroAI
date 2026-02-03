@@ -13,6 +13,7 @@ interface UseDashboardDataResult {
   latestWeight: WeightLogEntry | null;
   needsOnboarding: boolean;
   isLoading: boolean;
+  isSyncing: boolean;
   dayStatus: LogStatus | null;
   dayStatusMap: Map<string, LogStatus>;
   refresh: () => Promise<void>;
@@ -57,6 +58,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [dayStatus, setDayStatus] = useState<LogStatus | null>(null);
   const [dayStatusMap, setDayStatusMap] = useState<Map<string, LogStatus>>(new Map());
   const hasLoadedRef = useRef(false);
@@ -116,6 +118,9 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
 
     if (shouldShowLoading) {
       setIsLoading(true);
+    } else {
+      // Show syncing indicator for background refreshes
+      setIsSyncing(true);
     }
 
     // Helper function for the actual fetch
@@ -179,6 +184,8 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     } finally {
       if (shouldShowLoading) {
         setIsLoading(false);
+      } else {
+        setIsSyncing(false);
       }
       hasLoadedRef.current = true;
     }
@@ -227,6 +234,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     latestWeight,
     needsOnboarding,
     isLoading,
+    isSyncing,
     dayStatus,
     dayStatusMap,
     refresh,
