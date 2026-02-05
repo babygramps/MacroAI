@@ -813,10 +813,14 @@ export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend>
     scaleWeight: baseStats.currentWeight,
   });
 
+  // Calculate unified trend-based change
+  const trendChangeFromWeekAgo = getWeeklyWeightChange(trendData);
+
   return {
     ...baseStats,
     trendWeight: latestTrend,
     trendData,
+    trendChangeFromWeekAgo,
   };
 }
 

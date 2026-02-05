@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { StatsHeroCard, StatsHeroCardSkeleton } from '@/components/ui/StatsHeroCard';
 import { WeightJourneyCard, WeightJourneyCardSkeleton } from '@/components/ui/WeightJourneyCard';
 import { WeeklyNutritionCard, WeeklyNutritionCardSkeleton } from '@/components/ui/WeeklyNutritionCard';
-import { InsightsCard, InsightsCardSkeleton } from '@/components/ui/InsightsCard';
 import { WeightLogModal } from '@/components/WeightLogModal';
 import { FoodLogModal } from '@/components/FoodLogModal';
 import { AppHeader } from '@/components/ui/AppHeader';
@@ -113,7 +112,6 @@ export default function StatsPage() {
             <StatsHeroCardSkeleton />
             <WeightJourneyCardSkeleton />
             <WeeklyNutritionCardSkeleton />
-            <InsightsCardSkeleton />
           </>
         ) : (
           /* Loaded State */
@@ -132,15 +130,27 @@ export default function StatsPage() {
               goalType={goals?.goalType}
             />
 
-            {/* Weight Journey Card */}
+            {/* Weight Journey Card (Merged with Insights) */}
             <WeightJourneyCard
+              // Weight Stats
               trendWeight={weightStats?.trendWeight ?? null}
               scaleWeight={weightStats?.currentWeight ?? null}
-              weeklyChange={weightStats?.changeFromWeekAgo ?? null}
+              weeklyTrendChange={weightStats?.trendChangeFromWeekAgo ?? null}
               targetWeight={goals?.targetWeightKg ?? null}
               entries={weightStats?.entries ?? []}
               trendData={weightStats?.trendData ?? []}
               unit={preferredUnit}
+
+              // Insights Stats
+              goalType={goals?.goalType ?? 'maintain'}
+              goalRate={goals?.goalRate ?? null}
+              adherenceScore={metabolicInsights?.weeklyCheckIn?.adherenceScore ?? null}
+              weeklyCheckIn={metabolicInsights?.weeklyCheckIn ?? null}
+              tdeeHistory={tdeeHistory}
+              targetCalories={goals?.calorieGoal}
+              isInColdStart={isInColdStart}
+
+              // Actions
               onLogWeight={() => setIsWeightModalOpen(true)}
             />
 
@@ -152,19 +162,6 @@ export default function StatsPage() {
                 goals={goals}
               />
             )}
-
-            {/* Insights Card */}
-            <InsightsCard
-              goalType={goals?.goalType ?? 'maintain'}
-              weeklyWeightChange={metabolicInsights?.weeklyWeightChange ?? 0}
-              goalRate={goals?.goalRate ?? null}
-              adherenceScore={metabolicInsights?.weeklyCheckIn?.adherenceScore ?? null}
-              weeklyCheckIn={metabolicInsights?.weeklyCheckIn ?? null}
-              tdeeHistory={tdeeHistory}
-              targetCalories={goals?.calorieGoal}
-              unit={preferredUnit}
-              isInColdStart={isInColdStart}
-            />
           </>
         )}
       </main>

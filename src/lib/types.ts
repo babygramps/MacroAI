@@ -188,6 +188,7 @@ export interface TdeeDataPoint {
 export interface WeightStatsWithTrend extends WeightStats {
   trendWeight: number | null;
   trendData: WeightDataPoint[];
+  trendChangeFromWeekAgo: number | null; // Unified smoothed metric
 }
 
 // Algorithm constants (exported for testing/debugging)
