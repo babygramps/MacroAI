@@ -792,6 +792,7 @@ export async function fetchWeightStatsWithTrend(): Promise<WeightStatsWithTrend>
       ...baseStats,
       trendWeight: null,
       trendData: [],
+      trendChangeFromWeekAgo: null,
     };
   }
 
