@@ -48,96 +48,91 @@ function getStartOfDay(date: Date): Date {
 }
 
 /**
- * Fetch food logs for a date range and group by day
+ * Helper to fetch ALL pages from an Amplify list/query operation.
+ * Amplify's list() returns only one page of results from DynamoDB.
+ * Without this, scan-based queries can miss records as the table grows.
+ */
+async function listAllPages<T>(
+  queryFn: (nextToken?: string | null) => Promise<{ data: T[]; nextToken?: string | null }>
+): Promise<T[]> {
+  const allItems: T[] = [];
+  let currentToken: string | null | undefined = undefined;
+
+  do {
+    const result = await queryFn(currentToken);
+    if (result.data) {
+      allItems.push(...result.data);
+    }
+    currentToken = result.nextToken ?? null;
+  } while (currentToken);
+
+  return allItems;
+}
+
+/**
+ * Fetch food logs for a date range and group by day.
+ *
+ * Uses the same data-fetching strategy as the dashboard (dashboard.ts):
+ * 1. New Meals: Query by localDate GSI (fast, accurate, per-day)
+ * 2. Legacy Meals (no localDate): Scan with widened time range + pagination
+ * 3. Legacy FoodLog entries: Scan with widened time range + pagination
+ * 4. Client-side filter legacy entries to correct local day
  */
 export async function fetchWeekData(endDate: Date, days: number = 7): Promise<DayData[]> {
   const client = getAmplifyDataClient();
   if (!client) {
     return [];
   }
-  const end = getStartOfDay(endDate);
-  end.setDate(end.getDate() + 1); // End is exclusive, so add 1 day
 
-  const start = getStartOfDay(endDate);
-  start.setDate(start.getDate() - (days - 1)); // Go back (days - 1) to include endDate
+  const startDay = getStartOfDay(endDate);
+  startDay.setDate(startDay.getDate() - (days - 1)); // Go back (days - 1) to include endDate
+
+  const endDayExclusive = getStartOfDay(endDate);
+  endDayExclusive.setDate(endDayExclusive.getDate() + 1); // End is exclusive
+
+  // Generate local date keys for each day in the range
+  const dayKeys: string[] = [];
+  for (let i = 0; i < days; i++) {
+    const d = new Date(startDay);
+    d.setDate(d.getDate() + i);
+    dayKeys.push(formatDateKey(d));
+  }
 
   console.log('[statsHelpers] Fetching week data:', {
-    startDate: start.toISOString(),
-    endDate: end.toISOString(),
+    startDate: dayKeys[0],
+    endDate: dayKeys[dayKeys.length - 1],
     days,
+    dayKeys,
   });
 
+  // Initialize logsByDate map
+  const logsByDate = new Map<string, FoodLogEntry[]>();
+  for (const key of dayKeys) {
+    logsByDate.set(key, []);
+  }
+  const dayKeySet = new Set(dayKeys);
+
   try {
-    // Fetch from BOTH FoodLog (legacy) and Meal (new) tables
-    const [foodLogResult, mealResult] = await Promise.all([
-      client.models.FoodLog.list({
-        filter: {
-          eatenAt: {
-            between: [start.toISOString(), end.toISOString()],
-          },
-        },
-      }),
-      client.models.Meal.list({
-        filter: {
-          eatenAt: {
-            between: [start.toISOString(), end.toISOString()],
-          },
-        },
-      }),
-    ]);
+    // ── 1. Fetch new Meals by localDate GSI (fast & accurate) ──
+    // Each day gets its own GSI query — guaranteed to return all matching records
+    const mealsByDayResults = await Promise.all(
+      dayKeys.map(async (localDate) => {
+        const meals = await listAllPages((nextToken) =>
+          client.models.Meal.listMealByLocalDate(
+            { localDate },
+            nextToken ? { nextToken } : undefined,
+          )
+        );
+        return { localDate, meals };
+      })
+    );
 
-    const logs = foodLogResult.data;
-    const meals = mealResult.data;
-
-    console.log('[statsHelpers] Fetched logs count:', logs?.length ?? 0);
-    console.log('[statsHelpers] Fetched meals count:', meals?.length ?? 0);
-
-    // Group logs by date
-    const logsByDate: Map<string, FoodLogEntry[]> = new Map();
-
-    // Initialize all days with empty arrays
-    for (let i = 0; i < days; i++) {
-      const dayDate = new Date(start);
-      dayDate.setDate(dayDate.getDate() + i);
-      const dateKey = formatDateKey(dayDate);
-      logsByDate.set(dateKey, []);
-    }
-
-    // Populate with actual legacy FoodLog entries
-    if (logs) {
-      for (const log of logs) {
-        if (!log.eatenAt) continue;
-        const logDate = new Date(log.eatenAt);
-        const dateKey = formatDateKey(logDate);
-
-        const entry: FoodLogEntry = {
-          id: log.id,
-          name: log.name ?? '',
-          weightG: log.weightG ?? 0,
-          calories: log.calories ?? 0,
-          protein: log.protein ?? 0,
-          carbs: log.carbs ?? 0,
-          fat: log.fat ?? 0,
-          source: log.source ?? '',
-          eatenAt: log.eatenAt,
-        };
-
-        const dayLogs = logsByDate.get(dateKey);
-        if (dayLogs) {
-          dayLogs.push(entry);
-        }
-      }
-    }
-
-    // Populate with new Meal entries (convert to FoodLogEntry format for stats)
-    if (meals) {
+    let newMealCount = 0;
+    for (const { localDate, meals } of mealsByDayResults) {
+      const dayLogs = logsByDate.get(localDate);
+      if (!dayLogs) continue;
       for (const meal of meals) {
-        if (!meal.eatenAt) continue;
-        const mealDate = new Date(meal.eatenAt);
-        const dateKey = formatDateKey(mealDate);
-
-        // Convert Meal to FoodLogEntry format for consistent handling
-        const entry: FoodLogEntry = {
+        dayLogs.push({
           id: meal.id,
           name: meal.name ?? '',
           weightG: meal.totalWeightG ?? 0,
@@ -145,23 +140,96 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
           protein: meal.totalProtein ?? 0,
           carbs: meal.totalCarbs ?? 0,
           fat: meal.totalFat ?? 0,
-          source: 'MEAL', // Mark as coming from Meal table
+          source: 'MEAL',
           eatenAt: meal.eatenAt,
-        };
-
-        const dayLogs = logsByDate.get(dateKey);
-        if (dayLogs) {
-          dayLogs.push(entry);
-        }
+        });
+        newMealCount++;
       }
     }
 
-    // Convert to DayData array
+    // ── 2. Fetch legacy Meals (no localDate) with widened time range ──
+    // Pad by 14 hours on each side to handle timezone edge cases (same as dashboard)
+    const QUERY_PADDING_MS = 14 * 60 * 60 * 1000;
+    const queryStart = new Date(startDay.getTime() - QUERY_PADDING_MS);
+    const queryEnd = new Date(endDayExclusive.getTime() + QUERY_PADDING_MS);
+
+    const legacyMeals = await listAllPages((nextToken) =>
+      client.models.Meal.list({
+        filter: {
+          and: [
+            { localDate: { attributeExists: false } },
+            { eatenAt: { between: [queryStart.toISOString(), queryEnd.toISOString()] } },
+          ],
+        },
+        nextToken: nextToken ?? undefined,
+      })
+    );
+
+    let legacyMealCount = 0;
+    for (const meal of legacyMeals) {
+      if (!meal.eatenAt) continue;
+      // Client-side filter to correct local day
+      const dateKey = formatDateKey(new Date(meal.eatenAt));
+      if (!dayKeySet.has(dateKey)) continue;
+      const dayLogs = logsByDate.get(dateKey);
+      if (!dayLogs) continue;
+      dayLogs.push({
+        id: meal.id,
+        name: meal.name ?? '',
+        weightG: meal.totalWeightG ?? 0,
+        calories: meal.totalCalories ?? 0,
+        protein: meal.totalProtein ?? 0,
+        carbs: meal.totalCarbs ?? 0,
+        fat: meal.totalFat ?? 0,
+        source: 'MEAL',
+        eatenAt: meal.eatenAt,
+      });
+      legacyMealCount++;
+    }
+
+    // ── 3. Fetch legacy FoodLog entries with widened time range ──
+    const legacyFoodLogs = await listAllPages((nextToken) =>
+      client.models.FoodLog.list({
+        filter: {
+          eatenAt: {
+            between: [queryStart.toISOString(), queryEnd.toISOString()],
+          },
+        },
+        nextToken: nextToken ?? undefined,
+      })
+    );
+
+    let legacyLogCount = 0;
+    for (const log of legacyFoodLogs) {
+      if (!log.eatenAt) continue;
+      // Client-side filter to correct local day
+      const dateKey = formatDateKey(new Date(log.eatenAt));
+      if (!dayKeySet.has(dateKey)) continue;
+      const dayLogs = logsByDate.get(dateKey);
+      if (!dayLogs) continue;
+      dayLogs.push({
+        id: log.id,
+        name: log.name ?? '',
+        weightG: log.weightG ?? 0,
+        calories: log.calories ?? 0,
+        protein: log.protein ?? 0,
+        carbs: log.carbs ?? 0,
+        fat: log.fat ?? 0,
+        source: log.source ?? '',
+        eatenAt: log.eatenAt,
+      });
+      legacyLogCount++;
+    }
+
+    console.log('[statsHelpers] Fetched counts:', {
+      newMeals: newMealCount,
+      legacyMeals: legacyMealCount,
+      legacyFoodLogs: legacyLogCount,
+    });
+
+    // ── 4. Convert to DayData array ──
     const result: DayData[] = [];
-    for (let i = 0; i < days; i++) {
-      const dayDate = new Date(start);
-      dayDate.setDate(dayDate.getDate() + i);
-      const dateKey = formatDateKey(dayDate);
+    for (const dateKey of dayKeys) {
       const entries = logsByDate.get(dateKey) ?? [];
 
       const totals = entries.reduce(
@@ -177,7 +245,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       const summary: DailySummary = {
         ...totals,
         entries,
-        meals: [], // Legacy stats view uses entries, not meals
+        meals: [], // Stats view uses entries, not meals
       };
 
       result.push({
