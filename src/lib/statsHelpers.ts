@@ -112,9 +112,16 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
   }
   const dayKeySet = new Set(dayKeys);
 
+  // Track seen meal IDs to prevent double-counting.
+  // The `attributeExists: false` filter on localDate can be unreliable in DynamoDB
+  // (e.g., if the field is stored as null rather than omitted), so we deduplicate
+  // by ID after fetching from both queries.
+  const seenMealIds = new Set<string>();
+
   try {
     // ── 1. Fetch new Meals by localDate GSI (fast & accurate) ──
-    // Each day gets its own GSI query — guaranteed to return all matching records
+    // Each day gets its own GSI query — guaranteed to return all matching records.
+    // localDate is the authoritative day assignment, so these take priority.
     const mealsByDayResults = await Promise.all(
       dayKeys.map(async (localDate) => {
         const meals = await listAllPages((nextToken) =>
@@ -132,6 +139,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       const dayLogs = logsByDate.get(localDate);
       if (!dayLogs) continue;
       for (const meal of meals) {
+        seenMealIds.add(meal.id);
         dayLogs.push({
           id: meal.id,
           name: meal.name ?? '',
@@ -148,7 +156,10 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
     }
 
     // ── 2. Fetch legacy Meals (no localDate) with widened time range ──
-    // Pad by 14 hours on each side to handle timezone edge cases (same as dashboard)
+    // Pad by 14 hours on each side to handle timezone edge cases (same as dashboard).
+    // Note: The `attributeExists: false` filter may not reliably exclude meals that
+    // have localDate set (DynamoDB null vs missing attribute). We rely on the
+    // seenMealIds set above to deduplicate.
     const QUERY_PADDING_MS = 14 * 60 * 60 * 1000;
     const queryStart = new Date(startDay.getTime() - QUERY_PADDING_MS);
     const queryEnd = new Date(endDayExclusive.getTime() + QUERY_PADDING_MS);
@@ -156,20 +167,28 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
     const legacyMeals = await listAllPages((nextToken) =>
       client.models.Meal.list({
         filter: {
-          and: [
-            { localDate: { attributeExists: false } },
-            { eatenAt: { between: [queryStart.toISOString(), queryEnd.toISOString()] } },
-          ],
+          eatenAt: {
+            between: [queryStart.toISOString(), queryEnd.toISOString()],
+          },
         },
         nextToken: nextToken ?? undefined,
       })
     );
 
     let legacyMealCount = 0;
+    let duplicateCount = 0;
     for (const meal of legacyMeals) {
       if (!meal.eatenAt) continue;
-      // Client-side filter to correct local day
-      const dateKey = formatDateKey(new Date(meal.eatenAt));
+      // Skip meals already fetched via localDate GSI (deduplication)
+      if (seenMealIds.has(meal.id)) {
+        duplicateCount++;
+        continue;
+      }
+      seenMealIds.add(meal.id);
+      // Use localDate if available (authoritative day), otherwise derive from eatenAt
+      const dateKey = meal.localDate
+        ? meal.localDate
+        : formatDateKey(new Date(meal.eatenAt));
       if (!dayKeySet.has(dateKey)) continue;
       const dayLogs = logsByDate.get(dateKey);
       if (!dayLogs) continue;
@@ -225,6 +244,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       newMeals: newMealCount,
       legacyMeals: legacyMealCount,
       legacyFoodLogs: legacyLogCount,
+      duplicatesSkipped: duplicateCount,
     });
 
     // ── 4. Convert to DayData array ──
