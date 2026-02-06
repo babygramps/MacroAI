@@ -12,6 +12,7 @@ interface MealCardProps {
   onEdit?: (meal: MealEntry) => void;
   onDelete?: (id: string) => void;
   onDuplicate?: (id: string) => void;
+  isDeleting?: boolean;
 }
 
 // Map common food/meal names to emojis
@@ -91,7 +92,7 @@ function formatTime(dateString: string): string {
   });
 }
 
-export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, onDuplicate }: MealCardProps) {
+export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, onDuplicate, isDeleting = false }: MealCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const emoji = useMemo(() => getMealEmoji(meal.name, meal.category), [meal.name, meal.category]);
   const hasMultipleIngredients = meal.ingredients.length > 1;
@@ -140,7 +141,7 @@ export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, 
 
   return (
     <div
-      className="card-interactive animate-fade-in-up overflow-hidden group"
+      className={`card-interactive animate-fade-in-up overflow-hidden group ${isDeleting ? 'animate-card-remove' : ''}`}
       style={{ '--stagger-index': index } as React.CSSProperties}
     >
       <MealContextMenu actions={contextMenuActions} disabled={!hasActions}>
@@ -194,21 +195,20 @@ export const MealCard = memo(function MealCard({ meal, index, onEdit, onDelete, 
         </button>
       </MealContextMenu>
 
-      {/* Expanded content - ingredients list */}
-      <div
-        className={`transition-all duration-200 ease-out overflow-hidden ${
-          isExpanded ? 'max-h-96 opacity-100 mt-3' : 'max-h-0 opacity-0'
-        }`}
-      >
-        <div className="border-t border-border-subtle pt-3">
-          {/* Ingredients list */}
-          <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
-            {meal.ingredients.map((ingredient) => (
-              <IngredientListItem key={ingredient.id} ingredient={ingredient} />
-            ))}
+      {/* Expanded content - ingredients list with smooth height animation */}
+      {hasMultipleIngredients && (
+        <div className={`expandable-content ${isExpanded ? 'expanded mt-3' : ''}`}>
+          <div>
+            <div className="border-t border-border-subtle pt-3">
+              <div className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                {meal.ingredients.map((ingredient) => (
+                  <IngredientListItem key={ingredient.id} ingredient={ingredient} />
+                ))}
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
     </div>
   );

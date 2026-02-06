@@ -35,9 +35,14 @@ export function TextTab({ onSuccess }: TextTabProps) {
 
   // Error state
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [shakeInput, setShakeInput] = useState(false);
 
   const handleAnalyze = async () => {
-    if (!text.trim()) return;
+    if (!text.trim()) {
+      setShakeInput(true);
+      setTimeout(() => setShakeInput(false), 400);
+      return;
+    }
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -483,7 +488,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="e.g., 2 eggs, 3 strips of bacon, and a glass of orange juice"
-        className="input-field min-h-[120px] resize-none mb-4"
+        className={`input-field min-h-[120px] resize-none mb-4 ${shakeInput ? 'animate-input-shake' : ''}`}
       />
 
       <button

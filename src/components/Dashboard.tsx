@@ -78,6 +78,8 @@ export function Dashboard() {
     today.setHours(0, 0, 0, 0);
     return today;
   });
+  const [ringPulse, setRingPulse] = useState(false);
+  const [deletingMealId, setDeletingMealId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ isOpen: boolean; mealId: string | null; mealName: string }>({
     isOpen: false,
     mealId: null,
@@ -129,6 +131,12 @@ export function Dashboard() {
 
     setDeleteConfirm({ isOpen: false, mealId: null, mealName: '' });
 
+    // Trigger card-remove animation before actually deleting
+    setDeletingMealId(mealId);
+    // Wait for animation to complete (350ms matches card-remove duration)
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    setDeletingMealId(null);
+
     try {
       await deleteMealEntry(mealId);
       showToast('Meal deleted', 'success');
@@ -158,6 +166,10 @@ export function Dashboard() {
     logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate) });
     setIsModalOpen(false);
 
+    // Trigger ring pulse animation
+    setRingPulse(true);
+    setTimeout(() => setRingPulse(false), 700);
+
     // Simple approach: just refresh from the database
     // This ensures dashboard always shows exactly what's in DynamoDB
     if (!isToday(selectedDate)) {
@@ -179,8 +191,13 @@ export function Dashboard() {
     }
   }, [refresh, selectedDate, summary.meals.length]);
 
+  const [weightJustLogged, setWeightJustLogged] = useState(false);
+
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
+    // Trigger weight animation
+    setWeightJustLogged(true);
+    setTimeout(() => setWeightJustLogged(false), 1000);
     // Refresh data to get updated weight
     refresh();
   }, [refresh]);
@@ -239,7 +256,7 @@ export function Dashboard() {
           isLoading={isLoading}
         />
 
-        <DashboardRings summary={summary} goals={goals} />
+        <DashboardRings summary={summary} goals={goals} pulse={ringPulse} />
 
         <WeightCard
           selectedDate={selectedDate}
@@ -247,6 +264,7 @@ export function Dashboard() {
           latestWeight={latestWeight}
           preferredUnit={preferredUnit}
           onClick={() => setIsWeightModalOpen(true)}
+          justLogged={weightJustLogged}
         />
 
         <MealLogSection
@@ -257,6 +275,7 @@ export function Dashboard() {
           onEdit={handleEditMeal}
           onDelete={handleDeleteMeal}
           onDuplicate={handleDuplicateMeal}
+          deletingMealId={deletingMealId}
         />
 
         {/* Day Status Action (for marking today as complete/skipped) */}

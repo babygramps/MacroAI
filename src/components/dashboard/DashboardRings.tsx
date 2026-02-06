@@ -4,12 +4,16 @@ import type { DailySummary, UserGoals } from '@/lib/types';
 interface DashboardRingsProps {
   summary: DailySummary;
   goals: UserGoals;
+  pulse?: boolean;
 }
 
-export function DashboardRings({ summary, goals }: DashboardRingsProps) {
+export function DashboardRings({ summary, goals, pulse = false }: DashboardRingsProps) {
   return (
     <>
-      <div className="flex justify-center mb-6">
+      <div
+        className="flex justify-center mb-6"
+        style={pulse ? { animation: 'ring-pulse 0.6s ease-out' } : undefined}
+      >
         <ProgressRing
           value={summary.totalCalories}
           max={goals.calorieGoal}

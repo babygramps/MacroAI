@@ -63,6 +63,16 @@
   --animate-slide-up: slide-up 0.3s cubic-bezier(0.32, 0.72, 0, 1) forwards;
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-pulse-glow: pulse-glow 2s ease-in-out infinite;
+  --animate-success-pop: success-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  --animate-goal-glow: goal-glow 1.5s ease-in-out 1 forwards;
+  --animate-ring-pulse: ring-pulse 0.6s ease-out 1 forwards;
+  --animate-card-remove: card-remove 0.35s ease-in forwards;
+  --animate-slide-in-right: slide-in-right 0.25s ease-out forwards;
+  --animate-slide-in-left: slide-in-left 0.25s ease-out forwards;
+  --animate-fab-breathe: fab-breathe 3s ease-in-out infinite;
+  --animate-tap-bounce: tap-bounce 0.3s ease-out 1;
+  --animate-emoji-pop: emoji-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) 1;
+  --animate-input-shake: input-shake 0.4s ease-out 1;
 }
 
 /* Keyframes */
@@ -99,6 +109,115 @@
 @keyframes pulse-glow {
   0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
+}
+
+/* === New interaction animations === */
+
+@keyframes success-pop {
+  0% { opacity: 0; transform: scale(0.8) translateY(10px); }
+  50% { transform: scale(1.05) translateY(-2px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes goal-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px var(--ring-color, currentColor)); }
+  25% { filter: drop-shadow(0 0 20px var(--ring-color, currentColor)) drop-shadow(0 0 40px var(--ring-color, currentColor)); }
+  50% { filter: drop-shadow(0 0 8px var(--ring-color, currentColor)); }
+  75% { filter: drop-shadow(0 0 16px var(--ring-color, currentColor)); }
+}
+
+@keyframes ring-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+@keyframes card-remove {
+  0% { opacity: 1; transform: scale(1); max-height: 200px; }
+  100% { opacity: 0; transform: scale(0.95); max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-30px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes fab-breathe {
+  0%, 100% { box-shadow: 0 4px 20px rgba(255, 107, 53, 0.4); }
+  50% { box-shadow: 0 4px 24px rgba(255, 107, 53, 0.6), 0 0 40px rgba(255, 107, 53, 0.2); }
+}
+
+@keyframes tap-bounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(0.9); }
+  70% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+@keyframes emoji-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3) rotate(-5deg); }
+  100% { transform: scale(1); }
+}
+
+@keyframes input-shake {
+  0%, 100% { transform: translateX(0); }
+  15% { transform: translateX(-6px); }
+  30% { transform: translateX(6px); }
+  45% { transform: translateX(-4px); }
+  60% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+@keyframes date-slide-out-left {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-20px); }
+}
+
+@keyframes date-slide-out-right {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(20px); }
+}
+
+@keyframes arrow-bounce-down {
+  0% { transform: translateY(0); opacity: 0; }
+  30% { opacity: 1; }
+  60% { transform: translateY(4px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes arrow-bounce-up {
+  0% { transform: translateY(0); opacity: 0; }
+  30% { opacity: 1; }
+  60% { transform: translateY(-4px); }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+/* Expandable content using grid-template-rows trick */
+.expandable-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease-out, opacity 0.3s ease-out;
+  opacity: 0;
+}
+
+.expandable-content.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.expandable-content > div {
+  overflow: hidden;
+}
+
+/* Input shake helper */
+.animate-input-shake {
+  animation: input-shake 0.4s ease-out;
 }
 
 /* Base styles */
@@ -797,7 +916,7 @@ body {
 }
 
 .bottom-nav-add:active .bottom-nav-add-inner {
-  transform: scale(0.95);
+  animation: tap-bounce 0.3s ease-out !important;
 }
 
 /* Amplify Authenticator overrides */

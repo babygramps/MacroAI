@@ -158,7 +158,6 @@ export function WeightJourneyCard({
     goalType,
     goalRate,
     adherenceScore,
-    weeklyCheckIn,
     tdeeHistory,
     targetCalories,
     isInColdStart = false,

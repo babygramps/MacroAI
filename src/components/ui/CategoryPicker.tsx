@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import type { MealCategory } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 
@@ -12,6 +13,16 @@ interface CategoryPickerProps {
 const categories: MealCategory[] = ['meal', 'snack', 'drink'];
 
 export function CategoryPicker({ value, onChange, disabled = false }: CategoryPickerProps) {
+  const [poppedCategory, setPoppedCategory] = useState<MealCategory | null>(null);
+
+  const handleClick = (category: MealCategory) => {
+    if (category !== value) {
+      setPoppedCategory(category);
+      setTimeout(() => setPoppedCategory(null), 300);
+    }
+    onChange(category);
+  };
+
   return (
     <div className="flex rounded-xl bg-bg-elevated p-1 gap-1">
       {categories.map((category) => {
@@ -22,7 +33,7 @@ export function CategoryPicker({ value, onChange, disabled = false }: CategoryPi
           <button
             key={category}
             type="button"
-            onClick={() => onChange(category)}
+            onClick={() => handleClick(category)}
             disabled={disabled}
             className={`
               flex-1 flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg
@@ -35,7 +46,12 @@ export function CategoryPicker({ value, onChange, disabled = false }: CategoryPi
             `}
             aria-pressed={isActive}
           >
-            <span className="text-base">{info.emoji}</span>
+            <span
+              className="text-base inline-block"
+              style={poppedCategory === category ? { animation: 'emoji-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' } : undefined}
+            >
+              {info.emoji}
+            </span>
             <span>{info.label}</span>
           </button>
         );

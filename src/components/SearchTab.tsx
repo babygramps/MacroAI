@@ -49,6 +49,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const [view, setView] = useState<View>('search');
   const [isSaving, setIsSaving] = useState(false);
   const [showAllResults, setShowAllResults] = useState(false);
+  const [shakeInput, setShakeInput] = useState(false);
 
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('snack');
@@ -112,7 +113,11 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   }, []);
 
   const handleSearch = useCallback(async () => {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+      setShakeInput(true);
+      setTimeout(() => setShakeInput(false), 400);
+      return;
+    }
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -619,7 +624,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
           placeholder="Search foods..."
-          className="input-field !pl-12 !pr-10"
+          className={`input-field !pl-12 !pr-10 ${shakeInput ? 'animate-input-shake' : ''}`}
         />
         {query && (
           <button
@@ -659,7 +664,8 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
             <button
               key={`${food.source}-${food.originalId || food.name}-${index}`}
               onClick={() => handleSelectFood(food)}
-              className="card-interactive text-left"
+              className="card-interactive text-left animate-stagger opacity-0"
+              style={{ '--stagger-index': index } as React.CSSProperties}
             >
               <div className="flex items-center gap-2">
                 <p className="font-medium text-text-primary truncate">{food.name}</p>

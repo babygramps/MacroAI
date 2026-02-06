@@ -48,10 +48,10 @@ describe('MealCard', () => {
       <MealCard meal={meal} index={0} onEdit={jest.fn()} onDelete={jest.fn()} />
     );
 
-    const panel = container.querySelector('div.transition-all');
-    expect(panel?.className).toContain('max-h-0');
+    const panel = container.querySelector('.expandable-content');
+    expect(panel?.className).not.toContain('expanded');
 
     await user.click(getByRole('button', { name: /chicken bowl/i }));
-    expect(panel?.className).toContain('max-h-96');
+    expect(panel?.className).toContain('expanded');
   });
 });

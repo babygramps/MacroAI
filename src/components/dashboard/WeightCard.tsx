@@ -8,6 +8,7 @@ interface WeightCardProps {
   latestWeight: WeightLogEntry | null;
   preferredUnit: 'kg' | 'lbs';
   onClick: () => void;
+  justLogged?: boolean;
 }
 
 export function WeightCard({
@@ -16,6 +17,7 @@ export function WeightCard({
   latestWeight,
   preferredUnit,
   onClick,
+  justLogged = false,
 }: WeightCardProps) {
   const formattedWeight = latestWeight ? formatWeight(latestWeight.weightKg, preferredUnit) : null;
   return (
@@ -47,9 +49,22 @@ export function WeightCard({
             {isLoading ? (
               <div className="h-6 w-16 skeleton rounded mt-1" />
             ) : latestWeight ? (
-              <p className="text-lg font-mono font-bold text-weight">
-                {formattedWeight}
-              </p>
+              <div className="flex items-center gap-2">
+                <p className="text-lg font-mono font-bold text-weight">
+                  {formattedWeight}
+                </p>
+                {justLogged && (
+                  <svg
+                    className="w-4 h-4 text-success"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                    style={{ animation: 'arrow-bounce-down 0.6s ease-out' }}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                )}
+              </div>
             ) : (
               <p className="text-body text-text-secondary">Tap to log</p>
             )}

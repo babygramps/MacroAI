@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { ModalShell } from './ui/ModalShell';
 import type { RecentFoodsResponse, MealEntry } from '@/lib/types';
@@ -14,9 +14,23 @@ interface FoodLogModalProps {
 
 type Tab = 'search' | 'type' | 'photo' | 'recipe';
 
+const TAB_ORDER: Tab[] = ['search', 'type', 'photo', 'recipe'];
+
 export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: FoodLogModalProps) {
   const [activeTab, setActiveTab] = useState<Tab>('search');
   const [isSaving, setIsSaving] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
+  const prevTabRef = useRef<Tab>('search');
+
+  const handleTabChange = useCallback((newTab: Tab) => {
+    const oldIndex = TAB_ORDER.indexOf(prevTabRef.current);
+    const newIndex = TAB_ORDER.indexOf(newTab);
+    setSlideDirection(newIndex > oldIndex ? 'right' : 'left');
+    prevTabRef.current = newTab;
+    setActiveTab(newTab);
+    // Clear direction after animation completes
+    setTimeout(() => setSlideDirection(null), 250);
+  }, []);
 
   // Wrap onSuccess to show saving overlay while dashboard refreshes
   const handleSuccess = useCallback(async (options?: { verified?: boolean; meal?: MealEntry }) => {
@@ -94,7 +108,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
         {tabs.map((tab) => (
           <button
             key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => handleTabChange(tab.id)}
             className={`tab-button ${activeTab === tab.id ? 'active' : ''}`}
           >
             <span className="mr-1">{tab.icon}</span>
@@ -106,7 +120,11 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div
+        className="flex-1 overflow-y-auto"
+        style={slideDirection ? { animation: `slide-in-${slideDirection === 'right' ? 'right' : 'left'} 0.25s ease-out` } : undefined}
+        key={activeTab}
+      >
         {activeTab === 'search' && <SearchTab onSuccess={handleSuccess} prefetchedRecents={prefetchedRecents} />}
         {activeTab === 'type' && <TextTab onSuccess={handleSuccess} />}
         {activeTab === 'photo' && <PhotoTab onSuccess={handleSuccess} />}

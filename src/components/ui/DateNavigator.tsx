@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import type { LogStatus } from '@/lib/types';
 
 interface DateNavigatorProps {
@@ -73,7 +73,13 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
   const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(selectedDate.getMonth());
   const [calendarYear, setCalendarYear] = useState(selectedDate.getFullYear());
+  const [dateSlideDir, setDateSlideDir] = useState<'left' | 'right' | null>(null);
   const calendarRef = useRef<HTMLDivElement>(null);
+
+  const triggerDateSlide = useCallback((direction: 'left' | 'right') => {
+    setDateSlideDir(direction);
+    setTimeout(() => setDateSlideDir(null), 250);
+  }, []);
 
   // Close calendar when clicking outside
   useEffect(() => {
@@ -99,6 +105,7 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
   const goToPreviousDay = () => {
     const newDate = new Date(selectedDate);
     newDate.setDate(newDate.getDate() - 1);
+    triggerDateSlide('left');
     onDateChange(newDate);
   };
 
@@ -106,6 +113,7 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
     if (!isToday(selectedDate)) {
       const newDate = new Date(selectedDate);
       newDate.setDate(newDate.getDate() + 1);
+      triggerDateSlide('right');
       onDateChange(newDate);
     }
   };
@@ -203,7 +211,11 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} 
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
-        <span className="text-body font-medium text-text-primary">
+        <span
+          className="text-body font-medium text-text-primary"
+          key={selectedDate.toISOString()}
+          style={dateSlideDir ? { animation: `slide-in-${dateSlideDir === 'left' ? 'left' : 'right'} 0.25s ease-out` } : undefined}
+        >
           {formatDisplayDate(selectedDate)}
         </span>
       </button>

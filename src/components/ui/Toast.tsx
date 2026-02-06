@@ -72,8 +72,9 @@ export function ToastContainer() {
         <div
           key={toast.id}
           className={`
-            px-4 py-3 rounded-xl backdrop-blur-sm border animate-fade-in-up
+            px-4 py-3 rounded-xl backdrop-blur-sm border
             flex items-center gap-3
+            ${toast.type === 'success' ? 'animate-success-pop' : 'animate-fade-in-up'}
             ${
               toast.type === 'success'
                 ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
