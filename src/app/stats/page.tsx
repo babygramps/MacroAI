@@ -147,7 +147,7 @@ export default function StatsPage() {
               adherenceScore={metabolicInsights?.weeklyCheckIn?.adherenceScore ?? null}
               weeklyCheckIn={metabolicInsights?.weeklyCheckIn ?? null}
               tdeeHistory={tdeeHistory}
-              targetCalories={goals?.calorieGoal}
+              targetCalories={targetCalories}
               isInColdStart={isInColdStart}
 
               // Actions
@@ -159,7 +159,7 @@ export default function StatsPage() {
               <WeeklyNutritionCard
                 days={stats.days}
                 averages={stats.averages}
-                goals={goals}
+                goals={goals ? { ...goals, calorieGoal: targetCalories } : goals}
               />
             )}
           </>
