@@ -10,6 +10,8 @@ export interface NormalizedFood {
   servingSizeGrams?: number; // grams per serving (for serving-based input)
   source: 'USDA' | 'OFF' | 'API_NINJAS' | 'GEMINI';
   originalId?: string; // Original ID from the source API
+  /** Nutrition validation warnings (e.g., "Calories don't match macros") */
+  warnings?: string[];
 }
 
 export interface APINinjasFood {

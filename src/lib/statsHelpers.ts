@@ -864,6 +864,11 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       );
     }
 
+    // Get flux confidence range from latest computed state
+    const latestFlux = computedStates.length > 0
+      ? computedStates[computedStates.length - 1].fluxConfidenceRange
+      : 500; // Max uncertainty when no data
+
     const insights: MetabolicInsights = {
       currentTdee,
       trendWeight: weightStatsWithTrend.trendWeight ?? weightStatsWithTrend.currentWeight ?? 0,
@@ -876,6 +881,7 @@ export async function fetchMetabolicInsights(): Promise<MetabolicInsights | null
       weeklyCheckIn,
       isInColdStart,
       coldStartTdee,
+      fluxConfidenceRange: latestFlux,
     };
 
     console.log('[statsHelpers] Metabolic insights:', {

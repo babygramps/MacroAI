@@ -86,10 +86,32 @@ export function MetabolicInsightsCard({ insights, unit = 'kg' }: MetabolicInsigh
             </svg>
             <p className="text-caption text-text-muted">Daily Burn</p>
           </div>
-          <p className="text-2xl font-mono font-bold text-macro-calories">
-            {insights.currentTdee.toLocaleString()}
-            <span className="text-sm text-text-muted ml-1">kcal</span>
-          </p>
+          {/* Show range for low/learning confidence, point estimate for high */}
+          {(insights.confidenceLevel === 'learning' || insights.confidenceLevel === 'low') ? (
+            <>
+              <p className="text-lg font-mono font-bold text-macro-calories">
+                {Math.max(0, insights.currentTdee - insights.fluxConfidenceRange).toLocaleString()}
+                <span className="text-text-muted mx-0.5">–</span>
+                {(insights.currentTdee + insights.fluxConfidenceRange).toLocaleString()}
+              </p>
+              <p className="text-[10px] text-text-muted mt-1">kcal range — narrows with more data</p>
+            </>
+          ) : insights.confidenceLevel === 'medium' ? (
+            <>
+              <p className="text-2xl font-mono font-bold text-macro-calories">
+                {insights.currentTdee.toLocaleString()}
+                <span className="text-sm text-text-muted ml-1">kcal</span>
+              </p>
+              <p className="text-[10px] text-text-muted mt-1">
+                &plusmn;{insights.fluxConfidenceRange} kcal
+              </p>
+            </>
+          ) : (
+            <p className="text-2xl font-mono font-bold text-macro-calories">
+              {insights.currentTdee.toLocaleString()}
+              <span className="text-sm text-text-muted ml-1">kcal</span>
+            </p>
+          )}
           {insights.isInColdStart && (
             <p className="text-xs text-text-muted mt-1">Estimated</p>
           )}
@@ -200,7 +222,9 @@ export function MetabolicInsightsCard({ insights, unit = 'kg' }: MetabolicInsigh
           </svg>
           <p className="text-xs text-text-muted">
             Your TDEE is calculated by analyzing your weight changes and calorie intake. 
-            The more consistently you log, the more accurate it becomes.
+            {insights.confidenceLevel !== 'high'
+              ? ' The range narrows as you log more consistently.'
+              : ' The more consistently you log, the more accurate it becomes.'}
           </p>
         </div>
       </div>

@@ -8,6 +8,7 @@ import { IngredientCard } from './ui/IngredientCard';
 import { searchFoods } from '@/actions/searchFoods';
 import { scaleNutrition } from '@/lib/normalizer';
 import { ModalShell } from './ui/ModalShell';
+import { SourceBadge } from './ui/SourceBadge';
 import { logError } from '@/lib/logger';
 
 interface MealEditModalProps {
@@ -332,9 +333,12 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
                     onClick={() => handleSelectFood(food)}
                     className="card-interactive w-full text-left"
                   >
-                    <p className="font-medium text-text-primary truncate">{food.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium text-text-primary truncate">{food.name}</p>
+                      <SourceBadge source={food.source} compact />
+                    </div>
                     <p className="text-caption">
-                      {food.calories} kcal per {food.servingSize}g • {food.source}
+                      {food.calories} kcal per {food.servingSize}g
                     </p>
                   </button>
                 ))}
@@ -345,9 +349,12 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
             {selectedFood && (
               <div className="mb-4">
                 <div className="card mb-4">
-                  <h4 className="text-card-title mb-2">{selectedFood.name}</h4>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="text-card-title">{selectedFood.name}</h4>
+                    <SourceBadge source={selectedFood.source} compact />
+                  </div>
                   <p className="text-caption mb-4">
-                    {selectedFood.calories} kcal per {selectedFood.servingSize}g from {selectedFood.source}
+                    {selectedFood.calories} kcal per {selectedFood.servingSize}g
                   </p>
 
                   <label className="text-caption block mb-2">Weight (grams)</label>

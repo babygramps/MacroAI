@@ -276,12 +276,73 @@ export function scaleNutrition(
  * Validate that a normalized food object has reasonable values
  */
 export function isValidFood(food: NormalizedFood): boolean {
-  return (
-    food.name.length > 0 &&
-    food.calories >= 0 &&
-    food.protein >= 0 &&
-    food.carbs >= 0 &&
-    food.fat >= 0 &&
-    food.servingSize > 0
-  );
+  if (
+    food.name.length === 0 ||
+    food.calories < 0 ||
+    food.protein < 0 ||
+    food.carbs < 0 ||
+    food.fat < 0 ||
+    food.servingSize <= 0
+  ) {
+    return false;
+  }
+
+  // Macro-calorie consistency check: expected cals from macros within 2x of reported
+  const expectedCal = (food.protein * 4) + (food.carbs * 4) + (food.fat * 9);
+  if (expectedCal > 10 && food.calories > 10) {
+    const ratio = food.calories / expectedCal;
+    if (ratio < 0.3 || ratio > 3.0) {
+      return false; // Wildly inconsistent
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Validate nutrition data and return human-readable warnings.
+ * Does NOT block — returns warnings for the UI to surface.
+ */
+export function validateNutrition(food: NormalizedFood): string[] {
+  const warnings: string[] = [];
+
+  // 1. Zero calories with non-zero macros
+  if (food.calories === 0 && (food.protein > 0 || food.carbs > 0 || food.fat > 0)) {
+    warnings.push('This item shows 0 calories but has macros — values may be inaccurate.');
+  }
+
+  // 2. Macro-calorie consistency
+  const expectedCal = (food.protein * 4) + (food.carbs * 4) + (food.fat * 9);
+  if (expectedCal > 10 && food.calories > 10) {
+    const ratio = food.calories / expectedCal;
+    if (ratio < 0.5) {
+      warnings.push('Calories seem low for the listed macros.');
+    } else if (ratio > 2.0) {
+      warnings.push('Calories seem high for the listed macros.');
+    }
+  }
+
+  // 3. Unusually high calorie density (>9 kcal/g is impossible outside pure fat)
+  if (food.servingSize > 0) {
+    const calDensity = food.calories / food.servingSize;
+    if (calDensity > 9) {
+      warnings.push('Calorie density seems unusually high — check the weight.');
+    }
+  }
+
+  // 4. Protein sanity (>60% of weight would be extreme even for pure protein powder)
+  if (food.servingSize > 0 && food.protein > food.servingSize * 0.6) {
+    warnings.push('Protein seems unusually high for this amount of food.');
+  }
+
+  return warnings;
+}
+
+/**
+ * Run validation on a food item and attach warnings to it.
+ * Returns the food with a `warnings` array populated.
+ */
+export function withValidation(food: NormalizedFood): NormalizedFood {
+  const warnings = validateNutrition(food);
+  return warnings.length > 0 ? { ...food, warnings } : food;
 }

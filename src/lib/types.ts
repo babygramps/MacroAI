@@ -166,6 +166,8 @@ export interface MetabolicInsights {
   weeklyCheckIn: WeeklyCheckIn | null;
   isInColdStart: boolean;
   coldStartTdee: number | null; // Mifflin-St Jeor estimate during cold start
+  /** +/- kcal uncertainty band for TDEE. Narrows as tracking improves. */
+  fluxConfidenceRange: number;
 }
 
 // Weight data point for charts (includes both raw and trend)

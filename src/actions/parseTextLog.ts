@@ -1,7 +1,7 @@
 'use server';
 
 import type { NormalizedFood, USDASearchResponse, ActionError } from '@/lib/types';
-import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
+import { normalizeUSDA, normalizeGemini, withValidation } from '@/lib/normalizer';
 import { generateCacheKey, createCacheEntry, isExpired } from '@/lib/cache';
 import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
 import type { Schema } from '@/amplify/data/resource';
@@ -342,7 +342,7 @@ export async function parseTextLog(text: string): Promise<TextParseResult> {
         }
 
         if (food) {
-          results.push(food);
+          results.push(withValidation(food));
         }
       })
     );

@@ -2,6 +2,7 @@
 
 import { memo, useMemo, useState } from 'react';
 import type { IngredientEntry } from '@/lib/types';
+import { SourceBadge } from './SourceBadge';
 
 interface IngredientCardProps {
   ingredient: IngredientEntry;
@@ -308,24 +309,40 @@ export function IngredientCard({
       <span className="text-base">{emoji}</span>
       
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-text-primary truncate">
-          {ingredient.name}
-        </p>
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-medium text-text-primary truncate">
+            {ingredient.name}
+          </p>
+          <SourceBadge source={ingredient.source} compact />
+        </div>
         <p className="text-xs text-text-muted">
           {ingredient.weightG}g • {ingredient.calories} kcal
         </p>
       </div>
       
       {isEditable && (
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1 transition-opacity ${
+          ingredient.source === 'GEMINI'
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100'
+        }`}>
           {onUpdate && (
             <button
               onClick={handleStartEdit}
-              className="p-1.5 rounded-full hover:bg-macro-calories/20 transition-colors"
+              className={`p-1.5 rounded-full transition-colors ${
+                ingredient.source === 'GEMINI'
+                  ? 'bg-amber-500/10 hover:bg-amber-500/20'
+                  : 'hover:bg-macro-calories/20'
+              }`}
               aria-label="Edit ingredient"
+              title={ingredient.source === 'GEMINI' ? 'AI estimate — tap to verify' : 'Edit ingredient'}
             >
               <svg
-                className="w-3.5 h-3.5 text-text-muted hover:text-macro-calories"
+                className={`w-3.5 h-3.5 ${
+                  ingredient.source === 'GEMINI'
+                    ? 'text-amber-400'
+                    : 'text-text-muted hover:text-macro-calories'
+                }`}
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -375,6 +392,7 @@ export const IngredientListItem = memo(function IngredientListItem({ ingredient 
     <div className="flex items-center gap-2 py-1.5 text-sm">
       <span className="text-sm">{emoji}</span>
       <span className="text-text-secondary truncate">{ingredient.name}</span>
+      <SourceBadge source={ingredient.source} compact />
       <span className="text-text-muted ml-auto whitespace-nowrap">
         {ingredient.weightG}g • {ingredient.calories} kcal
       </span>

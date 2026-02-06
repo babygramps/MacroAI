@@ -1,7 +1,7 @@
 'use server';
 
 import type { NormalizedFood, USDASearchResponse } from '@/lib/types';
-import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
+import { normalizeUSDA, normalizeGemini, withValidation } from '@/lib/normalizer';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { findBestMatch } from '@/lib/search/relevance';
 import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
@@ -372,7 +372,7 @@ Return ONLY a valid JSON array. Example:
         }
 
         if (food) {
-          results.push(food);
+          results.push(withValidation(food));
         }
       })
     );

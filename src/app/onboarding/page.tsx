@@ -52,7 +52,12 @@ interface HeightStep extends BaseStep {
   defaultValue: number; // stored in cm
 }
 
-type Step = NumberStep | SelectStep | DateStep | ToggleStep | HeightStep;
+interface InfoStep extends BaseStep {
+  type: 'info';
+  content: 'ai-explainer'; // ID of which info content to show
+}
+
+type Step = NumberStep | SelectStep | DateStep | ToggleStep | HeightStep | InfoStep;
 
 // Helper function to calculate age
 function calculateAge(birthDate: string): number {
@@ -194,6 +199,15 @@ export default function OnboardingPage() {
       defaultValue: false,
       description: 'I train intensely 7+ hours per week',
     } as ToggleStep,
+    // How MacroAI Works (educational)
+    {
+      emoji: '🧠',
+      title: 'How MacroAI Works',
+      subtitle: 'Understanding your nutrition data',
+      field: '_aiExplainer', // Not a real field - informational only
+      type: 'info',
+      content: 'ai-explainer',
+    } as InfoStep,
     // Macro Goals
     {
       emoji: '🔥',
@@ -667,6 +681,39 @@ export default function OnboardingPage() {
                 ? 'Your TDEE estimate will be increased by ~10%' 
                 : 'Standard metabolic rate calculation'}
             </p>
+          </div>
+        );
+      }
+
+      case 'info': {
+        return (
+          <div className="w-full max-w-sm animate-fade-in-up space-y-4" style={{ '--stagger-index': 2 } as React.CSSProperties}>
+            {/* USDA badge */}
+            <div className="flex items-start gap-3 bg-bg-elevated rounded-xl p-4">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-[#00E5A0]/15 text-[#00E5A0] whitespace-nowrap mt-0.5">
+                ✓ USDA Verified
+              </span>
+              <p className="text-sm text-text-secondary">
+                Most foods use the <strong className="text-text-primary">USDA database</strong> — government-verified nutrition data trusted by dietitians.
+              </p>
+            </div>
+
+            {/* AI badge */}
+            <div className="flex items-start gap-3 bg-bg-elevated rounded-xl p-4">
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-500/15 text-amber-400 whitespace-nowrap mt-0.5">
+                ✦ AI Estimate
+              </span>
+              <p className="text-sm text-text-secondary">
+                Branded or restaurant items use <strong className="text-text-primary">AI estimates</strong> when USDA data isn&apos;t available. These are a starting point.
+              </p>
+            </div>
+
+            {/* Edit callout */}
+            <div className="bg-bg-surface rounded-xl p-4 border border-border-subtle">
+              <p className="text-sm text-text-secondary text-center">
+                You can <strong className="text-macro-calories">always edit</strong> weights and nutrition for any food after logging.
+              </p>
+            </div>
           </div>
         );
       }

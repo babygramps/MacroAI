@@ -10,6 +10,7 @@ import { onMealLogged } from '@/lib/metabolicService';
 import { verifyMealById } from '@/lib/meal/mealVerification';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
+import { SourceBadge, SourceSummary } from './ui/SourceBadge';
 import { logRemote, getFileContext, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 import { getLocalDateString } from '@/lib/date';
 
@@ -422,6 +423,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
             <div>
               <p className="font-medium text-text-primary">{mealName}</p>
               <p className="text-caption">{selectedFoods.length} item{selectedFoods.length !== 1 ? 's' : ''}</p>
+              <SourceSummary sources={selectedFoods.map(f => f.source)} />
             </div>
           </div>
 
@@ -430,6 +432,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
             {selectedFoods.slice(0, 3).map((food, i) => (
               <p key={i} className="text-xs text-text-muted truncate">
                 • {food.name} (~{food.servingSize}g)
+                {food.source === 'GEMINI' && <span className="text-amber-400 ml-1">✦</span>}
               </p>
             ))}
             {selectedFoods.length > 3 && (
@@ -579,6 +582,18 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
         <h3 className="text-section-title mb-4">Detected Foods</h3>
 
+        {/* AI estimate friction banner */}
+        {results.some(f => f.source === 'GEMINI') && (
+          <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 text-sm mt-0.5">✦</span>
+              <p className="text-xs text-amber-300/90">
+                Some items used <strong>AI estimates</strong> because they weren&apos;t found in the USDA database. AI estimates may be less accurate — consider verifying weights and nutrition.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col gap-3 mb-6">
           {results.map((food, index) => (
             <button
@@ -603,12 +618,20 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-medium text-text-primary truncate">
-                    {food.name} (~{food.servingSize}g)
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-text-primary truncate">
+                      {food.name} (~{food.servingSize}g)
+                    </p>
+                    <SourceBadge source={food.source} compact />
+                  </div>
                   <p className="text-caption">
                     {food.calories} kcal • {food.protein}g P
                   </p>
+                  {food.warnings && food.warnings.length > 0 && (
+                    <p className="text-[10px] text-amber-400 mt-0.5">
+                      ⚠ {food.warnings[0]}
+                    </p>
+                  )}
                 </div>
               </div>
             </button>

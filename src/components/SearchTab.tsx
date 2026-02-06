@@ -14,6 +14,7 @@ import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 import { ErrorAlert } from './ui/ErrorAlert';
+import { SourceBadge } from './ui/SourceBadge';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
 import { getLocalDateString } from '@/lib/date';
 
@@ -35,6 +36,8 @@ const BarcodeScanner = dynamic(
   }
 );
 
+const INITIAL_RESULTS_SHOWN = 5;
+
 export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<NormalizedFood[]>([]);
@@ -45,6 +48,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const [inputMode, setInputMode] = useState<InputMode>('grams');
   const [view, setView] = useState<View>('search');
   const [isSaving, setIsSaving] = useState(false);
+  const [showAllResults, setShowAllResults] = useState(false);
 
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('snack');
@@ -112,6 +116,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
     setIsLoading(true);
     setErrorMessage(null);
+    setShowAllResults(false);
     const startTime = Date.now();
     logRemote.info('Search started', { query: query.trim() });
 
@@ -466,9 +471,12 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
             <span className="text-4xl">🍽️</span>
           </div>
           <h3 className="text-section-title">{selectedFood.name}</h3>
-          <p className="text-caption">
-            per {selectedFood.servingDescription || `${selectedFood.servingSize}g`} from {selectedFood.source}
-          </p>
+          <div className="flex items-center justify-center gap-2">
+            <p className="text-caption">
+              per {selectedFood.servingDescription || `${selectedFood.servingSize}g`}
+            </p>
+            <SourceBadge source={selectedFood.source} compact />
+          </div>
         </div>
 
         {/* Input mode toggle */}
@@ -647,18 +655,42 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
       {/* Results */}
       {!isLoading && results.length > 0 && (
         <div className="flex flex-col gap-2">
-          {results.map((food, index) => (
+          {(showAllResults ? results : results.slice(0, INITIAL_RESULTS_SHOWN)).map((food, index) => (
             <button
               key={`${food.source}-${food.originalId || food.name}-${index}`}
               onClick={() => handleSelectFood(food)}
               className="card-interactive text-left"
             >
-              <p className="font-medium text-text-primary truncate">{food.name}</p>
+              <div className="flex items-center gap-2">
+                <p className="font-medium text-text-primary truncate">{food.name}</p>
+                {index === 0 && results.length > 1 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-macro-protein/15 text-macro-protein whitespace-nowrap">
+                    Best Match
+                  </span>
+                )}
+                <SourceBadge source={food.source} compact />
+              </div>
               <p className="text-caption">
-                {food.calories} kcal per {food.servingSize}g • {food.source}
+                {food.calories} kcal per {food.servingSize}g
               </p>
             </button>
           ))}
+          {results.length > INITIAL_RESULTS_SHOWN && !showAllResults && (
+            <button
+              onClick={() => setShowAllResults(true)}
+              className="text-sm text-text-secondary hover:text-macro-calories transition-colors py-2 text-center"
+            >
+              Show {results.length - INITIAL_RESULTS_SHOWN} more results
+            </button>
+          )}
+          {showAllResults && results.length > INITIAL_RESULTS_SHOWN && (
+            <button
+              onClick={() => setShowAllResults(false)}
+              className="text-sm text-text-secondary hover:text-macro-calories transition-colors py-2 text-center"
+            >
+              Show less
+            </button>
+          )}
         </div>
       )}
 

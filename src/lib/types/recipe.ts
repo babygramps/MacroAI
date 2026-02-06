@@ -56,6 +56,8 @@ export interface ParsedRecipeIngredient {
   carbs: number;
   fat: number;
   source: 'USDA' | 'GEMINI';
+  /** Nutrition validation warnings */
+  warnings?: string[];
 }
 
 /**

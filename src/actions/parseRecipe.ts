@@ -1,7 +1,7 @@
 'use server';
 
 import type { NormalizedFood, USDASearchResponse, ParsedRecipe, ParsedRecipeIngredient, ActionError } from '@/lib/types';
-import { normalizeUSDA, normalizeGemini } from '@/lib/normalizer';
+import { normalizeUSDA, normalizeGemini, withValidation } from '@/lib/normalizer';
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { findBestMatch } from '@/lib/search/relevance';
 import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
@@ -279,14 +279,16 @@ export async function parseRecipe(recipeText: string): Promise<RecipeParseResult
         }
 
         if (food) {
+          const validated = withValidation(food);
           ingredientResults.push({
-            name: food.name,
-            weightG: food.servingSize,
-            calories: food.calories,
-            protein: food.protein,
-            carbs: food.carbs,
-            fat: food.fat,
-            source: food.source === 'GEMINI' ? 'GEMINI' : 'USDA',
+            name: validated.name,
+            weightG: validated.servingSize,
+            calories: validated.calories,
+            protein: validated.protein,
+            carbs: validated.carbs,
+            fat: validated.fat,
+            source: validated.source === 'GEMINI' ? 'GEMINI' : 'USDA',
+            warnings: validated.warnings,
           });
         }
       })
