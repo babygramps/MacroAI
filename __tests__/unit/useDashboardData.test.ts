@@ -24,8 +24,6 @@ jest.mock('@/lib/metabolicService', () => ({
   backfillMetabolicData: jest.fn(),
 }));
 
-jest.mock('@/lib/migration', () => ({}));
-
 jest.mock('@/lib/clientLogger', () => ({
   logRemote: {
     info: jest.fn(),
@@ -46,7 +44,7 @@ const emptySummary = {
   totalCarbs: 0,
   totalFat: 0,
   meals: [],
-  entries: [],
+  mealCount: 0,
 };
 
 const baseData = {

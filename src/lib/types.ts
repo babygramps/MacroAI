@@ -1,4 +1,3 @@
-import type { FoodLogEntry } from '@/lib/types/food';
 import type { MealEntry } from '@/lib/types/meal';
 
 export * from '@/lib/types/food';
@@ -72,15 +71,14 @@ export interface WeightStats {
 
 
 
-// Daily summary (updated to support both legacy and new meal structure)
+// Daily summary
 export interface DailySummary {
   totalCalories: number;
   totalProtein: number;
   totalCarbs: number;
   totalFat: number;
   meals: MealEntry[];
-  // Legacy support - will be empty for new data
-  entries: FoodLogEntry[];
+  mealCount: number; // Number of meals logged (for "has data" checks)
 }
 
 // Day data for history views

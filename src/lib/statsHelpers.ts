@@ -2,7 +2,6 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type {
   DayData,
   DailySummary,
-  FoodLogEntry,
   WeeklyStats,
   UserGoals,
   WeightLogEntry,
@@ -98,10 +97,11 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
     days,
   });
 
-  // Initialize logsByDate map
-  const logsByDate = new Map<string, FoodLogEntry[]>();
+  // Track per-day meal nutrition for aggregation
+  interface MealSummary { calories: number; protein: number; carbs: number; fat: number; }
+  const mealsByDate = new Map<string, MealSummary[]>();
   for (const key of dayKeys) {
-    logsByDate.set(key, []);
+    mealsByDate.set(key, []);
   }
 
   try {
@@ -118,47 +118,42 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       })
     );
 
-    let mealCount = 0;
+    let totalMealCount = 0;
     for (const { localDate, meals } of mealsByDayResults) {
-      const dayLogs = logsByDate.get(localDate);
-      if (!dayLogs) continue;
+      const dayMeals = mealsByDate.get(localDate);
+      if (!dayMeals) continue;
       for (const meal of meals) {
-        dayLogs.push({
-          id: meal.id,
-          name: meal.name ?? '',
-          weightG: meal.totalWeightG ?? 0,
+        dayMeals.push({
           calories: meal.totalCalories ?? 0,
           protein: meal.totalProtein ?? 0,
           carbs: meal.totalCarbs ?? 0,
           fat: meal.totalFat ?? 0,
-          source: 'MEAL',
-          eatenAt: meal.eatenAt,
         });
-        mealCount++;
+        totalMealCount++;
       }
     }
 
-    console.log('[statsHelpers] Fetched', mealCount, 'meals for', days, 'days');
+    console.log('[statsHelpers] Fetched', totalMealCount, 'meals for', days, 'days');
 
     // Convert to DayData array
     const result: DayData[] = [];
     for (const dateKey of dayKeys) {
-      const entries = logsByDate.get(dateKey) ?? [];
+      const dayMeals = mealsByDate.get(dateKey) ?? [];
 
-      const totals = entries.reduce(
-        (acc, entry) => ({
-          totalCalories: acc.totalCalories + entry.calories,
-          totalProtein: acc.totalProtein + entry.protein,
-          totalCarbs: acc.totalCarbs + entry.carbs,
-          totalFat: acc.totalFat + entry.fat,
+      const totals = dayMeals.reduce(
+        (acc, m) => ({
+          totalCalories: acc.totalCalories + m.calories,
+          totalProtein: acc.totalProtein + m.protein,
+          totalCarbs: acc.totalCarbs + m.carbs,
+          totalFat: acc.totalFat + m.fat,
         }),
         { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
       );
 
       const summary: DailySummary = {
         ...totals,
-        entries,
         meals: [],
+        mealCount: dayMeals.length,
       };
 
       result.push({
@@ -245,7 +240,7 @@ export async function calculateStreakEfficient(): Promise<number> {
   let skipToday = true; // Allow today to have no entries
 
   for (const dayData of daysReversed) {
-    const hasEntries = dayData.summary.entries.length > 0;
+    const hasEntries = dayData.summary.mealCount > 0;
 
     if (skipToday) {
       skipToday = false;
@@ -272,8 +267,8 @@ export async function calculateStreakEfficient(): Promise<number> {
  * Only counts days that have at least one entry
  */
 export function calculateAverages(weekData: DayData[]): WeeklyStats['averages'] {
-  // Filter to only days with entries
-  const daysWithData = weekData.filter(d => d.summary.entries.length > 0);
+  // Filter to only days with meals
+  const daysWithData = weekData.filter(d => d.summary.mealCount > 0);
 
   if (daysWithData.length === 0) {
     return {
@@ -575,7 +570,7 @@ export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
 
     // Build DailyLog entries
     const dailyLogs: DailyLog[] = weekData.map(dayData => {
-      const hasEntries = dayData.summary.entries.length > 0;
+      const hasEntries = dayData.summary.mealCount > 0;
       const scaleWeight = weightByDate.get(dayData.date) ?? null;
 
       // Determine log status

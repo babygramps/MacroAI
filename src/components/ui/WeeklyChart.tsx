@@ -97,7 +97,7 @@ export function WeeklyChart({ data, calorieGoal, dayStatuses }: WeeklyChartProps
           const height = animatedHeights[index];
           const y = padding.top + graphHeight - height;
           const isOverGoal = day.summary.totalCalories > calorieGoal;
-          const hasData = day.summary.entries.length > 0;
+          const hasData = day.summary.mealCount > 0;
           const isTodayBar = isToday(day.date);
           const dayStatus = dayStatuses?.get(day.date);
           const isSkipped = dayStatus === 'skipped';
@@ -236,7 +236,7 @@ export function WeeklyChart({ data, calorieGoal, dayStatuses }: WeeklyChartProps
           const x = startX + index * (barWidth + barGap);
           const height = animatedHeights[index];
           const y = padding.top + graphHeight - height;
-          const hasData = day.summary.entries.length > 0;
+          const hasData = day.summary.mealCount > 0;
 
           if (!hasData || height <= 20) return null;
 

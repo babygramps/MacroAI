@@ -44,25 +44,6 @@ const schema = a.schema({
     .authorization((allow) => [allow.owner()])
     .secondaryIndexes((index) => [index('recordedAt')]),
 
-  // DEPRECATED: FoodLog table preserved to avoid DynamoDB table deletion.
-  // All data has been migrated to Meal + MealIngredient.
-  // Only the migration script (src/lib/migration.ts) accesses this table.
-  // Safe to remove after confirming migration is complete and table is empty.
-  FoodLog: a
-    .model({
-      name: a.string(),
-      weightG: a.integer(),
-      calories: a.integer(),
-      protein: a.float(),
-      carbs: a.float(),
-      fat: a.float(),
-      source: a.string(),
-      eatenAt: a.datetime(),
-      servingDescription: a.string(),
-      servingSizeGrams: a.integer(),
-    })
-    .authorization((allow) => [allow.owner()]),
-
   // Meal - Parent container for logged food items
   // Can be a full meal with multiple ingredients or a single snack/drink
   Meal: a

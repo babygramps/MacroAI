@@ -11,7 +11,7 @@ describe('DashboardRings', () => {
       totalCarbs: 140,
       totalFat: 50,
       meals: [],
-      entries: [],
+      mealCount: 0,
     };
 
     const goals: UserGoals = {

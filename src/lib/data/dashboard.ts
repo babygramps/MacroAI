@@ -29,7 +29,7 @@ export function calculateDailyTotals(meals: MealEntry[]): DailySummary {
     { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
   );
 
-  return { ...totals, meals, entries: [] };
+  return { ...totals, meals, mealCount: meals.length };
 }
 
 function mapMealIngredient(ing: Schema['MealIngredient']['type']): IngredientEntry {
@@ -136,7 +136,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
         totalCarbs: 0,
         totalFat: 0,
         meals: [],
-        entries: [],
+        mealCount: 0,
       },
       latestWeight: null,
       needsOnboarding: false,

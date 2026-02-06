@@ -36,20 +36,6 @@ export interface GeminiParsedFood {
   fat_g: number;
 }
 
-export interface FoodLogEntry {
-  id: string;
-  name: string;
-  weightG: number;
-  calories: number;
-  protein: number;
-  carbs: number;
-  fat: number;
-  source: string;
-  eatenAt: string;
-  servingDescription?: string | null;
-  servingSizeGrams?: number | null;
-}
-
 // Import IngredientEntry type for RecentFood
 import type { IngredientEntry, MealCategory } from './meal';
 
