@@ -1,7 +1,9 @@
 import type { Schema } from '@/amplify/data/resource';
 import type { DailySummary, IngredientEntry, MealCategory, MealEntry, UserGoals, WeightLogEntry, RecipeEntry, ScaledRecipePortion } from '@/lib/types';
+import type { GoalType } from '@/lib/types';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { onMealLogged } from '@/lib/metabolicService';
+import { calculateCalorieTarget } from '@/lib/coachingEngine';
 import { getLocalDateString } from '@/lib/date';
 
 export const DEFAULT_GOALS: UserGoals = {
@@ -145,7 +147,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const selectedDateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).toISOString();
   const selectedDateEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59).toISOString();
 
-  const [profilesResult, weightResult] = await Promise.all([
+  const [profilesResult, weightResult, latestComputedStates] = await Promise.all([
     client.models.UserProfile.list(),
     client.models.WeightLog.list({
       filter: {
@@ -154,6 +156,17 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
         },
       },
     }),
+    // Fetch recent ComputedState for current TDEE (last 7 days is enough)
+    (() => {
+      const now = new Date();
+      const weekAgo = new Date(now);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const weekAgoKey = `${weekAgo.getFullYear()}-${String(weekAgo.getMonth() + 1).padStart(2, '0')}-${String(weekAgo.getDate()).padStart(2, '0')}`;
+      return client.models.ComputedState.list({
+        filter: { date: { between: [weekAgoKey, nowKey] } },
+      });
+    })(),
   ]);
 
   const selectedDateWeight = weightResult.data && weightResult.data.length > 0
@@ -175,8 +188,23 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
       (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
     const weightUnit = unitSystem === 'imperial' ? 'lbs' : 'kg';
 
+    // Start with the static goals from profile (onboarding defaults)
+    const staticCalorieGoal = profile.calorieGoal ?? DEFAULT_GOALS.calorieGoal;
+    const goalType = (profile.goalType as GoalType) ?? 'maintain';
+    const goalRate = profile.goalRate ?? 0.5;
+
+    // Use TDEE-based dynamic calorie target when available
+    let dynamicCalorieGoal = staticCalorieGoal;
+    const computedStates = latestComputedStates.data ?? [];
+    if (computedStates.length > 0) {
+      // Sort by date descending to get the most recent TDEE
+      const sorted = [...computedStates].sort((a, b) => b.date.localeCompare(a.date));
+      const latestTdee = sorted[0].estimatedTdeeKcal;
+      dynamicCalorieGoal = calculateCalorieTarget(latestTdee, goalType, goalRate);
+    }
+
     goals = {
-      calorieGoal: profile.calorieGoal ?? DEFAULT_GOALS.calorieGoal,
+      calorieGoal: dynamicCalorieGoal,
       proteinGoal: profile.proteinGoal ?? DEFAULT_GOALS.proteinGoal,
       carbsGoal: profile.carbsGoal ?? DEFAULT_GOALS.carbsGoal,
       fatGoal: profile.fatGoal ?? DEFAULT_GOALS.fatGoal,
