@@ -44,7 +44,10 @@ const schema = a.schema({
     .authorization((allow) => [allow.owner()])
     .secondaryIndexes((index) => [index('recordedAt')]),
 
-  // Legacy FoodLog - kept for backward compatibility during migration
+  // DEPRECATED: FoodLog table preserved to avoid DynamoDB table deletion.
+  // All data has been migrated to Meal + MealIngredient.
+  // Only the migration script (src/lib/migration.ts) accesses this table.
+  // Safe to remove after confirming migration is complete and table is empty.
   FoodLog: a
     .model({
       name: a.string(),
@@ -53,11 +56,10 @@ const schema = a.schema({
       protein: a.float(),
       carbs: a.float(),
       fat: a.float(),
-      source: a.string(), // "USDA", "OFF", "API_NINJAS", "GEMINI"
+      source: a.string(),
       eatenAt: a.datetime(),
-      // Serving info for editing (optional for backwards compatibility)
-      servingDescription: a.string(), // e.g., "1 cup", "1 slice", "1 medium"
-      servingSizeGrams: a.integer(), // grams per serving
+      servingDescription: a.string(),
+      servingSizeGrams: a.integer(),
     })
     .authorization((allow) => [allow.owner()]),
 

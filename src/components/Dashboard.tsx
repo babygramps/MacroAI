@@ -101,12 +101,6 @@ export function Dashboard() {
   }, []);
 
   const handleEditMeal = useCallback((meal: MealEntry) => {
-    // Legacy FoodLog entries can't be edited in the new modal
-    // They need to be deleted and re-logged with the new system
-    if (meal.id.startsWith('legacy-')) {
-      showToast('Legacy entries cannot be edited. Delete and re-log to use new features.', 'error');
-      return;
-    }
     setEditingMeal(meal);
     setIsEditModalOpen(true);
   }, []);

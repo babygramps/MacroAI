@@ -18,36 +18,6 @@ interface DashboardData {
   needsOnboarding: boolean;
 }
 
-function mapLegacyFoodLogsToMeals(legacyLogs: Schema['FoodLog']['type'][]): MealEntry[] {
-  return legacyLogs.map((log) => ({
-    id: `legacy-${log.id}`,
-    name: log.name ?? 'Unknown Food',
-    category: 'snack' as MealCategory,
-    eatenAt: log.eatenAt ?? new Date().toISOString(),
-    totalCalories: log.calories ?? 0,
-    totalProtein: log.protein ?? 0,
-    totalCarbs: log.carbs ?? 0,
-    totalFat: log.fat ?? 0,
-    totalWeightG: log.weightG ?? 0,
-    ingredients: [
-      {
-        id: log.id,
-        mealId: `legacy-${log.id}`,
-        name: log.name ?? 'Unknown Food',
-        weightG: log.weightG ?? 0,
-        calories: log.calories ?? 0,
-        protein: log.protein ?? 0,
-        carbs: log.carbs ?? 0,
-        fat: log.fat ?? 0,
-        source: log.source ?? 'USDA',
-        servingDescription: log.servingDescription ?? null,
-        servingSizeGrams: log.servingSizeGrams ?? null,
-        sortOrder: 0,
-      },
-    ],
-  }));
-}
-
 export function calculateDailyTotals(meals: MealEntry[]): DailySummary {
   const totals = meals.reduce(
     (acc, meal) => ({
@@ -222,85 +192,14 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   const endOfDay = new Date(startOfDay);
   endOfDay.setDate(endOfDay.getDate() + 1);
 
-  // Use localDate (YYYY-MM-DD) for unambiguous day queries
-  // This solves cross-device timezone issues - meals always appear on the day they were logged
+  // Use localDate (YYYY-MM-DD) for unambiguous day queries via GSI
   const targetLocalDate = getLocalDateString(date);
 
-  // For legacy meals without localDate, we still need the widened time-based query
-  const QUERY_PADDING_MS = 14 * 60 * 60 * 1000; // 14 hours
-  const queryStart = new Date(startOfDay.getTime() - QUERY_PADDING_MS);
-  const queryEnd = new Date(endOfDay.getTime() + QUERY_PADDING_MS);
-  const startISO = queryStart.toISOString();
-  const endISO = queryEnd.toISOString();
-
-  // Query meals by localDate (new meals) AND by eatenAt range (for legacy meals without localDate)
-  const [mealsWithLocalDateResult, mealsWithoutLocalDateResult, legacyLogsResult] = await Promise.all([
-    // Primary query: meals with localDate set (new meals)
-    client.models.Meal.listMealByLocalDate({
-      localDate: targetLocalDate,
-    }),
-    // Fallback query: meals without localDate (legacy) using widened time range
-    client.models.Meal.list({
-      filter: {
-        and: [
-          { localDate: { attributeExists: false } },
-          { eatenAt: { between: [startISO, endISO] } },
-        ],
-      },
-    }),
-    // Legacy FoodLog entries
-    client.models.FoodLog.list({
-      filter: {
-        eatenAt: {
-          between: [startISO, endISO],
-        },
-      },
-    }),
-  ]);
-
-  const mealsWithLocalDate = mealsWithLocalDateResult.data || [];
-  const mealsWithoutLocalDate = mealsWithoutLocalDateResult.data || [];
-
-  // Debug: log query results
-  if (typeof window !== 'undefined') {
-    const { logRemote } = await import('@/lib/clientLogger');
-    logRemote.info('MEAL_QUERY_DEBUG', {
-      targetLocalDate,
-      queryStart: startISO,
-      queryEnd: endISO,
-      localOffsetMinutes: new Date().getTimezoneOffset(),
-      mealsWithLocalDateCount: mealsWithLocalDate.length,
-      mealsWithoutLocalDateCount: mealsWithoutLocalDate.length,
-      mealsWithLocalDateIds: mealsWithLocalDate.map(m => m.id),
-    });
-  }
-  const legacyLogs = legacyLogsResult.data || [];
-
-  // Filter legacy meals (without localDate) to the selected local day
-  const inDayLegacyMeals = mealsWithoutLocalDate.filter((meal) => {
-    const eatenAtMs = new Date(meal.eatenAt).getTime();
-    return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
-  });
-  const inDayLegacyLogs = legacyLogs.filter((log) => {
-    const eatenAtMs = new Date(log.eatenAt ?? '').getTime();
-    return eatenAtMs >= startOfDay.getTime() && eatenAtMs < endOfDay.getTime();
+  const { data: mealsData } = await client.models.Meal.listMealByLocalDate({
+    localDate: targetLocalDate,
   });
 
-  // Combine meals with localDate and filtered legacy meals
-  const inDayMeals = [...mealsWithLocalDate, ...inDayLegacyMeals];
-
-  if (typeof window !== 'undefined') {
-    const { logRemote } = await import('@/lib/clientLogger');
-    logRemote.info('MEAL_QUERY_FILTERED', {
-      targetLocalDate,
-      dayStart: startOfDay.toISOString(),
-      dayEnd: endOfDay.toISOString(),
-      inDayMealsCount: inDayMeals.length,
-      inDayLegacyCount: inDayLegacyLogs.length,
-      mealsWithLocalDateCount: mealsWithLocalDate.length,
-      inDayLegacyMealsCount: inDayLegacyMeals.length,
-    });
-  }
+  const inDayMeals = mealsData || [];
 
   const ingredientsByMeal = await fetchIngredientsByMealForDay(
     client,
@@ -309,7 +208,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     endOfDay.toISOString()
   );
 
-  const mealsWithIngredients = inDayMeals.map((meal) => ({
+  const allMeals: MealEntry[] = inDayMeals.map((meal) => ({
     id: meal.id,
     name: meal.name,
     category: meal.category as MealCategory,
@@ -321,9 +220,6 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     totalWeightG: meal.totalWeightG,
     ingredients: ingredientsByMeal.get(meal.id) ?? [],
   }));
-  const legacyMeals = mapLegacyFoodLogsToMeals(inDayLegacyLogs);
-
-  const allMeals = [...mealsWithIngredients, ...legacyMeals];
   allMeals.sort((a, b) => new Date(b.eatenAt).getTime() - new Date(a.eatenAt).getTime());
 
   return {
@@ -406,22 +302,6 @@ export async function deleteMealEntry(mealId: string): Promise<void> {
   const client = getAmplifyDataClient();
   if (!client) return;
 
-  // For legacy food logs, we need to get the date first for metabolic recalculation
-  if (mealId.startsWith('legacy-')) {
-    const realId = mealId.replace('legacy-', '');
-    // Get the food log first to know its date
-    const { data: foodLog } = await client.models.FoodLog.get({ id: realId });
-    const eatenAt = foodLog?.eatenAt;
-
-    await client.models.FoodLog.delete({ id: realId });
-
-    // Trigger metabolic recalculation
-    if (eatenAt) {
-      await onMealLogged(eatenAt);
-    }
-    return;
-  }
-
   // Get the meal first to know its date for metabolic recalculation
   const { data: meal } = await client.models.Meal.get({ id: mealId });
   const eatenAt = meal?.eatenAt;
@@ -452,32 +332,6 @@ export async function duplicateMealEntry(mealId: string): Promise<void> {
   const now = new Date();
   const nowISO = now.toISOString();
   const localDate = getLocalDateString(now);
-
-  // Handle legacy food logs
-  if (mealId.startsWith('legacy-')) {
-    const realId = mealId.replace('legacy-', '');
-    const { data: foodLog } = await client.models.FoodLog.get({ id: realId });
-
-    if (!foodLog) {
-      throw new Error('Food log not found');
-    }
-
-    await client.models.FoodLog.create({
-      name: foodLog.name,
-      weightG: foodLog.weightG,
-      calories: foodLog.calories,
-      protein: foodLog.protein,
-      carbs: foodLog.carbs,
-      fat: foodLog.fat,
-      source: foodLog.source,
-      eatenAt: nowISO,
-      servingDescription: foodLog.servingDescription ?? undefined,
-      servingSizeGrams: foodLog.servingSizeGrams ?? undefined,
-    });
-
-    await onMealLogged(nowISO);
-    return;
-  }
 
   // Get the meal and its ingredients
   const { data: meal } = await client.models.Meal.get({ id: mealId });

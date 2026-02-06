@@ -9,7 +9,6 @@ import { formatDateKey } from '@/lib/statsHelpers';
 
 // Mock the Amplify data client
 const mockMealList = jest.fn();
-const mockFoodLogList = jest.fn();
 const mockWeightLogList = jest.fn();
 const mockDailyLogList = jest.fn();
 const mockDailyLogCreate = jest.fn();
@@ -23,7 +22,6 @@ jest.mock('@/lib/data/amplifyClient', () => ({
   getAmplifyDataClient: () => ({
     models: {
       Meal: { list: mockMealList },
-      FoodLog: { list: mockFoodLogList },
       WeightLog: { list: mockWeightLogList },
       DailyLog: { list: mockDailyLogList, create: mockDailyLogCreate, update: mockDailyLogUpdate },
       ComputedState: { list: mockComputedStateList, create: mockComputedStateCreate, update: mockComputedStateUpdate },
@@ -58,7 +56,6 @@ describe('metabolicService', () => {
     beforeEach(() => {
       // Default mock responses
       mockMealList.mockResolvedValue({ data: [] });
-      mockFoodLogList.mockResolvedValue({ data: [] });
       mockWeightLogList.mockResolvedValue({ data: [] });
       mockDailyLogList.mockResolvedValue({ data: [] });
     });
@@ -107,16 +104,12 @@ describe('metabolicService', () => {
       expect(mockDailyLogCreate).not.toHaveBeenCalled();
     });
 
-    it('aggregates multiple meals and food logs', async () => {
+    it('aggregates multiple meals', async () => {
       mockMealList.mockResolvedValue({
         data: [
           { id: 'meal-1', totalCalories: 500, totalProtein: 30, totalCarbs: 50, totalFat: 20 },
           { id: 'meal-2', totalCalories: 300, totalProtein: 20, totalCarbs: 30, totalFat: 10 },
-        ],
-      });
-      mockFoodLogList.mockResolvedValue({
-        data: [
-          { id: 'food-1', calories: 200, protein: 10, carbs: 20, fat: 8 },
+          { id: 'meal-3', totalCalories: 200, totalProtein: 10, totalCarbs: 20, totalFat: 8 },
         ],
       });
 
@@ -143,7 +136,6 @@ describe('metabolicService', () => {
 
     it('sets logStatus to skipped when no nutrition data', async () => {
       mockMealList.mockResolvedValue({ data: [] });
-      mockFoodLogList.mockResolvedValue({ data: [] });
 
       const result = await aggregateDailyNutrition(testDate);
 
@@ -237,7 +229,6 @@ describe('metabolicService', () => {
 
     beforeEach(() => {
       mockMealList.mockResolvedValue({ data: [] });
-      mockFoodLogList.mockResolvedValue({ data: [] });
       mockWeightLogList.mockResolvedValue({ data: [] });
       mockDailyLogList.mockResolvedValue({ data: [] });
       mockComputedStateList.mockResolvedValue({ data: [] });

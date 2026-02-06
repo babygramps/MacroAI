@@ -70,13 +70,10 @@ async function listAllPages<T>(
 }
 
 /**
- * Fetch food logs for a date range and group by day.
+ * Fetch meal data for a date range and group by day.
  *
- * Uses the same data-fetching strategy as the dashboard (dashboard.ts):
- * 1. New Meals: Query by localDate GSI (fast, accurate, per-day)
- * 2. Legacy Meals (no localDate): Scan with widened time range + pagination
- * 3. Legacy FoodLog entries: Scan with widened time range + pagination
- * 4. Client-side filter legacy entries to correct local day
+ * All meals have localDate set (backfilled via migration).
+ * Uses the localDate GSI for fast, accurate per-day queries.
  */
 export async function fetchWeekData(endDate: Date, days: number = 7): Promise<DayData[]> {
   const client = getAmplifyDataClient();
@@ -86,9 +83,6 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
 
   const startDay = getStartOfDay(endDate);
   startDay.setDate(startDay.getDate() - (days - 1)); // Go back (days - 1) to include endDate
-
-  const endDayExclusive = getStartOfDay(endDate);
-  endDayExclusive.setDate(endDayExclusive.getDate() + 1); // End is exclusive
 
   // Generate local date keys for each day in the range
   const dayKeys: string[] = [];
@@ -102,7 +96,6 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
     startDate: dayKeys[0],
     endDate: dayKeys[dayKeys.length - 1],
     days,
-    dayKeys,
   });
 
   // Initialize logsByDate map
@@ -110,18 +103,9 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
   for (const key of dayKeys) {
     logsByDate.set(key, []);
   }
-  const dayKeySet = new Set(dayKeys);
-
-  // Track seen meal IDs to prevent double-counting.
-  // The `attributeExists: false` filter on localDate can be unreliable in DynamoDB
-  // (e.g., if the field is stored as null rather than omitted), so we deduplicate
-  // by ID after fetching from both queries.
-  const seenMealIds = new Set<string>();
 
   try {
-    // ── 1. Fetch new Meals by localDate GSI (fast & accurate) ──
-    // Each day gets its own GSI query — guaranteed to return all matching records.
-    // localDate is the authoritative day assignment, so these take priority.
+    // Fetch Meals by localDate GSI (fast & accurate, one query per day)
     const mealsByDayResults = await Promise.all(
       dayKeys.map(async (localDate) => {
         const meals = await listAllPages((nextToken) =>
@@ -134,12 +118,11 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       })
     );
 
-    let newMealCount = 0;
+    let mealCount = 0;
     for (const { localDate, meals } of mealsByDayResults) {
       const dayLogs = logsByDate.get(localDate);
       if (!dayLogs) continue;
       for (const meal of meals) {
-        seenMealIds.add(meal.id);
         dayLogs.push({
           id: meal.id,
           name: meal.name ?? '',
@@ -151,103 +134,13 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
           source: 'MEAL',
           eatenAt: meal.eatenAt,
         });
-        newMealCount++;
+        mealCount++;
       }
     }
 
-    // ── 2. Fetch legacy Meals (no localDate) with widened time range ──
-    // Pad by 14 hours on each side to handle timezone edge cases (same as dashboard).
-    // Note: The `attributeExists: false` filter may not reliably exclude meals that
-    // have localDate set (DynamoDB null vs missing attribute). We rely on the
-    // seenMealIds set above to deduplicate.
-    const QUERY_PADDING_MS = 14 * 60 * 60 * 1000;
-    const queryStart = new Date(startDay.getTime() - QUERY_PADDING_MS);
-    const queryEnd = new Date(endDayExclusive.getTime() + QUERY_PADDING_MS);
+    console.log('[statsHelpers] Fetched', mealCount, 'meals for', days, 'days');
 
-    const legacyMeals = await listAllPages((nextToken) =>
-      client.models.Meal.list({
-        filter: {
-          eatenAt: {
-            between: [queryStart.toISOString(), queryEnd.toISOString()],
-          },
-        },
-        nextToken: nextToken ?? undefined,
-      })
-    );
-
-    let legacyMealCount = 0;
-    let duplicateCount = 0;
-    for (const meal of legacyMeals) {
-      if (!meal.eatenAt) continue;
-      // Skip meals already fetched via localDate GSI (deduplication)
-      if (seenMealIds.has(meal.id)) {
-        duplicateCount++;
-        continue;
-      }
-      seenMealIds.add(meal.id);
-      // Use localDate if available (authoritative day), otherwise derive from eatenAt
-      const dateKey = meal.localDate
-        ? meal.localDate
-        : formatDateKey(new Date(meal.eatenAt));
-      if (!dayKeySet.has(dateKey)) continue;
-      const dayLogs = logsByDate.get(dateKey);
-      if (!dayLogs) continue;
-      dayLogs.push({
-        id: meal.id,
-        name: meal.name ?? '',
-        weightG: meal.totalWeightG ?? 0,
-        calories: meal.totalCalories ?? 0,
-        protein: meal.totalProtein ?? 0,
-        carbs: meal.totalCarbs ?? 0,
-        fat: meal.totalFat ?? 0,
-        source: 'MEAL',
-        eatenAt: meal.eatenAt,
-      });
-      legacyMealCount++;
-    }
-
-    // ── 3. Fetch legacy FoodLog entries with widened time range ──
-    const legacyFoodLogs = await listAllPages((nextToken) =>
-      client.models.FoodLog.list({
-        filter: {
-          eatenAt: {
-            between: [queryStart.toISOString(), queryEnd.toISOString()],
-          },
-        },
-        nextToken: nextToken ?? undefined,
-      })
-    );
-
-    let legacyLogCount = 0;
-    for (const log of legacyFoodLogs) {
-      if (!log.eatenAt) continue;
-      // Client-side filter to correct local day
-      const dateKey = formatDateKey(new Date(log.eatenAt));
-      if (!dayKeySet.has(dateKey)) continue;
-      const dayLogs = logsByDate.get(dateKey);
-      if (!dayLogs) continue;
-      dayLogs.push({
-        id: log.id,
-        name: log.name ?? '',
-        weightG: log.weightG ?? 0,
-        calories: log.calories ?? 0,
-        protein: log.protein ?? 0,
-        carbs: log.carbs ?? 0,
-        fat: log.fat ?? 0,
-        source: log.source ?? '',
-        eatenAt: log.eatenAt,
-      });
-      legacyLogCount++;
-    }
-
-    console.log('[statsHelpers] Fetched counts:', {
-      newMeals: newMealCount,
-      legacyMeals: legacyMealCount,
-      legacyFoodLogs: legacyLogCount,
-      duplicatesSkipped: duplicateCount,
-    });
-
-    // ── 4. Convert to DayData array ──
+    // Convert to DayData array
     const result: DayData[] = [];
     for (const dateKey of dayKeys) {
       const entries = logsByDate.get(dateKey) ?? [];
@@ -265,7 +158,7 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
       const summary: DailySummary = {
         ...totals,
         entries,
-        meals: [], // Stats view uses entries, not meals
+        meals: [],
       };
 
       result.push({
@@ -273,12 +166,6 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
         summary,
       });
     }
-
-    console.log('[statsHelpers] Week data result:', result.map(d => ({
-      date: d.date,
-      entries: d.summary.entries.length,
-      calories: d.summary.totalCalories,
-    })));
 
     return result;
   } catch (error) {
@@ -289,7 +176,8 @@ export async function fetchWeekData(endDate: Date, days: number = 7): Promise<Da
 
 /**
  * Calculate consecutive day streak (counting back from today)
- * A day counts as "logged" if it has at least one food entry
+ * A day counts as "logged" if it has at least one meal entry.
+ * Uses the localDate GSI for efficient per-day checks.
  */
 export async function calculateStreak(): Promise<number> {
   const client = getAmplifyDataClient();
@@ -309,20 +197,14 @@ export async function calculateStreak(): Promise<number> {
 
   try {
     for (let i = 0; i < maxDays; i++) {
-      const startOfDay = getStartOfDay(currentDate);
-      const endOfDay = new Date(startOfDay);
-      endOfDay.setDate(endOfDay.getDate() + 1);
+      const dateKey = formatDateKey(currentDate);
 
-      const { data: logs } = await client.models.FoodLog.list({
-        filter: {
-          eatenAt: {
-            between: [startOfDay.toISOString(), endOfDay.toISOString()],
-          },
-        },
+      const { data: meals } = await client.models.Meal.listMealByLocalDate({
+        localDate: dateKey,
       });
 
       // If this day has entries, increment streak
-      if (logs && logs.length > 0) {
+      if (meals && meals.length > 0) {
         streak++;
         // Move to previous day
         currentDate.setDate(currentDate.getDate() - 1);
@@ -666,7 +548,7 @@ export function formatWeight(weightKg: number, unit: 'kg' | 'lbs' = 'kg'): strin
 
 /**
  * Fetch or create DailyLog entries for a date range
- * Aggregates FoodLog entries into daily totals
+ * Aggregates Meal entries into daily totals
  */
 export async function fetchDailyLogs(days: number = 30): Promise<DailyLog[]> {
   console.log('[statsHelpers] Fetching daily logs for', days, 'days');

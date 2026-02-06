@@ -3,7 +3,6 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 type ModelName =
   | 'UserProfile'
   | 'WeightLog'
-  | 'FoodLog'
   | 'Meal'
   | 'MealIngredient'
   | 'DailyLog'
@@ -18,7 +17,6 @@ export const EXPORT_SCOPES = [
     models: [
       'UserProfile',
       'WeightLog',
-      'FoodLog',
       'Meal',
       'MealIngredient',
       'DailyLog',
@@ -29,8 +27,8 @@ export const EXPORT_SCOPES = [
   {
     value: 'meals',
     label: 'Meals only',
-    description: 'Meals, ingredients, legacy logs',
-    models: ['Meal', 'MealIngredient', 'FoodLog'],
+    description: 'Meals and ingredients',
+    models: ['Meal', 'MealIngredient'],
   },
   {
     value: 'progress',
@@ -142,7 +140,6 @@ export async function exportUserData(scope: ExportScope, options: ExportOptions 
   const listFunctions: Record<ModelName, ListFunction<unknown>> = {
     UserProfile: (options) => client.models.UserProfile.list(options),
     WeightLog: (options) => client.models.WeightLog.list(options),
-    FoodLog: (options) => client.models.FoodLog.list(options),
     Meal: (options) => client.models.Meal.list(options),
     MealIngredient: (options) => client.models.MealIngredient.list(options),
     DailyLog: (options) => client.models.DailyLog.list(options),

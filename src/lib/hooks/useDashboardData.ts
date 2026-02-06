@@ -6,6 +6,8 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logError } from '@/lib/logger';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
+// Side-effect import: registers window.runMigration() for one-time legacy data migration
+import '@/lib/migration';
 
 interface UseDashboardDataResult {
   goals: UserGoals;

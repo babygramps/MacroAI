@@ -24,6 +24,8 @@ jest.mock('@/lib/metabolicService', () => ({
   backfillMetabolicData: jest.fn(),
 }));
 
+jest.mock('@/lib/migration', () => ({}));
+
 jest.mock('@/lib/clientLogger', () => ({
   logRemote: {
     info: jest.fn(),

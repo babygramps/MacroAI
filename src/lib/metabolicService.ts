@@ -43,16 +43,9 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
     const startOfDay = new Date(`${dateKey}T00:00:00`);
     const endOfDay = new Date(`${dateKey}T23:59:59.999`);
 
-    // Fetch all meals and legacy food logs for this date in parallel
-    const [mealsResult, foodLogsResult, weightResult, existingDailyLog] = await Promise.all([
+    // Fetch all meals for this date in parallel with weight and existing DailyLog
+    const [mealsResult, weightResult, existingDailyLog] = await Promise.all([
       client.models.Meal.list({
-        filter: {
-          eatenAt: {
-            between: [startOfDay.toISOString(), endOfDay.toISOString()],
-          },
-        },
-      }),
-      client.models.FoodLog.list({
         filter: {
           eatenAt: {
             between: [startOfDay.toISOString(), endOfDay.toISOString()],
@@ -76,7 +69,6 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
     ]);
 
     const meals = mealsResult.data ?? [];
-    const foodLogs = foodLogsResult.data ?? [];
     const weights = weightResult.data ?? [];
     const existingLogs = existingDailyLog.data ?? [];
 
@@ -93,19 +85,11 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
       totalFat += meal.totalFat ?? 0;
     }
 
-    // Add legacy FoodLog entries
-    for (const log of foodLogs) {
-      totalCalories += log.calories ?? 0;
-      totalProtein += log.protein ?? 0;
-      totalCarbs += log.carbs ?? 0;
-      totalFat += log.fat ?? 0;
-    }
-
     // Get scale weight for the day (use first entry if multiple)
     const scaleWeightKg = weights.length > 0 ? weights[0].weightKg : null;
 
     // Determine log status
-    const hasNutritionData = meals.length > 0 || foodLogs.length > 0;
+    const hasNutritionData = meals.length > 0;
     let logStatus: 'complete' | 'partial' | 'skipped' = 'skipped';
     if (hasNutritionData) {
       logStatus = 'complete';

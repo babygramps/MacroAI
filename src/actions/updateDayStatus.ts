@@ -69,21 +69,14 @@ export async function updateDayStatus(
       console.log('[updateDayStatus] Updated existing DailyLog:', existingLog.id);
     } else {
       // Create new DailyLog record
-      // We need to aggregate nutrition data from Meals and FoodLogs for this date
+      // We need to aggregate nutrition data from Meals for this date
       const startOfDay = new Date(date);
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      const [mealsResult, foodLogsResult, weightResult] = await Promise.all([
+      const [mealsResult, weightResult] = await Promise.all([
         client.models.Meal.list({
-          filter: {
-            eatenAt: {
-              between: [startOfDay.toISOString(), endOfDay.toISOString()],
-            },
-          },
-        }),
-        client.models.FoodLog.list({
           filter: {
             eatenAt: {
               between: [startOfDay.toISOString(), endOfDay.toISOString()],
@@ -101,7 +94,6 @@ export async function updateDayStatus(
 
       // Calculate nutrition totals from meals
       const meals = mealsResult.data || [];
-      const foodLogs = foodLogsResult.data || [];
       const weights = weightResult.data || [];
 
       let totalCalories = 0;
@@ -116,14 +108,7 @@ export async function updateDayStatus(
         totalFat += meal.totalFat || 0;
       }
 
-      for (const log of foodLogs) {
-        totalCalories += log.calories || 0;
-        totalProtein += log.protein || 0;
-        totalCarbs += log.carbs || 0;
-        totalFat += log.fat || 0;
-      }
-
-      const hasNutritionData = meals.length > 0 || foodLogs.length > 0;
+      const hasNutritionData = meals.length > 0;
       const scaleWeight = weights.length > 0 ? weights[0].weightKg : null;
 
       await client.models.DailyLog.create({
