@@ -110,6 +110,7 @@ export function ProgressRing({
     }, 100);
 
     // Trigger goal-hit glow when crossing 95% upward (use setTimeout to avoid sync setState in effect)
+    // glowOffTimer duration must match --animate-goal-glow in globals.css
     let glowOnTimer: ReturnType<typeof setTimeout> | undefined;
     let glowOffTimer: ReturnType<typeof setTimeout> | undefined;
     if (currentPercentage >= 95 && currentPercentage <= 105 && prevPct < 95 && prevValue > 0) {

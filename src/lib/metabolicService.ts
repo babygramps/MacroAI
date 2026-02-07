@@ -504,10 +504,116 @@ export async function resetMetabolicData(days: number = 90): Promise<void> {
   await backfillMetabolicData(days);
 }
 
+/**
+ * Review high-calorie days and interactively skip them
+ * Call from browser console: window.reviewHighCal(2500)
+ * 
+ * @param threshold - Calorie threshold (default 2500)
+ */
+export async function reviewHighCalorieDays(threshold: number = 2500): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    console.error('[reviewHighCal] No Amplify client available');
+    return;
+  }
+
+  console.log(`[reviewHighCal] Finding days with > ${threshold} calories...`);
+
+  // Fetch all DailyLogs (paginate to get everything)
+  const allLogs: Array<{
+    id: string;
+    date: string;
+    nutritionCalories: number | null;
+    logStatus: string | null;
+  }> = [];
+
+  let nextToken: string | null | undefined = undefined;
+  do {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params: any = { limit: 1000 };
+    if (nextToken) params.nextToken = nextToken;
+
+    const result = await client.models.DailyLog.list(params);
+    if (result.data) {
+      for (const log of result.data) {
+        allLogs.push({
+          id: log.id,
+          date: log.date,
+          nutritionCalories: log.nutritionCalories ?? null,
+          logStatus: log.logStatus ?? null,
+        });
+      }
+    }
+    nextToken = result.nextToken;
+  } while (nextToken);
+
+  // Filter for high-calorie days that aren't already skipped
+  const highCalDays = allLogs
+    .filter(
+      (log) =>
+        log.nutritionCalories !== null &&
+        log.nutritionCalories > threshold &&
+        log.logStatus !== 'skipped'
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (highCalDays.length === 0) {
+    console.log(`[reviewHighCal] No days found with > ${threshold} calories (excluding already-skipped days).`);
+    return;
+  }
+
+  console.log(`[reviewHighCal] Found ${highCalDays.length} days over ${threshold} cal:\n`);
+
+  // Print summary table
+  console.table(
+    highCalDays.map((d) => ({
+      date: d.date,
+      calories: d.nutritionCalories,
+      status: d.logStatus || 'complete',
+    }))
+  );
+
+  // Interactive prompts
+  const toSkip: typeof highCalDays = [];
+
+  for (const day of highCalDays) {
+    const answer = window.confirm(
+      `${day.date}: ${day.nutritionCalories} cal (status: ${day.logStatus || 'complete'})\n\nSkip this day?`
+    );
+    if (answer) {
+      toSkip.push(day);
+    }
+  }
+
+  if (toSkip.length === 0) {
+    console.log('[reviewHighCal] No days selected to skip.');
+    return;
+  }
+
+  console.log(`[reviewHighCal] Skipping ${toSkip.length} days: ${toSkip.map((d) => d.date).join(', ')}`);
+
+  // Update each day's logStatus to 'skipped'
+  for (const day of toSkip) {
+    await client.models.DailyLog.update({
+      id: day.id,
+      logStatus: 'skipped',
+    });
+    console.log(`  ✓ ${day.date} marked as skipped`);
+  }
+
+  // Recalculate TDEE from the earliest skipped date forward
+  const earliestDate = toSkip[0].date; // already sorted
+  console.log(`[reviewHighCal] Recalculating TDEE from ${earliestDate}...`);
+  const daysRecalculated = await recalculateTdeeFromDate(earliestDate);
+  console.log(`[reviewHighCal] Done! Recalculated ${daysRecalculated} days. Refresh the page to see updated values.`);
+}
+
 // Expose to window for browser console access
 if (typeof window !== 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).resetMetabolicData = resetMetabolicData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).backfillMetabolicData = backfillMetabolicData;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).reviewHighCal = reviewHighCalorieDays;
 }

@@ -40,6 +40,7 @@ export function TextTab({ onSuccess }: TextTabProps) {
   const handleAnalyze = async () => {
     if (!text.trim()) {
       setShakeInput(true);
+      // Duration must match --animate-input-shake in globals.css
       setTimeout(() => setShakeInput(false), 400);
       return;
     }

@@ -133,7 +133,7 @@ export function Dashboard() {
 
     // Trigger card-remove animation before actually deleting
     setDeletingMealId(mealId);
-    // Wait for animation to complete (350ms matches card-remove duration)
+    // Duration must match --animate-card-remove in globals.css
     await new Promise((resolve) => setTimeout(resolve, 350));
     setDeletingMealId(null);
 
@@ -166,7 +166,7 @@ export function Dashboard() {
     logRemote.info('DASHBOARD_LOG_SUCCESS', { isToday: isToday(selectedDate) });
     setIsModalOpen(false);
 
-    // Trigger ring pulse animation
+    // Duration must match --animate-ring-pulse in globals.css (+ small buffer)
     setRingPulse(true);
     setTimeout(() => setRingPulse(false), 700);
 
@@ -195,7 +195,7 @@ export function Dashboard() {
 
   const handleWeightLogSuccess = useCallback(() => {
     setIsWeightModalOpen(false);
-    // Trigger weight animation
+    // Duration must match --animate-arrow-bounce-down in globals.css (+ buffer for visibility)
     setWeightJustLogged(true);
     setTimeout(() => setWeightJustLogged(false), 1000);
     // Refresh data to get updated weight

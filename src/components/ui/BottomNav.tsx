@@ -77,8 +77,7 @@ export const BottomNav = memo(function BottomNav({
             aria-label="Log food"
           >
             <span
-              className="bottom-nav-add-inner"
-              style={{ animation: 'fab-breathe 3s ease-in-out infinite' }}
+              className="bottom-nav-add-inner animate-fab-breathe"
             >
               {PlusIcon}
             </span>

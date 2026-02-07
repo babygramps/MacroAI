@@ -11,8 +11,7 @@ export function DashboardRings({ summary, goals, pulse = false }: DashboardRings
   return (
     <>
       <div
-        className="flex justify-center mb-6"
-        style={pulse ? { animation: 'ring-pulse 0.6s ease-out' } : undefined}
+        className={`flex justify-center mb-6 ${pulse ? 'animate-ring-pulse' : ''}`}
       >
         <ProgressRing
           value={summary.totalCalories}

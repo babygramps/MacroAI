@@ -28,7 +28,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
     setSlideDirection(newIndex > oldIndex ? 'right' : 'left');
     prevTabRef.current = newTab;
     setActiveTab(newTab);
-    // Clear direction after animation completes
+    // Duration must match --animate-slide-in-left / --animate-slide-in-right in globals.css
     setTimeout(() => setSlideDirection(null), 250);
   }, []);
 
@@ -121,8 +121,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
       </div>
 
       <div
-        className="flex-1 overflow-y-auto"
-        style={slideDirection ? { animation: `slide-in-${slideDirection === 'right' ? 'right' : 'left'} 0.25s ease-out` } : undefined}
+        className={`flex-1 overflow-y-auto ${slideDirection === 'right' ? 'animate-slide-in-right' : slideDirection === 'left' ? 'animate-slide-in-left' : ''}`}
         key={activeTab}
       >
         {activeTab === 'search' && <SearchTab onSuccess={handleSuccess} prefetchedRecents={prefetchedRecents} />}

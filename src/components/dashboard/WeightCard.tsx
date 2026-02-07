@@ -55,11 +55,10 @@ export function WeightCard({
                 </p>
                 {justLogged && (
                   <svg
-                    className="w-4 h-4 text-success"
+                    className="w-4 h-4 text-success animate-arrow-bounce-down"
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
-                    style={{ animation: 'arrow-bounce-down 0.6s ease-out' }}
                   >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>

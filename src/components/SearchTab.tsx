@@ -115,6 +115,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
   const handleSearch = useCallback(async () => {
     if (!query.trim()) {
       setShakeInput(true);
+      // Duration must match --animate-input-shake in globals.css
       setTimeout(() => setShakeInput(false), 400);
       return;
     }

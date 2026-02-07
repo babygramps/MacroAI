@@ -78,6 +78,7 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
 
   const triggerDateSlide = useCallback((direction: 'left' | 'right') => {
     setDateSlideDir(direction);
+    // Duration must match --animate-slide-in-left / --animate-slide-in-right in globals.css
     setTimeout(() => setDateSlideDir(null), 250);
   }, []);
 
@@ -212,9 +213,8 @@ export function DateNavigator({ selectedDate, onDateChange, dayStatuses }: DateN
                 d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
         <span
-          className="text-body font-medium text-text-primary"
           key={selectedDate.toISOString()}
-          style={dateSlideDir ? { animation: `slide-in-${dateSlideDir === 'left' ? 'left' : 'right'} 0.25s ease-out` } : undefined}
+          className={`text-body font-medium text-text-primary ${dateSlideDir === 'left' ? 'animate-slide-in-left' : dateSlideDir === 'right' ? 'animate-slide-in-right' : ''}`}
         >
           {formatDisplayDate(selectedDate)}
         </span>

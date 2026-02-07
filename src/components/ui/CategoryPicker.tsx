@@ -18,6 +18,7 @@ export function CategoryPicker({ value, onChange, disabled = false }: CategoryPi
   const handleClick = (category: MealCategory) => {
     if (category !== value) {
       setPoppedCategory(category);
+      // Duration must match --animate-emoji-pop in globals.css
       setTimeout(() => setPoppedCategory(null), 300);
     }
     onChange(category);
@@ -47,8 +48,7 @@ export function CategoryPicker({ value, onChange, disabled = false }: CategoryPi
             aria-pressed={isActive}
           >
             <span
-              className="text-base inline-block"
-              style={poppedCategory === category ? { animation: 'emoji-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)' } : undefined}
+              className={`text-base inline-block ${poppedCategory === category ? 'animate-emoji-pop' : ''}`}
             >
               {info.emoji}
             </span>
