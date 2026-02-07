@@ -728,6 +728,152 @@ export async function reviewHighCalorieDays(threshold: number = 2500): Promise<v
 }
 
 /**
+ * Review low-calorie days (likely incomplete logging) and interactively skip them
+ * Call from browser console: window.reviewLowCal(500)
+ * 
+ * @param threshold - Calorie threshold (default 500) — days UNDER this get flagged
+ */
+export async function reviewLowCalorieDays(threshold: number = 500): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    console.error('[reviewLowCal] No Amplify client available');
+    return;
+  }
+
+  console.log(`[reviewLowCal] Finding days with < ${threshold} calories (likely incomplete logging)...`);
+
+  // Fetch all DailyLogs (paginate)
+  const allLogs: Array<{
+    id: string;
+    date: string;
+    nutritionCalories: number | null;
+    logStatus: string | null;
+  }> = [];
+
+  let nextToken: string | null | undefined = undefined;
+  do {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params: any = { limit: 1000 };
+    if (nextToken) params.nextToken = nextToken;
+
+    const result = await client.models.DailyLog.list(params);
+    if (result.data) {
+      for (const log of result.data) {
+        allLogs.push({
+          id: log.id,
+          date: log.date,
+          nutritionCalories: log.nutritionCalories ?? null,
+          logStatus: log.logStatus ?? null,
+        });
+      }
+    }
+    nextToken = result.nextToken;
+  } while (nextToken);
+
+  // Filter for low-calorie days that aren't already skipped and have some data
+  const lowCalDays = allLogs
+    .filter(
+      (log) =>
+        log.nutritionCalories !== null &&
+        log.nutritionCalories > 0 &&
+        log.nutritionCalories < threshold &&
+        log.logStatus !== 'skipped'
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  if (lowCalDays.length === 0) {
+    console.log(`[reviewLowCal] No days found with < ${threshold} calories (excluding already-skipped days).`);
+    return;
+  }
+
+  console.log(`[reviewLowCal] Found ${lowCalDays.length} days under ${threshold} cal. Fetching meal details...\n`);
+
+  // Print details and build confirm data
+  console.log('='.repeat(70));
+  const dayDetails: Array<{ id: string; date: string; totalCalories: number; meals: string }> = [];
+
+  for (const day of lowCalDays) {
+    const dayName = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const { data: meals } = await client.models.Meal.listMealByLocalDate({
+      localDate: day.date,
+    });
+
+    const mealNames: string[] = [];
+
+    console.log(`\n⚠️  ${day.date} (${dayName}) — ${day.nutritionCalories} cal [${day.logStatus || 'complete'}]`);
+    console.log('-'.repeat(50));
+
+    if (meals && meals.length > 0) {
+      for (const meal of meals) {
+        const emoji = meal.category === 'drink' ? '🥤' : meal.category === 'snack' ? '🍪' : '🍽️';
+        console.log(`  ${emoji} ${meal.name} — ${meal.totalCalories} cal`);
+        mealNames.push(`${meal.name} (${meal.totalCalories})`);
+      }
+    } else {
+      console.log('  (no meals found)');
+      mealNames.push('(no meals)');
+    }
+
+    dayDetails.push({
+      id: day.id,
+      date: day.date,
+      totalCalories: day.nutritionCalories || 0,
+      meals: mealNames.join(' | '),
+    });
+  }
+
+  console.log('\n' + '='.repeat(70));
+  console.log('\nSummary:');
+  console.table(dayDetails.map((d) => ({ date: d.date, calories: d.totalCalories, meals: d.meals })));
+
+  // Interactive prompts
+  const toSkip: typeof dayDetails = [];
+
+  for (const day of dayDetails) {
+    const dayName = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const answer = window.confirm(
+      `${dayName} (${day.date})\n` +
+      `Total: ${day.totalCalories} cal\n` +
+      `Meals: ${day.meals}\n\n` +
+      `Skip this day from TDEE calculation?`
+    );
+    if (answer) {
+      toSkip.push(day);
+    }
+  }
+
+  if (toSkip.length === 0) {
+    console.log('[reviewLowCal] No days selected to skip.');
+    return;
+  }
+
+  console.log(`\n[reviewLowCal] Skipping ${toSkip.length} days: ${toSkip.map((d) => d.date).join(', ')}`);
+
+  for (const day of toSkip) {
+    await client.models.DailyLog.update({
+      id: day.id,
+      logStatus: 'skipped',
+    });
+    console.log(`  ✓ ${day.date} (${day.totalCalories} cal) marked as skipped`);
+  }
+
+  const earliestDate = toSkip.sort((a, b) => a.date.localeCompare(b.date))[0].date;
+  console.log(`\n[reviewLowCal] Recalculating TDEE from ${earliestDate}...`);
+  const daysRecalculated = await recalculateTdeeFromDate(earliestDate);
+  console.log(`[reviewLowCal] Done! Recalculated ${daysRecalculated} days. Refresh the page to see updated values.`);
+}
+
+/**
  * List all skipped days with their calorie summaries and meal breakdowns
  * Call from browser console: window.listSkipped()
  */
@@ -890,6 +1036,8 @@ if (typeof window !== 'undefined') {
   (window as any).backfillMetabolicData = backfillMetabolicData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).reviewHighCal = reviewHighCalorieDays;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).reviewLowCal = reviewLowCalorieDays;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).listSkipped = listSkippedDays;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
