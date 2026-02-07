@@ -506,6 +506,7 @@ export async function resetMetabolicData(days: number = 90): Promise<void> {
 
 /**
  * Review high-calorie days and interactively skip them
+ * Fetches full meal breakdowns so you can identify anomalies.
  * Call from browser console: window.reviewHighCal(2500)
  * 
  * @param threshold - Calorie threshold (default 2500)
@@ -562,24 +563,142 @@ export async function reviewHighCalorieDays(threshold: number = 2500): Promise<v
     return;
   }
 
-  console.log(`[reviewHighCal] Found ${highCalDays.length} days over ${threshold} cal:\n`);
+  console.log(`[reviewHighCal] Found ${highCalDays.length} days over ${threshold} cal. Fetching meal details...\n`);
 
-  // Print summary table
+  // Fetch meals for each high-cal day
+  interface MealDetail {
+    name: string;
+    category: string;
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    ingredients: Array<{ name: string; calories: number; weightG: number }>;
+  }
+
+  interface DayDetail {
+    id: string;
+    date: string;
+    totalCalories: number;
+    logStatus: string;
+    meals: MealDetail[];
+  }
+
+  const dayDetails: DayDetail[] = [];
+
+  for (const day of highCalDays) {
+    // Fetch meals via localDate GSI
+    const { data: meals } = await client.models.Meal.listMealByLocalDate({
+      localDate: day.date,
+    });
+
+    const mealDetails: MealDetail[] = [];
+
+    if (meals && meals.length > 0) {
+      for (const meal of meals) {
+        // Fetch ingredients for this meal
+        const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+          mealId: meal.id,
+        });
+
+        mealDetails.push({
+          name: meal.name,
+          category: meal.category,
+          calories: meal.totalCalories,
+          protein: meal.totalProtein,
+          carbs: meal.totalCarbs,
+          fat: meal.totalFat,
+          ingredients: (ingredients || [])
+            .sort((a, b) => (b.calories || 0) - (a.calories || 0))
+            .map((ing) => ({
+              name: ing.name,
+              calories: ing.calories,
+              weightG: ing.weightG,
+            })),
+        });
+      }
+    }
+
+    // Sort meals by calories descending
+    mealDetails.sort((a, b) => b.calories - a.calories);
+
+    dayDetails.push({
+      id: day.id,
+      date: day.date,
+      totalCalories: day.nutritionCalories || 0,
+      logStatus: day.logStatus || 'complete',
+      meals: mealDetails,
+    });
+  }
+
+  // Print full summary to console
+  console.log('='.repeat(70));
+  for (const day of dayDetails) {
+    const dayName = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    });
+    console.log(`\n📅 ${day.date} (${dayName}) — ${day.totalCalories} cal [${day.logStatus}]`);
+    console.log('-'.repeat(50));
+
+    if (day.meals.length === 0) {
+      console.log('  (no meals found via localDate query)');
+    } else {
+      for (const meal of day.meals) {
+        const emoji = meal.category === 'drink' ? '🥤' : meal.category === 'snack' ? '🍪' : '🍽️';
+        console.log(`  ${emoji} ${meal.name} — ${meal.calories} cal (P:${meal.protein}g C:${meal.carbs}g F:${meal.fat}g)`);
+        for (const ing of meal.ingredients) {
+          console.log(`      • ${ing.name}: ${ing.calories} cal (${ing.weightG}g)`);
+        }
+      }
+    }
+  }
+  console.log('\n' + '='.repeat(70));
+
+  // Also print a compact table for quick overview
+  console.log('\nSummary table:');
   console.table(
-    highCalDays.map((d) => ({
+    dayDetails.map((d) => ({
       date: d.date,
-      calories: d.nutritionCalories,
-      status: d.logStatus || 'complete',
+      calories: d.totalCalories,
+      status: d.logStatus,
+      meals: d.meals.map((m) => `${m.name} (${m.calories})`).join(' | '),
     }))
   );
 
-  // Interactive prompts
-  const toSkip: typeof highCalDays = [];
+  // Interactive prompts with full context
+  const toSkip: DayDetail[] = [];
 
-  for (const day of highCalDays) {
-    const answer = window.confirm(
-      `${day.date}: ${day.nutritionCalories} cal (status: ${day.logStatus || 'complete'})\n\nSkip this day?`
-    );
+  for (const day of dayDetails) {
+    const dayName = new Date(day.date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const mealLines = day.meals
+      .map((m) => {
+        const ingList = m.ingredients
+          .slice(0, 5) // top 5 by calories
+          .map((i) => `  • ${i.name}: ${i.calories} cal`)
+          .join('\n');
+        return `${m.name} — ${m.calories} cal\n${ingList}`;
+      })
+      .join('\n\n');
+
+    const message = [
+      `${dayName} (${day.date})`,
+      `Total: ${day.totalCalories} cal`,
+      `Status: ${day.logStatus}`,
+      '',
+      'Meals:',
+      mealLines || '(no meal data)',
+      '',
+      'Skip this day from TDEE calculation?',
+    ].join('\n');
+
+    const answer = window.confirm(message);
     if (answer) {
       toSkip.push(day);
     }
@@ -590,7 +709,7 @@ export async function reviewHighCalorieDays(threshold: number = 2500): Promise<v
     return;
   }
 
-  console.log(`[reviewHighCal] Skipping ${toSkip.length} days: ${toSkip.map((d) => d.date).join(', ')}`);
+  console.log(`\n[reviewHighCal] Skipping ${toSkip.length} days: ${toSkip.map((d) => d.date).join(', ')}`);
 
   // Update each day's logStatus to 'skipped'
   for (const day of toSkip) {
@@ -598,12 +717,12 @@ export async function reviewHighCalorieDays(threshold: number = 2500): Promise<v
       id: day.id,
       logStatus: 'skipped',
     });
-    console.log(`  ✓ ${day.date} marked as skipped`);
+    console.log(`  ✓ ${day.date} (${day.totalCalories} cal) marked as skipped`);
   }
 
   // Recalculate TDEE from the earliest skipped date forward
   const earliestDate = toSkip[0].date; // already sorted
-  console.log(`[reviewHighCal] Recalculating TDEE from ${earliestDate}...`);
+  console.log(`\n[reviewHighCal] Recalculating TDEE from ${earliestDate}...`);
   const daysRecalculated = await recalculateTdeeFromDate(earliestDate);
   console.log(`[reviewHighCal] Done! Recalculated ${daysRecalculated} days. Refresh the page to see updated values.`);
 }
