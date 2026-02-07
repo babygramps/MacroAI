@@ -727,6 +727,161 @@ export async function reviewHighCalorieDays(threshold: number = 2500): Promise<v
   console.log(`[reviewHighCal] Done! Recalculated ${daysRecalculated} days. Refresh the page to see updated values.`);
 }
 
+/**
+ * List all skipped days with their calorie summaries and meal breakdowns
+ * Call from browser console: window.listSkipped()
+ */
+export async function listSkippedDays(): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    console.error('[listSkipped] No Amplify client available');
+    return;
+  }
+
+  console.log('[listSkipped] Fetching skipped days...');
+
+  // Fetch all DailyLogs (paginate)
+  const skippedLogs: Array<{
+    id: string;
+    date: string;
+    nutritionCalories: number | null;
+  }> = [];
+
+  let nextToken: string | null | undefined = undefined;
+  do {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const params: any = { limit: 1000 };
+    if (nextToken) params.nextToken = nextToken;
+
+    const result = await client.models.DailyLog.list(params);
+    if (result.data) {
+      for (const log of result.data) {
+        if (log.logStatus === 'skipped') {
+          skippedLogs.push({
+            id: log.id,
+            date: log.date,
+            nutritionCalories: log.nutritionCalories ?? null,
+          });
+        }
+      }
+    }
+    nextToken = result.nextToken;
+  } while (nextToken);
+
+  skippedLogs.sort((a, b) => a.date.localeCompare(b.date));
+
+  if (skippedLogs.length === 0) {
+    console.log('[listSkipped] No skipped days found.');
+    return;
+  }
+
+  console.log(`[listSkipped] Found ${skippedLogs.length} skipped days. Fetching meal details...\n`);
+
+  // Fetch meals for each skipped day
+  console.log('='.repeat(70));
+  const tableRows: Array<{ date: string; day: string; calories: number | string; meals: string }> = [];
+
+  for (const log of skippedLogs) {
+    const dayName = new Date(log.date + 'T12:00:00').toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+
+    const { data: meals } = await client.models.Meal.listMealByLocalDate({
+      localDate: log.date,
+    });
+
+    const mealSummaries: string[] = [];
+
+    if (meals && meals.length > 0) {
+      // Sort meals by calories descending
+      const sortedMeals = [...meals].sort((a, b) => (b.totalCalories || 0) - (a.totalCalories || 0));
+
+      console.log(`\n⏭️  ${log.date} (${dayName}) — ${log.nutritionCalories ?? '?'} cal [SKIPPED]`);
+      console.log('-'.repeat(50));
+
+      for (const meal of sortedMeals) {
+        const emoji = meal.category === 'drink' ? '🥤' : meal.category === 'snack' ? '🍪' : '🍽️';
+        console.log(`  ${emoji} ${meal.name} — ${meal.totalCalories} cal (P:${meal.totalProtein}g C:${meal.totalCarbs}g F:${meal.totalFat}g)`);
+
+        // Fetch ingredients
+        const { data: ingredients } = await client.models.MealIngredient.listMealIngredientByMealId({
+          mealId: meal.id,
+        });
+
+        if (ingredients && ingredients.length > 0) {
+          const sorted = [...ingredients].sort((a, b) => (b.calories || 0) - (a.calories || 0));
+          for (const ing of sorted) {
+            console.log(`      • ${ing.name}: ${ing.calories} cal (${ing.weightG}g)`);
+          }
+        }
+
+        mealSummaries.push(`${meal.name} (${meal.totalCalories})`);
+      }
+    } else {
+      console.log(`\n⏭️  ${log.date} (${dayName}) — ${log.nutritionCalories ?? '?'} cal [SKIPPED]`);
+      console.log('-'.repeat(50));
+      console.log('  (no meals found)');
+      mealSummaries.push('(no meals)');
+    }
+
+    tableRows.push({
+      date: log.date,
+      day: dayName,
+      calories: log.nutritionCalories ?? '—',
+      meals: mealSummaries.join(' | '),
+    });
+  }
+
+  console.log('\n' + '='.repeat(70));
+  console.log('\nSummary:');
+  console.table(tableRows);
+
+  const totalSkippedCal = skippedLogs.reduce((sum, d) => sum + (d.nutritionCalories || 0), 0);
+  console.log(`\n${skippedLogs.length} skipped days, ${totalSkippedCal} total calories excluded from TDEE.`);
+  console.log('To unskip a day, use: await window.unskipDay("YYYY-MM-DD")');
+}
+
+/**
+ * Unskip a previously skipped day and recalculate TDEE
+ * Call from browser console: window.unskipDay("2026-02-02")
+ * 
+ * @param dateKey - Date to unskip (YYYY-MM-DD)
+ */
+export async function unskipDay(dateKey: string): Promise<void> {
+  const client = getAmplifyDataClient();
+  if (!client) {
+    console.error('[unskipDay] No Amplify client available');
+    return;
+  }
+
+  const { data: logs } = await client.models.DailyLog.listDailyLogByDate({
+    date: dateKey,
+  });
+
+  if (!logs || logs.length === 0) {
+    console.error(`[unskipDay] No DailyLog found for ${dateKey}`);
+    return;
+  }
+
+  const log = logs[0];
+  if (log.logStatus !== 'skipped') {
+    console.log(`[unskipDay] ${dateKey} is not skipped (status: ${log.logStatus || 'complete'}). Nothing to do.`);
+    return;
+  }
+
+  await client.models.DailyLog.update({
+    id: log.id,
+    logStatus: 'complete',
+  });
+  console.log(`✓ ${dateKey} restored to 'complete'`);
+
+  console.log(`[unskipDay] Recalculating TDEE from ${dateKey}...`);
+  const daysRecalculated = await recalculateTdeeFromDate(dateKey);
+  console.log(`[unskipDay] Done! Recalculated ${daysRecalculated} days. Refresh the page to see updated values.`);
+}
+
 // Expose to window for browser console access
 if (typeof window !== 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -735,4 +890,8 @@ if (typeof window !== 'undefined') {
   (window as any).backfillMetabolicData = backfillMetabolicData;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).reviewHighCal = reviewHighCalorieDays;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).listSkipped = listSkippedDays;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).unskipDay = unskipDay;
 }
