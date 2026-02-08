@@ -34,12 +34,14 @@ export function TdeeChart({
     const graphWidth = chartWidth - padding.left - padding.right;
     const graphHeight = chartHeight - padding.top - padding.bottom;
 
-    // Collect all TDEE values for y-axis scaling
+    // Collect all TDEE values for y-axis scaling (include confidence bands)
     const rawValues = data
         .filter((d) => d.rawTdee !== null)
         .map((d) => d.rawTdee as number);
     const smoothedValues = data.map((d) => d.smoothedTdee);
-    const allValues = [...rawValues, ...smoothedValues];
+    const upperBandValues = data.map((d) => d.smoothedTdee + d.fluxConfidenceRange);
+    const lowerBandValues = data.map((d) => Math.max(0, d.smoothedTdee - d.fluxConfidenceRange));
+    const allValues = [...rawValues, ...smoothedValues, ...upperBandValues, ...lowerBandValues];
 
     if (targetCalories) {
         allValues.push(targetCalories);
@@ -98,6 +100,27 @@ export function TdeeChart({
     }
 
     const linePath = createSmoothPath(smoothedPoints);
+
+    // Generate confidence band points (upper and lower bounds)
+    const upperBandPoints = data.map((entry, index) => {
+        const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+        const upperValue = entry.smoothedTdee + entry.fluxConfidenceRange;
+        const y = padding.top + graphHeight - ((upperValue - yMin) / yRange) * graphHeight;
+        return { x, y };
+    });
+
+    const lowerBandPoints = data.map((entry, index) => {
+        const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+        const lowerValue = Math.max(0, entry.smoothedTdee - entry.fluxConfidenceRange);
+        const y = padding.top + graphHeight - ((lowerValue - yMin) / yRange) * graphHeight;
+        return { x, y };
+    });
+
+    // Create confidence band area path (upper curve forward, lower curve backward)
+    const upperPath = createSmoothPath(upperBandPoints);
+    const confidenceBandPath = upperBandPoints.length >= 2 && lowerBandPoints.length >= 2
+        ? `${upperPath} L ${lowerBandPoints[lowerBandPoints.length - 1].x} ${lowerBandPoints[lowerBandPoints.length - 1].y} ${createSmoothPath([...lowerBandPoints].reverse()).replace('M', 'L')} L ${upperBandPoints[0].x} ${upperBandPoints[0].y} Z`
+        : '';
 
     // Create gradient area path
     const areaPath = linePath && smoothedPoints.length > 0
@@ -173,6 +196,7 @@ export function TdeeChart({
     // Get hovered point data
     const hoveredPoint = hoveredIndex !== null ? smoothedPoints[hoveredIndex] : null;
     const hoveredRawPoint = hoveredIndex !== null ? rawPoints.find(p => p.index === hoveredIndex) : null;
+    const hoveredFlux = hoveredIndex !== null ? data[hoveredIndex]?.fluxConfidenceRange ?? 0 : 0;
 
     return (
         <div className="w-full">
@@ -186,6 +210,10 @@ export function TdeeChart({
                     <div className="flex items-center gap-1.5">
                         <div className="w-3 h-0.5 bg-[#FF6B35]" />
                         <span className="text-xs text-text-muted">Smoothed</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-3 h-2 bg-[#FF6B35] opacity-15 rounded-sm" />
+                        <span className="text-xs text-text-muted">&plusmn; Range</span>
                     </div>
                 </div>
             )}
@@ -207,6 +235,11 @@ export function TdeeChart({
                     <linearGradient id="tdeeLineGradient" x1="0" y1="0" x2="1" y2="0">
                         <stop offset="0%" stopColor="#FF6B35" stopOpacity={0.6} />
                         <stop offset="100%" stopColor="#FF6B35" stopOpacity={1} />
+                    </linearGradient>
+                    <linearGradient id="confidenceBandGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#FF6B35" stopOpacity={0.08} />
+                        <stop offset="50%" stopColor="#FF6B35" stopOpacity={0.12} />
+                        <stop offset="100%" stopColor="#FF6B35" stopOpacity={0.08} />
                     </linearGradient>
                     <clipPath id="tdeeLineClip">
                         <rect
@@ -308,6 +341,45 @@ export function TdeeChart({
                     />
                 )}
 
+                {/* Confidence band (uncertainty range) */}
+                {confidenceBandPath && (
+                    <path
+                        d={confidenceBandPath}
+                        fill="url(#confidenceBandGradient)"
+                        clipPath="url(#tdeeLineClip)"
+                        style={{
+                            transition: 'opacity 0.6s ease-out',
+                            opacity: animatedProgress,
+                        }}
+                    />
+                )}
+
+                {/* Upper confidence band edge (dashed) */}
+                {upperBandPoints.length >= 2 && (
+                    <path
+                        d={createSmoothPath(upperBandPoints)}
+                        fill="none"
+                        stroke="#FF6B35"
+                        strokeWidth={0.75}
+                        strokeDasharray="3 3"
+                        opacity={0.25 * animatedProgress}
+                        clipPath="url(#tdeeLineClip)"
+                    />
+                )}
+
+                {/* Lower confidence band edge (dashed) */}
+                {lowerBandPoints.length >= 2 && (
+                    <path
+                        d={createSmoothPath(lowerBandPoints)}
+                        fill="none"
+                        stroke="#FF6B35"
+                        strokeWidth={0.75}
+                        strokeDasharray="3 3"
+                        opacity={0.25 * animatedProgress}
+                        clipPath="url(#tdeeLineClip)"
+                    />
+                )}
+
                 {/* Area fill under smoothed line */}
                 <path
                     d={areaPath}
@@ -401,10 +473,10 @@ export function TdeeChart({
                     <g>
                         {/* Tooltip background */}
                         <rect
-                            x={Math.min(Math.max(hoveredPoint.x - 45, padding.left), chartWidth - padding.right - 90)}
-                            y={Math.max(hoveredPoint.y - 45, padding.top)}
-                            width={90}
-                            height={hoveredRawPoint ? 38 : 28}
+                            x={Math.min(Math.max(hoveredPoint.x - 50, padding.left), chartWidth - padding.right - 100)}
+                            y={Math.max(hoveredPoint.y - 55, padding.top)}
+                            width={100}
+                            height={hoveredRawPoint ? 48 : 38}
                             rx={4}
                             fill="#1E1E26"
                             stroke="#2A2A35"
@@ -412,8 +484,8 @@ export function TdeeChart({
                         />
                         {/* Date */}
                         <text
-                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
-                            y={Math.max(hoveredPoint.y - 32, padding.top + 13)}
+                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 50), chartWidth - padding.right - 50)}
+                            y={Math.max(hoveredPoint.y - 42, padding.top + 13)}
                             textAnchor="middle"
                             fill="#9CA3AF"
                             fontSize="9"
@@ -423,8 +495,8 @@ export function TdeeChart({
                         </text>
                         {/* Smoothed value */}
                         <text
-                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
-                            y={Math.max(hoveredPoint.y - 20, padding.top + 25)}
+                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 50), chartWidth - padding.right - 50)}
+                            y={Math.max(hoveredPoint.y - 30, padding.top + 25)}
                             textAnchor="middle"
                             fill="#FF6B35"
                             fontSize="11"
@@ -433,11 +505,22 @@ export function TdeeChart({
                         >
                             {Math.round(hoveredPoint.value)} kcal
                         </text>
+                        {/* Confidence range */}
+                        <text
+                            x={Math.min(Math.max(hoveredPoint.x, padding.left + 50), chartWidth - padding.right - 50)}
+                            y={Math.max(hoveredPoint.y - 20, padding.top + 35)}
+                            textAnchor="middle"
+                            fill="#9CA3AF"
+                            fontSize="8"
+                            fontFamily="'Space Mono', monospace"
+                        >
+                            &plusmn;{hoveredFlux} kcal
+                        </text>
                         {/* Raw value (if different) */}
                         {hoveredRawPoint && (
                             <text
-                                x={Math.min(Math.max(hoveredPoint.x, padding.left + 45), chartWidth - padding.right - 45)}
-                                y={Math.max(hoveredPoint.y - 10, padding.top + 35)}
+                                x={Math.min(Math.max(hoveredPoint.x, padding.left + 50), chartWidth - padding.right - 50)}
+                                y={Math.max(hoveredPoint.y - 10, padding.top + 45)}
                                 textAnchor="middle"
                                 fill="#9CA3AF"
                                 fontSize="9"

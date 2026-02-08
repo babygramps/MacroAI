@@ -330,20 +330,41 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
 
     // Process each day and calculate/persist ComputedState
     let daysRecalculated = 0;
+    const recentRawTdees: number[] = []; // Track for variance calculation
 
     for (let i = 0; i < trendData.length; i++) {
       const point = trendData[i];
       const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
       const dailyLog = dailyLogMap.get(point.date) ?? null;
 
-      // Build the computed state
+      // Count valid days processed so far
+      const validDaysSoFar = daysRecalculated;
+
+      // Calculate variance of recent raw TDEE values (last 7)
+      const recentSlice = recentRawTdees.slice(-7);
+      const recentVariance = recentSlice.length >= 2
+        ? recentSlice.reduce((sum, v) => {
+            const mean = recentSlice.reduce((s, x) => s + x, 0) / recentSlice.length;
+            return sum + (v - mean) ** 2;
+          }, 0) / recentSlice.length
+        : 0;
+
+      // Build the computed state with dynamic flux range
       const state = buildComputedState(
         point.date,
         point.trendWeight,
         prevTrendWeight,
         dailyLog,
-        prevTdee
+        prevTdee,
+        undefined, // stepCountDelta
+        validDaysSoFar,
+        recentVariance
       );
+
+      // Track raw TDEE for variance
+      if (state.rawTdeeKcal !== state.estimatedTdeeKcal) {
+        recentRawTdees.push(state.rawTdeeKcal);
+      }
 
       // Persist to database
       const existingId = existingStateMap.get(point.date);

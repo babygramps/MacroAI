@@ -47,6 +47,17 @@ function getStartOfDay(date: Date): Date {
 }
 
 /**
+ * Calculate variance of a numeric array
+ * Used for TDEE flux confidence range calculation
+ */
+function calculateVariance(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const squaredDiffs = values.map(v => (v - mean) ** 2);
+  return squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+/**
  * Helper to fetch ALL pages from an Amplify list/query operation.
  * Amplify's list() returns only one page of results from DynamoDB.
  * Without this, scan-based queries can miss records as the table grows.
@@ -675,6 +686,7 @@ export async function fetchTdeeHistory(days: number = 30): Promise<TdeeDataPoint
     date: state.date,
     rawTdee: state.rawTdeeKcal !== state.estimatedTdeeKcal ? state.rawTdeeKcal : null,
     smoothedTdee: state.estimatedTdeeKcal,
+    fluxConfidenceRange: state.fluxConfidenceRange,
   }));
 
   console.log('[statsHelpers] TDEE history:', {
@@ -719,21 +731,36 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
     }
   }
 
-  // Build computed states
+  // Build computed states with dynamic flux range
   const states: ComputedState[] = [];
+  const recentRawTdees: number[] = []; // Track recent raw TDEE values for variance
 
   for (let i = 0; i < trendData.length; i++) {
     const point = trendData[i];
     const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
     const dailyLog = dailyLogs.find(d => d.date === point.date) ?? null;
 
+    // Count valid days so far (days with calorie data)
+    const validDaysSoFar = states.filter(s => s.rawTdeeKcal !== s.estimatedTdeeKcal || s.fluxConfidenceRange < 400).length;
+
+    // Calculate variance of recent raw TDEE values (last 7)
+    const recentVariance = calculateVariance(recentRawTdees.slice(-7));
+
     const state = buildComputedState(
       point.date,
       point.trendWeight,
       prevTrendWeight,
       dailyLog,
-      prevTdee
+      prevTdee,
+      undefined, // stepCountDelta
+      validDaysSoFar,
+      recentVariance
     );
+
+    // Track raw TDEE for variance calculation
+    if (state.rawTdeeKcal !== state.estimatedTdeeKcal) {
+      recentRawTdees.push(state.rawTdeeKcal);
+    }
 
     states.push(state);
     prevTdee = state.estimatedTdeeKcal;

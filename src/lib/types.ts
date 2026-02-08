@@ -182,6 +182,8 @@ export interface TdeeDataPoint {
   date: string;
   rawTdee: number | null;
   smoothedTdee: number;
+  /** +/- kcal uncertainty band for this day's TDEE estimate */
+  fluxConfidenceRange: number;
 }
 
 // Extended weight stats with trend data

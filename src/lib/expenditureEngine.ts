@@ -281,6 +281,8 @@ export function calculateFluxRange(
  * @param dailyLog - Daily log entry
  * @param prevTdee - Previous day's smoothed TDEE
  * @param stepCountDelta - Optional step count change
+ * @param daysTracked - Number of days with valid data so far (for dynamic flux range)
+ * @param recentTdeeVariance - Variance in recent raw TDEE values (for dynamic flux range)
  * @returns ComputedState object
  */
 export function buildComputedState(
@@ -289,7 +291,9 @@ export function buildComputedState(
   prevTrendWeightKg: number,
   dailyLog: DailyLog | null,
   prevTdee: number,
-  stepCountDelta?: number
+  stepCountDelta?: number,
+  daysTracked: number = 0,
+  recentTdeeVariance: number = 0
 ): ComputedState {
   const weightDeltaKg = trendWeightKg - prevTrendWeightKg;
 
@@ -300,13 +304,15 @@ export function buildComputedState(
     if (isSkipped) {
       console.log(`[ExpenditureEngine] Day ${date} marked as skipped - holding previous TDEE`);
     }
+    // Missing data = high uncertainty; use dynamic range but with a floor of 400
+    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
     return {
       date,
       trendWeightKg,
       estimatedTdeeKcal: prevTdee,
       rawTdeeKcal: prevTdee,
-      fluxConfidenceRange: 500, // High uncertainty when data is missing
-      energyDensityUsed: selectEnergyDensity(weightDeltaKg), // Use correct density based on weight change
+      fluxConfidenceRange: missingFlux,
+      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
       weightDeltaKg,
     };
   }
@@ -323,7 +329,7 @@ export function buildComputedState(
     trendWeightKg,
     estimatedTdeeKcal: estimatedTdee,
     rawTdeeKcal: rawTdee,
-    fluxConfidenceRange: 200, // Base uncertainty for valid data
+    fluxConfidenceRange: calculateFluxRange(daysTracked, recentTdeeVariance),
     energyDensityUsed: energyDensity,
     weightDeltaKg,
   };

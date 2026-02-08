@@ -47,10 +47,26 @@ export function WeightChart({
   const graphWidth = chartWidth - padding.left - padding.right;
   const graphHeight = chartHeight - padding.top - padding.bottom;
 
-  // Collect all weights (raw + trend + target) for y-axis scaling
+  // Calculate trend uncertainty band from residuals (scale - trend deviation)
+  const residuals: number[] = [];
+  if (trendData && trendData.length > 0) {
+    for (const point of trendData) {
+      if (point.scaleWeight !== null) {
+        residuals.push(Math.abs(point.scaleWeight - point.trendWeight));
+      }
+    }
+  }
+  // Standard deviation of residuals (min 0.2kg to always show some band)
+  const residualStdDev = residuals.length >= 2
+    ? Math.max(0.2, Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / residuals.length))
+    : 0.5; // Default when not enough data
+
+  // Collect all weights (raw + trend + target + band) for y-axis scaling
   const rawWeights = data.map((d) => convertWeight(d.weightKg, unit));
   const trendWeights = trendData?.map((d) => convertWeight(d.trendWeight, unit)) ?? [];
-  const allWeights = [...rawWeights, ...trendWeights];
+  const upperBandWeights = trendData?.map((d) => convertWeight(d.trendWeight + residualStdDev, unit)) ?? [];
+  const lowerBandWeights = trendData?.map((d) => convertWeight(d.trendWeight - residualStdDev, unit)) ?? [];
+  const allWeights = [...rawWeights, ...trendWeights, ...upperBandWeights, ...lowerBandWeights];
 
   if (targetWeight) {
     allWeights.push(convertWeight(targetWeight, unit));
@@ -81,6 +97,21 @@ export function WeightChart({
     // Also include scale weight for this date if available
     const scaleWeight = entry.scaleWeight !== null ? convertWeight(entry.scaleWeight, unit) : null;
     return { x, y, weight, date: entry.date, index, scaleWeight };
+  });
+
+  // Generate trend confidence band points
+  const upperTrendBandPoints = (trendData ?? []).map((entry, index, arr) => {
+    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+    const weight = convertWeight(entry.trendWeight + residualStdDev, unit);
+    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+    return { x, y };
+  });
+
+  const lowerTrendBandPoints = (trendData ?? []).map((entry, index, arr) => {
+    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+    const weight = convertWeight(entry.trendWeight - residualStdDev, unit);
+    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+    return { x, y };
   });
 
   // Create smooth curve path using catmull-rom spline
@@ -116,6 +147,12 @@ export function WeightChart({
   // Create gradient area path
   const areaPath = linePath && linePoints.length > 0
     ? `${linePath} L ${linePoints[linePoints.length - 1]?.x} ${padding.top + graphHeight} L ${linePoints[0]?.x} ${padding.top + graphHeight} Z`
+    : '';
+
+  // Create trend confidence band path
+  const upperBandPath = createSmoothPath(upperTrendBandPoints);
+  const trendConfidenceBandPath = upperTrendBandPoints.length >= 2 && lowerTrendBandPoints.length >= 2
+    ? `${upperBandPath} L ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].x} ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].y} ${createSmoothPath([...lowerTrendBandPoints].reverse()).replace('M', 'L')} L ${upperTrendBandPoints[0].x} ${upperTrendBandPoints[0].y} Z`
     : '';
 
   // Goal line position
@@ -216,6 +253,10 @@ export function WeightChart({
             <div className="w-3 h-0.5 bg-[#60A5FA]" />
             <span className="text-xs text-text-muted">Trend</span>
           </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-3 h-2 bg-[#60A5FA] opacity-15 rounded-sm" />
+            <span className="text-xs text-text-muted">&plusmn;1&sigma;</span>
+          </div>
         </div>
       )}
 
@@ -236,6 +277,11 @@ export function WeightChart({
           <linearGradient id="trendLineGradient" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.6} />
             <stop offset="100%" stopColor="#60A5FA" stopOpacity={1} />
+          </linearGradient>
+          <linearGradient id="weightConfidenceBandGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#60A5FA" stopOpacity={0.08} />
+            <stop offset="50%" stopColor="#60A5FA" stopOpacity={0.12} />
+            <stop offset="100%" stopColor="#60A5FA" stopOpacity={0.08} />
           </linearGradient>
           <clipPath id="lineClip">
             <rect
@@ -334,6 +380,45 @@ export function WeightChart({
             strokeWidth={1}
             strokeDasharray="4 2"
             opacity={0.5}
+          />
+        )}
+
+        {/* Trend confidence band (uncertainty range based on scale-trend residuals) */}
+        {showTrendLine && trendConfidenceBandPath && (
+          <path
+            d={trendConfidenceBandPath}
+            fill="url(#weightConfidenceBandGradient)"
+            clipPath="url(#lineClip)"
+            style={{
+              transition: 'opacity 0.6s ease-out',
+              opacity: animatedProgress,
+            }}
+          />
+        )}
+
+        {/* Upper confidence band edge (dashed) */}
+        {showTrendLine && upperTrendBandPoints.length >= 2 && (
+          <path
+            d={createSmoothPath(upperTrendBandPoints)}
+            fill="none"
+            stroke="#60A5FA"
+            strokeWidth={0.75}
+            strokeDasharray="3 3"
+            opacity={0.2 * animatedProgress}
+            clipPath="url(#lineClip)"
+          />
+        )}
+
+        {/* Lower confidence band edge (dashed) */}
+        {showTrendLine && lowerTrendBandPoints.length >= 2 && (
+          <path
+            d={createSmoothPath(lowerTrendBandPoints)}
+            fill="none"
+            stroke="#60A5FA"
+            strokeWidth={0.75}
+            strokeDasharray="3 3"
+            opacity={0.2 * animatedProgress}
+            clipPath="url(#lineClip)"
           />
         )}
 
