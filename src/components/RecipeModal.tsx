@@ -211,6 +211,7 @@ export function RecipeModal({ isOpen, onClose, onSuccess }: RecipeModalProps) {
     <ModalShell
       isOpen={isOpen}
       onClose={handleClose}
+      ariaLabel="Create recipe"
       contentClassName="absolute inset-0 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 
                       sm:max-w-md sm:w-full sm:max-h-[90vh] sm:rounded-2xl
                       bg-bg-primary flex flex-col animate-slide-up"

@@ -478,18 +478,14 @@ async function searchUSDAForTerm(searchTerm: string, displayName: string, origin
 
     if (data.foods && data.foods.length > 0) {
       // Use relevance scoring to find the best match
-      const { food: usdaFood, score } = findBestMatch(data.foods, searchTerm, originalQuery);
+      const { food: usdaFood } = findBestMatch(data.foods, searchTerm, originalQuery);
 
       if (!usdaFood) {
         return null;
       }
-      void score;
 
       // Enrich with portion data for accurate serving sizes
       const enrichedFood = await enrichWithPortionData(usdaFood);
-
-      void enrichedFood;
-
       const normalized = normalizeUSDA(enrichedFood);
       // Use the friendly display name instead of USDA's verbose name
       return {
@@ -524,9 +520,6 @@ async function searchUSDADirect(query: string): Promise<NormalizedFood[]> {
     }
 
     const data: USDASearchResponse = await response.json();
-
-    void query;
-    void data;
 
     const enrichedFoods = await Promise.all(
       data.foods.slice(0, 10).map(enrichWithPortionData)

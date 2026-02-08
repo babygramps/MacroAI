@@ -366,8 +366,6 @@ export function WeightLogModal({ isOpen, onClose, onSuccess, preferredUnit = 'kg
       contentClassName="relative w-full max-w-md bg-bg-surface rounded-t-2xl sm:rounded-2xl 
                    animate-slide-up shadow-xl border border-border-subtle"
       contentProps={{
-        role: 'dialog',
-        'aria-modal': 'true',
         'aria-labelledby': 'weight-modal-title',
       }}
     >
