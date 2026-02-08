@@ -21,6 +21,7 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
   const [isSaving, setIsSaving] = useState(false);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | null>(null);
   const prevTabRef = useRef<Tab>('search');
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTabChange = useCallback((newTab: Tab) => {
     const oldIndex = TAB_ORDER.indexOf(prevTabRef.current);
@@ -41,6 +42,30 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
       setIsSaving(false);
     }
   }, [onSuccess]);
+
+  // Swipe gesture handlers for mobile tab navigation
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  }, []);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const deltaX = e.changedTouches[0].clientX - touchStartRef.current.x;
+    const deltaY = e.changedTouches[0].clientY - touchStartRef.current.y;
+    touchStartRef.current = null;
+
+    // Only trigger if horizontal swipe > 50px and more horizontal than vertical
+    if (Math.abs(deltaX) < 50 || Math.abs(deltaX) < Math.abs(deltaY)) return;
+
+    const currentIndex = TAB_ORDER.indexOf(activeTab);
+    if (deltaX < 0 && currentIndex < TAB_ORDER.length - 1) {
+      // Swipe left → next tab
+      handleTabChange(TAB_ORDER[currentIndex + 1]);
+    } else if (deltaX > 0 && currentIndex > 0) {
+      // Swipe right → previous tab
+      handleTabChange(TAB_ORDER[currentIndex - 1]);
+    }
+  }, [activeTab, handleTabChange]);
 
   // Lazy load tabs with next/dynamic (bundle-dynamic-imports rule)
   const SearchTab = useMemo(
@@ -123,6 +148,8 @@ export function FoodLogModal({ isOpen, onClose, onSuccess, prefetchedRecents }: 
       <div
         className={`flex-1 overflow-y-auto ${slideDirection === 'right' ? 'animate-slide-in-right' : slideDirection === 'left' ? 'animate-slide-in-left' : ''}`}
         key={activeTab}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
       >
         {activeTab === 'search' && <SearchTab onSuccess={handleSuccess} prefetchedRecents={prefetchedRecents} />}
         {activeTab === 'type' && <TextTab onSuccess={handleSuccess} />}

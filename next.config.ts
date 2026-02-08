@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     serverActions: {
       bodySizeLimit: '10mb', // Allow larger images for photo analysis
     },
+    optimizePackageImports: [
+      '@aws-amplify/ui-react',
+      'aws-amplify',
+      '@aws-amplify/adapter-nextjs',
+    ],
   },
   // Image optimization
   images: {
