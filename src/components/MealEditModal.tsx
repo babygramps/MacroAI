@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import type { MealEntry, IngredientEntry, MealCategory, NormalizedFood } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { CategoryPicker } from './ui/CategoryPicker';
@@ -49,10 +49,10 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
     }
   }, [meal]);
 
-  if (!isOpen || !meal) return null;
+  // Calculate totals from current ingredients (memoized to avoid recalc on unrelated re-renders)
+  const totals = useMemo(() => calculateMealTotals(ingredients), [ingredients]);
 
-  // Calculate totals from current ingredients
-  const totals = calculateMealTotals(ingredients);
+  if (!isOpen || !meal) return null;
 
   const handleUpdateIngredient = async (id: string, updates: Partial<IngredientEntry>) => {
     setIngredients((prev) =>

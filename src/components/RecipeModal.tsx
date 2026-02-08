@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { parseRecipe } from '@/actions/parseRecipe';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { ParsedRecipe, ParsedRecipeIngredient } from '@/lib/types';
@@ -197,15 +197,26 @@ export function RecipeModal({ isOpen, onClose, onSuccess }: RecipeModalProps) {
     setView('input');
   };
 
-  const totals = parsedRecipe ? calculateTotals() : null;
+  const totals = useMemo(
+    () => (parsedRecipe ? calculateTotals() : null),
+    [parsedRecipe, calculateTotals]
+  );
+
   const servingsNum = parseFloat(totalServings) || 1;
-  const perServing = totals ? {
-    calories: Math.round(totals.calories / servingsNum),
-    protein: Math.round((totals.protein / servingsNum) * 10) / 10,
-    carbs: Math.round((totals.carbs / servingsNum) * 10) / 10,
-    fat: Math.round((totals.fat / servingsNum) * 10) / 10,
-    weight: Math.round(totals.weight / servingsNum),
-  } : null;
+
+  const perServing = useMemo(
+    () =>
+      totals
+        ? {
+            calories: Math.round(totals.calories / servingsNum),
+            protein: Math.round((totals.protein / servingsNum) * 10) / 10,
+            carbs: Math.round((totals.carbs / servingsNum) * 10) / 10,
+            fat: Math.round((totals.fat / servingsNum) * 10) / 10,
+            weight: Math.round(totals.weight / servingsNum),
+          }
+        : null,
+    [totals, servingsNum]
+  );
 
   return (
     <ModalShell
