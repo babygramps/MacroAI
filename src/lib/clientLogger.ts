@@ -172,12 +172,15 @@ async function sendLog(level: LogLevel, message: string, context?: LogContext): 
         });
 
         if (debugEnabled) {
-            await fetch('/api/debug?debug=1', {
+            const debugResponse = await fetch('/api/debug?debug=1', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload),
                 keepalive: true,
             });
+            if (debugResponse.status === 401) {
+                console.warn('[clientLogger] Debug log rejected: unauthenticated session');
+            }
         }
     } catch {
         // Silently fail - we don't want logging to break the app

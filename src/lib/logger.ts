@@ -8,7 +8,10 @@ function formatContext(context?: LogPayload): string | undefined {
     return undefined;
   }
   if (context instanceof Error) {
-    return JSON.stringify({ message: context.message, stack: context.stack });
+    return JSON.stringify({
+      message: context.message,
+      ...(isProduction ? {} : { stack: context.stack }),
+    });
   }
   if (typeof context !== 'object') {
     return String(context);

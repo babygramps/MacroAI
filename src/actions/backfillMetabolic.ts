@@ -14,6 +14,7 @@
  */
 
 import { backfillMetabolicData } from '@/lib/metabolicService';
+import { getAuthenticatedServerContext } from '@/lib/serverAuth';
 
 export interface BackfillResult {
   success: boolean;
@@ -31,12 +32,39 @@ export interface BackfillResult {
  */
 export async function runBackfillMetabolic(days: number = 90): Promise<BackfillResult> {
   console.log('[backfillMetabolic] Starting backfill for', days, 'days');
-  
+
+  const auth = await getAuthenticatedServerContext();
+  if (!auth) {
+    return {
+      success: false,
+      daysProcessed: 0,
+      dailyLogsCreated: 0,
+      computedStatesCreated: 0,
+      error: 'Not authenticated',
+    };
+  }
+
+  const adminEmailAllowlist = (process.env.ADMIN_EMAIL_ALLOWLIST ?? '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  const isAdminEmail = auth.userEmail ? adminEmailAllowlist.includes(auth.userEmail.toLowerCase()) : false;
+
+  if (adminEmailAllowlist.length > 0 && !isAdminEmail) {
+    return {
+      success: false,
+      daysProcessed: 0,
+      dailyLogsCreated: 0,
+      computedStatesCreated: 0,
+      error: 'Forbidden',
+    };
+  }
+
   try {
     const result = await backfillMetabolicData(days);
-    
+
     console.log('[backfillMetabolic] Backfill complete:', result);
-    
+
     return {
       success: true,
       ...result,

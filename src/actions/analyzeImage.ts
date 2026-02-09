@@ -5,6 +5,7 @@ import { normalizeUSDA, normalizeGemini, withValidation } from '@/lib/normalizer
 import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { findBestMatch } from '@/lib/search/relevance';
 import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
+import { getAuthenticatedServerContext } from '@/lib/serverAuth';
 
 const console = {
   log: logDebug,
@@ -30,6 +31,9 @@ interface GeminiFallbackFood {
   carbs_g: number;
   fat_g: number;
 }
+
+const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB guardrail
+const MAX_DESCRIPTION_LENGTH = 800;
 
 // Error codes for user-friendly messaging
 export type ImageAnalysisErrorCode =
@@ -154,6 +158,18 @@ function scaleToWeight(food: NormalizedFood, targetWeight: number, displayName: 
  * Note: Images are NOT cached due to uniqueness
  */
 export async function analyzeImage(formData: FormData): Promise<ImageAnalysisResult> {
+  const auth = await getAuthenticatedServerContext();
+  if (!auth) {
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'unknown_error',
+        message: 'Please sign in to analyze photos.',
+      },
+    };
+  }
+
   const geminiKey = process.env.GEMINI_API_KEY;
   if (!geminiKey) {
     console.error('GEMINI_API_KEY not configured');
@@ -169,6 +185,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
 
   const imageFile = formData.get('image') as File | null;
   const userDescription = formData.get('description') as string | null;
+  const safeUserDescription = userDescription?.slice(0, MAX_DESCRIPTION_LENGTH) ?? null;
   const startedAt = Date.now();
 
   if (!imageFile) {
@@ -183,6 +200,17 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     };
   }
 
+  if (imageFile.size > MAX_IMAGE_SIZE_BYTES) {
+    return {
+      success: false,
+      foods: [],
+      error: {
+        code: 'no_image',
+        message: 'Image is too large. Please upload an image under 8MB.',
+      },
+    };
+  }
+
   // Log incoming image details for debugging
   console.info('analyzeImage called', {
     fileName: imageFile.name,
@@ -190,7 +218,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     fileSize: imageFile.size,
     fileSizeMB: Math.round(imageFile.size / 1024 / 1024 * 100) / 100,
     hasDescription: !!userDescription,
-    descriptionLength: userDescription?.length ?? 0,
+    descriptionLength: safeUserDescription?.length ?? 0,
     estimatedBase64Bytes: Math.ceil((imageFile.size * 4) / 3),
   });
 
@@ -208,10 +236,12 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     const client = new GoogleGenAI({ apiKey: geminiKey });
 
     // Build context section if user provided a description
-    const userContextSection = userDescription
+    const userContextSection = safeUserDescription
       ? `
 USER-PROVIDED CONTEXT:
-The user has described this meal as: "${userDescription}"
+USER_DESCRIPTION_START
+${safeUserDescription}
+USER_DESCRIPTION_END
 Use this information to:
 - Identify specific restaurants/brands mentioned (mark as is_branded: true)
 - Use any portion sizes mentioned (e.g., "6oz steak", "large fries")
@@ -303,7 +333,6 @@ Return ONLY a valid JSON array. Example:
         error: {
           code: 'gemini_empty_response',
           message: 'The AI could not process this image. Please try a clearer photo.',
-          details: 'Gemini returned null/empty response',
         },
       };
     }
@@ -323,7 +352,6 @@ Return ONLY a valid JSON array. Example:
         error: {
           code: 'gemini_parse_error',
           message: 'The AI returned an unexpected response. Please try again.',
-          details: `Parse error: ${parseError instanceof Error ? parseError.message : String(parseError)}. Raw: ${responseText.substring(0, 500)}`,
         },
       };
     }
@@ -339,7 +367,6 @@ Return ONLY a valid JSON array. Example:
         error: {
           code: 'gemini_no_food_detected',
           message: 'No food items were detected in this image. Try taking a clearer photo with better lighting, or add a description.',
-          details: 'Gemini returned empty array - no food items recognized',
         },
       };
     }
@@ -406,7 +433,6 @@ Return ONLY a valid JSON array. Example:
         error: {
           code: 'gemini_api_error',
           message: 'This image could not be analyzed. Please try a different photo.',
-          details: `Safety filter: ${errorMessage}`,
         },
       };
     }
@@ -417,7 +443,6 @@ Return ONLY a valid JSON array. Example:
       error: {
         code: 'unknown_error',
         message: 'Something went wrong analyzing your photo. Please try again.',
-        details: errorMessage,
       },
     };
   }
