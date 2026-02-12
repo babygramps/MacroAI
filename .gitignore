@@ -22,7 +22,7 @@ __tests__/fixtures/*
 *.pem
 
 # AWS Amplify
-amplify_outputs.json
+# amplify_outputs.json is committed for Vercel builds (contains only public identifiers, not secrets)
 amplify_outputs.d.ts
 .amplify/
 
@@ -63,3 +63,4 @@ CLAUDE.md
 .next-docs/
 
 VERCEL_MIGRATION.md
+.vercel

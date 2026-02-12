@@ -20,23 +20,23 @@ import {
 import { METABOLIC_CONSTANTS } from '@/lib/types';
 import type { DailyLog, ComputedState, UserGoals } from '@/lib/types';
 
-// Kcal per kg per week for goal calculations
-const KCAL_PER_KG_WEEKLY = 7700 / 7; // ~1100
+const DEFICIT_KCAL_PER_KG_WEEKLY = METABOLIC_CONSTANTS.ENERGY_DENSITY_DEFICIT / 7;
+const SURPLUS_KCAL_PER_KG_WEEKLY = METABOLIC_CONSTANTS.ENERGY_DENSITY_SURPLUS / 7;
 
 describe('coachingEngine', () => {
   describe('calculateGoalAdjustment', () => {
     it('should return negative adjustment for weight loss', () => {
       // Lose 0.5 kg/week = -550 kcal/day
       const result = calculateGoalAdjustment('lose', 0.5);
-      expect(result).toBe(-Math.round(0.5 * KCAL_PER_KG_WEEKLY));
+      expect(result).toBe(-Math.round(0.5 * DEFICIT_KCAL_PER_KG_WEEKLY));
       expect(result).toBeCloseTo(-550, -1);
     });
 
     it('should return positive adjustment for weight gain', () => {
-      // Gain 0.5 kg/week = +550 kcal/day
+      // Gain 0.5 kg/week = +393 kcal/day (5500 kcal/kg model)
       const result = calculateGoalAdjustment('gain', 0.5);
-      expect(result).toBe(Math.round(0.5 * KCAL_PER_KG_WEEKLY));
-      expect(result).toBeCloseTo(550, -1);
+      expect(result).toBe(Math.round(0.5 * SURPLUS_KCAL_PER_KG_WEEKLY));
+      expect(result).toBe(393);
     });
 
     it('should return zero for maintenance', () => {
@@ -67,9 +67,9 @@ describe('coachingEngine', () => {
     });
 
     it('should add adjustment for weight gain', () => {
-      // TDEE 2500, gain 0.5 kg/week = 2500 + 550 = 3050
+      // TDEE 2500, gain 0.5 kg/week = 2500 + 393 = 2893
       const result = calculateCalorieTarget(2500, 'gain', 0.5);
-      expect(result).toBeCloseTo(3050, -2);
+      expect(result).toBe(2893);
     });
 
     it('should return TDEE for maintenance', () => {

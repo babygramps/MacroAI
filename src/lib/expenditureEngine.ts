@@ -15,6 +15,7 @@ import {
   type UserGoals,
   type ConfidenceLevel,
 } from './types';
+import { validateDailyLogForTdee } from './edgeCaseHandler';
 
 const {
   TDEE_EMA_ALPHA,
@@ -25,6 +26,8 @@ const {
   COLD_START_DAYS,
   DEFAULT_ACTIVITY_MULTIPLIER,
 } = METABOLIC_CONSTANTS;
+
+const MAX_RAW_TDEE_DELTA = 1200;
 
 /**
  * Select the appropriate energy density factor based on weight change direction
@@ -122,13 +125,28 @@ export function calculateDailyExpenditure(
   stepCountDelta?: number
 ): { estimatedTdee: number; rawTdee: number; energyDensity: number } {
   const { rawTdee, energyDensity } = calculateRawTdee(intakeKcal, weightDeltaKg);
-  const estimatedTdee = smoothTdee(rawTdee, prevTdee, stepCountDelta);
+  const boundedRawTdee = boundRawTdeeDelta(rawTdee, prevTdee);
+  const estimatedTdee = smoothTdee(boundedRawTdee, prevTdee, stepCountDelta);
   
   return {
     estimatedTdee,
-    rawTdee,
+    rawTdee: boundedRawTdee,
     energyDensity,
   };
+}
+
+function boundRawTdeeDelta(rawTdee: number, prevTdee: number): number {
+  const lowerBound = prevTdee - MAX_RAW_TDEE_DELTA;
+  const upperBound = prevTdee + MAX_RAW_TDEE_DELTA;
+  const boundedRawTdee = Math.min(upperBound, Math.max(lowerBound, rawTdee));
+
+  if (boundedRawTdee !== rawTdee) {
+    console.log(
+      `[ExpenditureEngine] Raw TDEE bounded from ${rawTdee} to ${boundedRawTdee} (prev=${prevTdee}, maxDelta=${MAX_RAW_TDEE_DELTA})`
+    );
+  }
+
+  return boundedRawTdee;
 }
 
 // ============================================
@@ -293,17 +311,32 @@ export function buildComputedState(
   prevTdee: number,
   stepCountDelta?: number,
   daysTracked: number = 0,
-  recentTdeeVariance: number = 0
+  recentTdeeVariance: number = 0,
+  weightDeltaOverrideKg?: number
 ): ComputedState {
-  const weightDeltaKg = trendWeightKg - prevTrendWeightKg;
+  const trendWeightDeltaKg = trendWeightKg - prevTrendWeightKg;
+  const weightDeltaKg = weightDeltaOverrideKg ?? trendWeightDeltaKg;
 
-  // If no calorie data OR day is marked as skipped, we can't calculate TDEE - hold previous
-  // This ensures user-marked incomplete days are excluded from TDEE calculations
-  const isSkipped = dailyLog?.logStatus === 'skipped';
-  if (!dailyLog || dailyLog.nutritionCalories === null || isSkipped) {
-    if (isSkipped) {
-      console.log(`[ExpenditureEngine] Day ${date} marked as skipped - holding previous TDEE`);
-    }
+  // If no calorie data or day quality is invalid, hold previous TDEE and widen uncertainty.
+  if (!dailyLog) {
+    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
+    console.log(`[ExpenditureEngine] Day ${date} has no DailyLog - holding previous TDEE`);
+    return {
+      date,
+      trendWeightKg,
+      estimatedTdeeKcal: prevTdee,
+      rawTdeeKcal: prevTdee,
+      fluxConfidenceRange: missingFlux,
+      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
+      weightDeltaKg,
+    };
+  }
+
+  const validation = validateDailyLogForTdee(dailyLog, prevTdee);
+  if (!validation.isValid) {
+    console.log(
+      `[ExpenditureEngine] Day ${date} excluded from TDEE update: ${validation.reason ?? 'invalid daily log'}`
+    );
     // Missing data = high uncertainty; use dynamic range but with a floor of 400
     const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
     return {
@@ -317,8 +350,24 @@ export function buildComputedState(
     };
   }
   
+  const nutritionCalories = dailyLog.nutritionCalories;
+  if (nutritionCalories === null) {
+    // Defensive guard for type narrowing; validation above should catch this.
+    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
+    console.log(`[ExpenditureEngine] Day ${date} has null calories post-validation - holding previous TDEE`);
+    return {
+      date,
+      trendWeightKg,
+      estimatedTdeeKcal: prevTdee,
+      rawTdeeKcal: prevTdee,
+      fluxConfidenceRange: missingFlux,
+      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
+      weightDeltaKg,
+    };
+  }
+
   const { estimatedTdee, rawTdee, energyDensity } = calculateDailyExpenditure(
-    dailyLog.nutritionCalories,
+    nutritionCalories,
     weightDeltaKg,
     prevTdee,
     stepCountDelta

@@ -9,7 +9,7 @@ const securityHeaders = [
       "frame-ancestors 'none'",
       "object-src 'none'",
       "img-src 'self' data: blob: https:",
-      "font-src 'self' https://fonts.gstatic.com https://api.fontshare.com",
+      "font-src 'self' https://fonts.gstatic.com https://api.fontshare.com https://cdn.fontshare.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://api.fontshare.com",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       "connect-src 'self' https://api.nal.usda.gov https://world.openfoodfacts.org https://generativelanguage.googleapis.com https://*.amazonaws.com https://*.amazoncognito.com",

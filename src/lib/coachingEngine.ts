@@ -23,10 +23,11 @@ import { determineConfidenceLevel } from './expenditureEngine';
 const {
   MAINTENANCE_TOLERANCE_KG,
   MICRO_ADJUSTMENT_KCAL,
+  ENERGY_DENSITY_DEFICIT,
+  ENERGY_DENSITY_SURPLUS,
 } = METABOLIC_CONSTANTS;
-
-// Kcal adjustment per kg of weekly weight change goal
-const KCAL_PER_KG_WEEKLY = 7700 / 7; // ~1100 kcal/day per kg/week
+const DAILY_DEFICIT_PER_KG_WEEKLY = ENERGY_DENSITY_DEFICIT / 7;
+const DAILY_SURPLUS_PER_KG_WEEKLY = ENERGY_DENSITY_SURPLUS / 7;
 
 /**
  * Calculate the daily calorie deficit/surplus needed for a goal
@@ -41,11 +42,11 @@ export function calculateGoalAdjustment(
 ): number {
   switch (goalType) {
     case 'lose':
-      // Deficit = rate * 1100 kcal/day (for each kg/week)
-      return -Math.round(goalRateKgPerWeek * KCAL_PER_KG_WEEKLY);
+      // Deficit uses fat-loss dominant energy density
+      return -Math.round(goalRateKgPerWeek * DAILY_DEFICIT_PER_KG_WEEKLY);
     case 'gain':
-      // Surplus = rate * 1100 kcal/day
-      return Math.round(goalRateKgPerWeek * KCAL_PER_KG_WEEKLY);
+      // Surplus uses anabolic inefficiency-adjusted energy density
+      return Math.round(goalRateKgPerWeek * DAILY_SURPLUS_PER_KG_WEEKLY);
     case 'maintain':
     default:
       return 0;

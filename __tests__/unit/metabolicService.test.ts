@@ -222,6 +222,35 @@ describe('metabolicService', () => {
       // Should also create states for other dates that don't have existing entries
       // This is expected behavior - only matching dates get updated
     });
+
+    it('holds TDEE on partial logging days in recalculation path', async () => {
+      const today = new Date();
+      const todayIso = today.toISOString();
+      const todayKey = formatDateKey(today);
+
+      mockWeightLogList.mockResolvedValue({
+        data: [{ id: 'w1', weightKg: 80, recordedAt: todayIso }],
+      });
+      mockDailyLogList.mockResolvedValue({
+        data: [{
+          date: todayKey,
+          nutritionCalories: 800,
+          nutritionProteinG: 50,
+          nutritionCarbsG: 80,
+          nutritionFatG: 20,
+          stepCount: null,
+          logStatus: 'partial',
+        }],
+      });
+      mockComputedStateList.mockResolvedValue({ data: [] });
+
+      await recalculateTdeeFromDate(todayKey);
+
+      expect(mockComputedStateCreate).toHaveBeenCalled();
+      const createdState = mockComputedStateCreate.mock.calls[0][0];
+      expect(createdState.rawTdeeKcal).toBe(createdState.estimatedTdeeKcal);
+      expect(createdState.fluxConfidenceRange).toBeGreaterThanOrEqual(400);
+    });
   });
 
   describe('event handlers', () => {

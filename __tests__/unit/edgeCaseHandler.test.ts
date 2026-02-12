@@ -80,6 +80,12 @@ describe('edgeCaseHandler', () => {
       expect(result.reason).not.toBeNull();
     });
 
+    it('should be invalid when explicitly marked partial even with moderate calories', () => {
+      const result = validateDailyLogForTdee(makeLog(1800, 'partial'), 2500);
+      expect(result.isValid).toBe(false);
+      expect(result.reason).toContain('partial');
+    });
+
     it('should be invalid for skipped days', () => {
       const result = validateDailyLogForTdee(makeLog(2000, 'skipped'), 2500);
       expect(result.isValid).toBe(false);

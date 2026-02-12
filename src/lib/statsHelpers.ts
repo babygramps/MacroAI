@@ -26,6 +26,7 @@ import {
   getWeekStartDate,
   getWeekEndDate,
 } from './coachingEngine';
+import { dampWhooshEffect, validateDailyLogForTdee } from './edgeCaseHandler';
 
 /**
  * Format a date to YYYY-MM-DD string
@@ -734,17 +735,26 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
   // Build computed states with dynamic flux range
   const states: ComputedState[] = [];
   const recentRawTdees: number[] = []; // Track recent raw TDEE values for variance
+  let validDaysProcessed = 0;
 
   for (let i = 0; i < trendData.length; i++) {
     const point = trendData[i];
-    const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
+    const prevPoint = i > 0 ? trendData[i - 1] : point;
+    const prevTrendWeight = prevPoint.trendWeight;
     const dailyLog = dailyLogs.find(d => d.date === point.date) ?? null;
 
     // Count valid days so far (days with calorie data)
-    const validDaysSoFar = states.filter(s => s.rawTdeeKcal !== s.estimatedTdeeKcal || s.fluxConfidenceRange < 400).length;
+    const validDaysSoFar = validDaysProcessed;
 
     // Calculate variance of recent raw TDEE values (last 7)
     const recentVariance = calculateVariance(recentRawTdees.slice(-7));
+
+    let adjustedWeightDeltaKg: number | undefined;
+    if (i > 0 && point.scaleWeight !== null && prevPoint.scaleWeight !== null) {
+      const scaleWeightDeltaKg = point.scaleWeight - prevPoint.scaleWeight;
+      const trendWeightDeltaKg = point.trendWeight - prevTrendWeight;
+      adjustedWeightDeltaKg = dampWhooshEffect(scaleWeightDeltaKg, trendWeightDeltaKg);
+    }
 
     const state = buildComputedState(
       point.date,
@@ -754,12 +764,20 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
       prevTdee,
       undefined, // stepCountDelta
       validDaysSoFar,
-      recentVariance
+      recentVariance,
+      adjustedWeightDeltaKg
     );
 
+    const isValidForTdee =
+      dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
+
     // Track raw TDEE for variance calculation
-    if (state.rawTdeeKcal !== state.estimatedTdeeKcal) {
+    if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {
       recentRawTdees.push(state.rawTdeeKcal);
+    }
+
+    if (isValidForTdee) {
+      validDaysProcessed++;
     }
 
     states.push(state);

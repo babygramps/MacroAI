@@ -123,6 +123,15 @@ describe('expenditureEngine', () => {
       expect(result.estimatedTdee).toBe(2514);
     });
 
+    it('should bound extreme raw TDEE deltas before smoothing', () => {
+      // Raw without bounds: 2000 - (-1 * 7700) = 9700
+      // Bounded to prev + 1200 => 3700
+      const result = calculateDailyExpenditure(2000, -1, 2500);
+      expect(result.rawTdee).toBe(3700);
+      // Smoothed from bounded raw: (3700 * 0.05) + (2500 * 0.95) = 2560
+      expect(result.estimatedTdee).toBe(2560);
+    });
+
     it('should handle step count delta for responsive smoothing', () => {
       const result = calculateDailyExpenditure(2000, -0.1, 2500, 0.25);
       
@@ -319,8 +328,8 @@ describe('expenditureEngine', () => {
       expect(result.weightDeltaKg).toBe(-0.5);
       expect(result.energyDensityUsed).toBe(7700); // Deficit
       
-      // Raw TDEE: 2000 - (-0.5 * 7700) = 5850
-      expect(result.rawTdeeKcal).toBe(5850);
+      // Raw TDEE bounded to avoid single-day swings: 5850 -> 3700
+      expect(result.rawTdeeKcal).toBe(3700);
     });
 
     it('should hold previous TDEE when no calorie data', () => {
@@ -383,6 +392,60 @@ describe('expenditureEngine', () => {
       expect(result.estimatedTdeeKcal).toBe(2500);
       expect(result.rawTdeeKcal).toBe(2500);
       expect(result.fluxConfidenceRange).toBe(500); // High uncertainty
+    });
+
+    it('should hold previous TDEE when day is marked as partial', () => {
+      const dailyLog: DailyLog = {
+        date: '2026-01-15',
+        scaleWeightKg: 84,
+        nutritionCalories: 900,
+        nutritionProteinG: 60,
+        nutritionCarbsG: 80,
+        nutritionFatG: 30,
+        stepCount: null,
+        logStatus: 'partial',
+      };
+
+      const result = buildComputedState(
+        '2026-01-15',
+        84.5,
+        85,
+        dailyLog,
+        2500
+      );
+
+      expect(result.estimatedTdeeKcal).toBe(2500);
+      expect(result.rawTdeeKcal).toBe(2500);
+      expect(result.fluxConfidenceRange).toBe(500);
+    });
+
+    it('should use weightDeltaOverride when provided', () => {
+      const dailyLog: DailyLog = {
+        date: '2026-01-15',
+        scaleWeightKg: 84,
+        nutritionCalories: 2000,
+        nutritionProteinG: 150,
+        nutritionCarbsG: 200,
+        nutritionFatG: 65,
+        stepCount: null,
+        logStatus: 'complete',
+      };
+
+      const result = buildComputedState(
+        '2026-01-15',
+        84.5,
+        85,
+        dailyLog,
+        2500,
+        undefined,
+        0,
+        0,
+        -0.2
+      );
+
+      // Uses override instead of trend delta (-0.5)
+      expect(result.weightDeltaKg).toBe(-0.2);
+      expect(result.rawTdeeKcal).toBe(3540); // 2000 - (-0.2 * 7700)
     });
   });
 

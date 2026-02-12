@@ -17,6 +17,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { formatDateKey } from './statsHelpers';
 import { calculateTrendWeights } from './trendEngine';
 import { buildComputedState, calculateColdStartTdee } from './expenditureEngine';
+import { dampWhooshEffect, validateDailyLogForTdee } from './edgeCaseHandler';
 import type { DailyLog, UserGoals, WeightLogEntry } from './types';
 
 // ============================================
@@ -319,7 +320,10 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     });
 
     if (prevStates && prevStates.length > 0) {
-      prevTdee = prevStates[0].estimatedTdeeKcal;
+      const persistedPrevTdee = prevStates[0].estimatedTdeeKcal;
+      if (typeof persistedPrevTdee === 'number' && Number.isFinite(persistedPrevTdee)) {
+        prevTdee = persistedPrevTdee;
+      }
     } else if (userGoals && weightEntries.length > 0) {
       // Cold start - use Mifflin-St Jeor
       const coldStart = calculateColdStartTdee(userGoals, weightEntries[0].weightKg);
@@ -330,15 +334,17 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
 
     // Process each day and calculate/persist ComputedState
     let daysRecalculated = 0;
+    let validDaysProcessed = 0;
     const recentRawTdees: number[] = []; // Track for variance calculation
 
     for (let i = 0; i < trendData.length; i++) {
       const point = trendData[i];
-      const prevTrendWeight = i > 0 ? trendData[i - 1].trendWeight : point.trendWeight;
+      const prevPoint = i > 0 ? trendData[i - 1] : point;
+      const prevTrendWeight = prevPoint.trendWeight;
       const dailyLog = dailyLogMap.get(point.date) ?? null;
 
       // Count valid days processed so far
-      const validDaysSoFar = daysRecalculated;
+      const validDaysSoFar = validDaysProcessed;
 
       // Calculate variance of recent raw TDEE values (last 7)
       const recentSlice = recentRawTdees.slice(-7);
@@ -349,6 +355,18 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
           }, 0) / recentSlice.length
         : 0;
 
+      let adjustedWeightDeltaKg: number | undefined;
+      if (i > 0 && point.scaleWeight !== null && prevPoint.scaleWeight !== null) {
+        const scaleWeightDeltaKg = point.scaleWeight - prevPoint.scaleWeight;
+        const trendWeightDeltaKg = point.trendWeight - prevTrendWeight;
+        adjustedWeightDeltaKg = dampWhooshEffect(scaleWeightDeltaKg, trendWeightDeltaKg);
+        if (adjustedWeightDeltaKg !== trendWeightDeltaKg) {
+          console.log(
+            `[metabolicService] Whoosh dampening ${point.date}: scaleDelta=${scaleWeightDeltaKg.toFixed(3)}, trendDelta=${trendWeightDeltaKg.toFixed(3)}, usedDelta=${adjustedWeightDeltaKg.toFixed(3)}`
+          );
+        }
+      }
+
       // Build the computed state with dynamic flux range
       const state = buildComputedState(
         point.date,
@@ -358,12 +376,20 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
         prevTdee,
         undefined, // stepCountDelta
         validDaysSoFar,
-        recentVariance
+        recentVariance,
+        adjustedWeightDeltaKg
       );
 
-      // Track raw TDEE for variance
-      if (state.rawTdeeKcal !== state.estimatedTdeeKcal) {
+      const isValidForTdee =
+        dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
+
+      // Track raw TDEE variance from valid update days only
+      if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {
         recentRawTdees.push(state.rawTdeeKcal);
+      }
+
+      if (isValidForTdee) {
+        validDaysProcessed++;
       }
 
       // Persist to database

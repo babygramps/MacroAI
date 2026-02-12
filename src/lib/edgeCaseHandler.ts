@@ -79,6 +79,11 @@ export function validateDailyLogForTdee(
   if (dailyLog.nutritionCalories === null) {
     return { isValid: false, reason: 'No nutrition data logged' };
   }
+
+  // Respect explicit user intent: partial days are excluded from TDEE updates.
+  if (dailyLog.logStatus === 'partial') {
+    return { isValid: false, reason: 'Day marked as partial' };
+  }
   
   // Check for partial logging
   const partialCheck = isPartialLogging(dailyLog.nutritionCalories, estimatedTdee);
