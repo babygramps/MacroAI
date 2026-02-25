@@ -28,4 +28,18 @@ export const auth = defineAuth({
       mutable: true,
     },
   },
+  // Auto-confirm users in sandbox/dev for testing
+  triggers: {
+    preSignUp: {
+      handler: {
+        inlineCode: `
+          exports.handler = async (event) => {
+            event.response.autoConfirmUser = true;
+            event.response.autoVerifyEmail = true;
+            return event;
+          };
+        `,
+      },
+    },
+  },
 });
