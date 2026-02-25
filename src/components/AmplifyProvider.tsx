@@ -7,7 +7,6 @@ import { Hub } from 'aws-amplify/utils';
 import { ToastContainer } from './ui/Toast';
 import { UnitProvider } from '@/lib/UnitContext';
 import { SignIn } from './auth/SignIn';
-import { usePathname } from 'next/navigation';
 
 interface AmplifyProviderProps {
   children: ReactNode;
@@ -25,7 +24,6 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
   const [isConfigured, setIsConfigured] = useState(false);
   const [configError, setConfigError] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
-  const pathname = usePathname();
 
   // Check current auth state
   const checkAuthState = useCallback(async () => {
@@ -117,21 +115,12 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
 
   // Show SignIn if not authenticated
   if (!isAuthenticated) {
-    // Public routes that don't require authentication
-    const publicRoutes = ['/_not-found'];
-    const isPublicRoute = publicRoutes.some(route => pathname?.startsWith(route));
-    
-    // If not a public route, show SignIn
-    if (!isPublicRoute) {
-      return (
-        <>
-          <SignIn onAuthenticated={handleAuthenticated} />
-          <ToastContainer />
-        </>
-      );
-    }
-    
-    // For public routes, render without authentication
+    return (
+      <>
+        <SignIn onAuthenticated={handleAuthenticated} />
+        <ToastContainer />
+      </>
+    );
   }
 
   // User is authenticated - show app
