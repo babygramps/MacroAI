@@ -37,6 +37,18 @@ export async function getCachedResults(
 }
 
 /**
+ * Namespaces a cache query so two callers sharing the same `CacheSource`
+ * can't collide on the same cache row. parseRecipe (Task 4) uses this to
+ * keep its recipe-shaped cache entries separate from parseTextLog's —
+ * both cache under `CacheSource: 'GEMINI'`, but the cached payload shapes
+ * differ (a `ParsedRecipe` vs `NormalizedFood[]`), and identical text could
+ * plausibly be submitted to both actions.
+ */
+export function namespaceCacheQuery(namespace: string, query: string): string {
+  return `${namespace}:${query}`;
+}
+
+/**
  * Shared replacement for the `saveToCache` copies in searchFoods and
  * parseTextLog. See `getCachedResults` for the client-passed-in rationale.
  */

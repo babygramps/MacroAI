@@ -39,10 +39,15 @@ export interface GenerateStructuredJsonOptions {
  * analyzeImage (Task 4) maps 'empty_response' and 'parse_error' to
  * different user-facing error codes. Callers that treat all failures
  * uniformly (parseTextLog today) just check `.ok`.
+ *
+ * `request_error` carries the underlying thrown error so callers can
+ * inspect it (e.g. analyzeImage's SAFETY/'blocked' detection, which
+ * pre-refactor lived in a catch block around the raw SDK call).
  */
 export type StructuredJsonResult<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: 'no_client' | 'empty_response' | 'parse_error' | 'request_error' };
+  | { ok: false; reason: 'no_client' | 'empty_response' | 'parse_error' }
+  | { ok: false; reason: 'request_error'; error: unknown };
 
 /**
  * Shared wrapper around `client.models.generateContent` for the 7 call
@@ -78,7 +83,7 @@ export async function generateStructuredJson<T>(
     responseText = response.text;
   } catch (error) {
     logError(logLabel, error);
-    return { ok: false, reason: 'request_error' };
+    return { ok: false, reason: 'request_error', error };
   }
 
   if (!responseText) {
