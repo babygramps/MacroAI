@@ -4,19 +4,16 @@ import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { searchFoods } from '@/actions/searchFoods';
 import { getRecentFoods } from '@/actions/getRecentFoods';
-import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
-import { onMealLogged } from '@/lib/metabolicService';
-import { verifyMealById } from '@/lib/meal/mealVerification';
+import { logMeal, AmplifyClientNotReadyError } from '@/lib/meal/logMeal';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { RecentItemCard, RecentItemCardSkeleton } from './ui/RecentItemCard';
 import { ErrorAlert } from './ui/ErrorAlert';
 import { SourceBadge } from './ui/SourceBadge';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
-import { getLocalDateString } from '@/lib/date';
 
 interface SearchTabProps {
   onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
@@ -241,111 +238,38 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
     setIsSaving(true);
     try {
-      const client = getAmplifyDataClient();
-      if (!client) {
-        logRemote.error('MEAL_LOG_ERROR', { traceId, error: 'Amplify client not ready' });
-        showToast('Amplify is not ready yet. Please try again.', 'error');
-        setIsSaving(false);
-        return;
-      }
-      const now = new Date();
-      const nowISO = now.toISOString();
-      const localDate = getLocalDateString(now);
-
-      // Create the meal
-      const { data: meal } = await client.models.Meal.create({
-        name: mealName || scaled.name,
-        category,
-        eatenAt: nowISO,
-        localDate, // Store user's local date for unambiguous day queries
-        totalCalories: scaled.calories,
-        totalProtein: scaled.protein,
-        totalCarbs: scaled.carbs,
-        totalFat: scaled.fat,
-        totalWeightG: weightNum,
-      });
-
-      if (!meal) {
-        logRemote.error('MEAL_CREATE_FAILED', { traceId, error: 'Meal.create returned null' });
-        throw new Error('Failed to create meal');
-      }
-
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: nowISO, localDate });
-
-      // Create the ingredient
-      // Note: servingSizeGrams must be an integer (schema constraint)
-      const servingSizeGramsInt = selectedFood.servingSizeGrams
-        ? Math.round(selectedFood.servingSizeGrams)
-        : undefined;
-
-      const ingredientResult = await client.models.MealIngredient.create({
-        mealId: meal.id,
-        name: scaled.name,
-        eatenAt: nowISO,
-        localDate, // Store user's local date for unambiguous day queries
-        weightG: weightNum,
-        calories: scaled.calories,
-        protein: scaled.protein,
-        carbs: scaled.carbs,
-        fat: scaled.fat,
-        source: scaled.source,
-        servingDescription: selectedFood.servingDescription || undefined,
-        servingSizeGrams: servingSizeGramsInt,
-        sortOrder: 0,
-      });
-
-      if (ingredientResult.data) {
-        logRemote.info('INGREDIENT_CREATED', { traceId, ingredientId: ingredientResult.data.id, mealId: meal.id });
-      } else {
-        logRemote.error('INGREDIENT_CREATE_FAILED', {
-          traceId,
-          mealId: meal.id,
-          errors: ingredientResult.errors?.map(e => ({ message: e.message, errorType: e.errorType })),
-        });
-      }
-
-      // Verify meal is readable using strongly consistent get
-      const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
-
-      // Trigger metabolic recalculation
-      await onMealLogged(now);
-
-      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
-
-      // Construct optimistic meal entry
-      const optimisticMeal: MealEntry = {
-        id: meal.id,
-        name: meal.name,
-        category: meal.category as MealCategory,
-        eatenAt: meal.eatenAt,
-        totalCalories: meal.totalCalories,
-        totalProtein: meal.totalProtein,
-        totalCarbs: meal.totalCarbs,
-        totalFat: meal.totalFat,
-        totalWeightG: meal.totalWeightG,
-        ingredients: [{
-          id: ingredientResult.data?.id ?? 'temp-id',
-          mealId: meal.id,
-          name: ingredientResult.data?.name ?? scaled.name,
-          weightG: ingredientResult.data?.weightG ?? weightNum,
-          calories: ingredientResult.data?.calories ?? scaled.calories,
-          protein: ingredientResult.data?.protein ?? scaled.protein,
-          carbs: ingredientResult.data?.carbs ?? scaled.carbs,
-          fat: ingredientResult.data?.fat ?? scaled.fat,
-          source: ingredientResult.data?.source ?? scaled.source,
-          servingDescription: ingredientResult.data?.servingDescription ?? (selectedFood.servingDescription || undefined),
-          servingSizeGrams: ingredientResult.data?.servingSizeGrams ?? servingSizeGramsInt,
-          sortOrder: 0,
-        }]
-      };
+      const { verified, meal } = await logMeal(
+        {
+          name: mealName || scaled.name,
+          category,
+          ingredients: [
+            {
+              name: scaled.name,
+              weightG: weightNum,
+              calories: scaled.calories,
+              protein: scaled.protein,
+              carbs: scaled.carbs,
+              fat: scaled.fat,
+              source: scaled.source,
+              servingDescription: selectedFood.servingDescription || undefined,
+              servingSizeGrams: selectedFood.servingSizeGrams,
+            },
+          ],
+        },
+        { traceId, tab: 'search' }
+      );
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || scaled.name} logged!`, 'success');
-      onSuccess({ verified, meal: optimisticMeal });
+      onSuccess({ verified, meal });
     } catch (error) {
-      logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
-      console.error('Error logging food:', error);
-      showToast('Failed to log food. Please try again.', 'error');
+      if (error instanceof AmplifyClientNotReadyError) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+      } else {
+        logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
+        console.error('Error logging food:', error);
+        showToast('Failed to log food. Please try again.', 'error');
+      }
     } finally {
       setIsSaving(false);
     }
