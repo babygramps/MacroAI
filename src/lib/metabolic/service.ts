@@ -24,7 +24,11 @@ import { formatDateKey } from '../statsHelpers';
 import { calculateTrendWeights } from '../trendEngine';
 import { calculateColdStartTdee } from '../expenditureEngine';
 import { computeStateChain } from './stateChain';
-import type { DailyLog } from '../types';
+import { hasComputedStateChanged } from './computedStateDiff';
+import type { ComputedState, DailyLog } from '../types';
+
+/** Concurrency width for chunked ComputedState writes (Task 8). */
+const WRITE_CHUNK_SIZE = 10;
 
 // ============================================
 // Daily Nutrition Aggregation
@@ -172,11 +176,13 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
       return 0;
     }
 
-    // Build a map of existing states for quick lookup (date -> id)
-    const existingStateMap = new Map<string, string>();
+    // Build a map of existing states for quick lookup (date -> full row).
+    // Carries the full persisted fields (not just id) so the diff-skip check
+    // below can compare against them.
+    const existingStateMap = new Map<string, ComputedState>();
     for (const state of existingStates) {
       if (state.id) {
-        existingStateMap.set(state.date, state.id);
+        existingStateMap.set(state.date, state);
       }
     }
 
@@ -235,40 +241,63 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
       },
     });
 
-    // Persist each computed state with the SAME per-day serial create/update
-    // writes as before (batching/diff-skip is Task 8).
-    let daysRecalculated = 0;
-    for (const state of states) {
-      const existingId = existingStateMap.get(state.date);
+    // Diff-skip unchanged rows, then persist the rest in chunks of
+    // WRITE_CHUNK_SIZE concurrent writes (chunks run sequentially so total
+    // concurrency stays bounded). Preserves create-vs-update selection by
+    // existing id exactly as the old serial loop did; a failed write still
+    // rejects the whole recalc (Promise.all rejects the chunk -> the
+    // enclosing try/catch below returns 0), matching prior error semantics.
+    const pendingWrites: Array<() => Promise<unknown>> = [];
+    let skippedCount = 0;
 
-      if (existingId) {
-        // Update existing state
-        await client.models.ComputedState.update({
-          id: existingId,
-          trendWeightKg: state.trendWeightKg,
-          estimatedTdeeKcal: state.estimatedTdeeKcal,
-          rawTdeeKcal: state.rawTdeeKcal,
-          fluxConfidenceRange: state.fluxConfidenceRange,
-          energyDensityUsed: state.energyDensityUsed,
-          weightDeltaKg: state.weightDeltaKg,
-        });
-      } else {
-        // Create new state
-        await client.models.ComputedState.create({
-          date: state.date,
-          trendWeightKg: state.trendWeightKg,
-          estimatedTdeeKcal: state.estimatedTdeeKcal,
-          rawTdeeKcal: state.rawTdeeKcal,
-          fluxConfidenceRange: state.fluxConfidenceRange,
-          energyDensityUsed: state.energyDensityUsed,
-          weightDeltaKg: state.weightDeltaKg,
-        });
+    for (const state of states) {
+      const existing = existingStateMap.get(state.date);
+
+      if (!hasComputedStateChanged(existing, state)) {
+        skippedCount++;
+        continue;
       }
 
-      daysRecalculated++;
+      if (existing?.id) {
+        const existingId = existing.id;
+        // Update existing state
+        pendingWrites.push(() =>
+          client.models.ComputedState.update({
+            id: existingId,
+            trendWeightKg: state.trendWeightKg,
+            estimatedTdeeKcal: state.estimatedTdeeKcal,
+            rawTdeeKcal: state.rawTdeeKcal,
+            fluxConfidenceRange: state.fluxConfidenceRange,
+            energyDensityUsed: state.energyDensityUsed,
+            weightDeltaKg: state.weightDeltaKg,
+          })
+        );
+      } else {
+        // Create new state
+        pendingWrites.push(() =>
+          client.models.ComputedState.create({
+            date: state.date,
+            trendWeightKg: state.trendWeightKg,
+            estimatedTdeeKcal: state.estimatedTdeeKcal,
+            rawTdeeKcal: state.rawTdeeKcal,
+            fluxConfidenceRange: state.fluxConfidenceRange,
+            energyDensityUsed: state.energyDensityUsed,
+            weightDeltaKg: state.weightDeltaKg,
+          })
+        );
+      }
     }
 
-    return daysRecalculated;
+    for (let i = 0; i < pendingWrites.length; i += WRITE_CHUNK_SIZE) {
+      const chunk = pendingWrites.slice(i, i + WRITE_CHUNK_SIZE);
+      await Promise.all(chunk.map((write) => write()));
+    }
+
+    console.log(
+      `[metabolicService] Persisted ${pendingWrites.length} of ${states.length} computed states (${skippedCount} unchanged)`
+    );
+
+    return states.length;
   } catch (error) {
     console.error('[metabolicService] Error recalculating TDEE:', error);
     return 0;
