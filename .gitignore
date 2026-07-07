@@ -64,3 +64,4 @@ CLAUDE.md
 
 VERCEL_MIGRATION.md
 .vercel
+.env*
