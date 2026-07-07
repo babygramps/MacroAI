@@ -31,7 +31,7 @@ jest.mock('@/lib/data/amplifyClient', () => ({
 }));
 
 // Import after mocking
-import { aggregateDailyNutrition, recalculateTdeeFromDate, onMealLogged, onWeightLogged } from '@/lib/metabolicService';
+import { aggregateDailyNutrition, recalculateTdeeFromDate, onMealLogged, onWeightLogged, onDayStatusChanged } from '@/lib/metabolicService';
 
 describe('metabolicService', () => {
   beforeEach(() => {
@@ -286,6 +286,41 @@ describe('metabolicService', () => {
 
       // Should have called the list functions for aggregation
       expect(mockMealList).toHaveBeenCalled();
+    });
+
+    it('onDayStatusChanged does not re-aggregate and does not overwrite the persisted logStatus', async () => {
+      // Simulate updateDayStatus having already persisted the user's explicit
+      // "skipped" choice on a day that has meals (see src/actions/updateDayStatus.ts,
+      // which writes logStatus itself and only re-aggregates nutrition on create).
+      mockDailyLogList.mockResolvedValue({
+        data: [{
+          id: 'daily-log-1',
+          date: '2026-01-15',
+          logStatus: 'skipped',
+          nutritionCalories: 500,
+          nutritionProteinG: 30,
+          nutritionCarbsG: 50,
+          nutritionFatG: 20,
+        }],
+      });
+      mockMealList.mockResolvedValue({
+        data: [{ id: 'meal-1', totalCalories: 500, totalProtein: 30, totalCarbs: 50, totalFat: 20 }],
+      });
+      mockWeightLogList.mockResolvedValue({
+        data: [{ id: 'w1', weightKg: 80, recordedAt: testDateTime }],
+      });
+
+      await onDayStatusChanged(testDateTime);
+
+      // Must NOT re-aggregate: no DailyLog write, and meals are never even
+      // fetched, so the user's explicit logStatus can't be clobbered.
+      expect(mockDailyLogCreate).not.toHaveBeenCalled();
+      expect(mockDailyLogUpdate).not.toHaveBeenCalled();
+      expect(mockMealList).not.toHaveBeenCalled();
+
+      // The recalc path must still run.
+      expect(mockUserProfileList).toHaveBeenCalled();
+      expect(mockComputedStateCreate).toHaveBeenCalled();
     });
 
     it('handles ISO datetime strings', async () => {

@@ -350,6 +350,16 @@ export async function onWeightLogged(date: string | Date): Promise<void> {
  * Handle day status changed event
  * Called after a day's logStatus is updated (e.g. marked skipped/complete)
  *
+ * Only recalculates TDEE - does NOT re-aggregate nutrition. The
+ * `updateDayStatus` server action (src/actions/updateDayStatus.ts) has
+ * already persisted both the user's chosen `logStatus` AND the day's
+ * aggregated nutrition totals before this fires (it either updates the
+ * existing DailyLog with just the new logStatus, or creates one with
+ * nutrition aggregated from meals plus the explicit status). Calling
+ * `aggregateDailyNutrition` here would recompute `logStatus` from meal
+ * presence alone and silently overwrite the user's explicit choice
+ * (e.g. flipping a manually-"skipped" day with meals back to "complete").
+ *
  * @param date - Date whose status changed
  */
 export async function onDayStatusChanged(date: string | Date): Promise<void> {
@@ -357,10 +367,7 @@ export async function onDayStatusChanged(date: string | Date): Promise<void> {
     ? formatDateKey(new Date(date))
     : formatDateKey(date);
 
-  // Step 1: Update the DailyLog to reflect current nutrition data
-  await aggregateDailyNutrition(dateKey);
-
-  // Step 2: Recalculate TDEE from this date forward
+  // Recalculate TDEE from this date forward
   // Skipping/unskipping a day changes which days are excluded from TDEE calculations
   await recalculateTdeeFromDate(dateKey);
 }
