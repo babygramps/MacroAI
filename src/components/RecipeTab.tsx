@@ -2,13 +2,11 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { getRecipes } from '@/actions/getRecipes';
-import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
-import type { RecipeEntry, MealCategory, ScaledRecipePortion, MealEntry, IngredientEntry } from '@/lib/types';
+import type { RecipeEntry, MealCategory, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
-import { onMealLogged } from '@/lib/metabolicService';
-import { verifyMealById } from '@/lib/meal/mealVerification';
+import { scaleRecipePortion } from '@/lib/data/dashboard';
+import { logMeal, AmplifyClientNotReadyError } from '@/lib/meal/logMeal';
 import { logRemote, getErrorContext, generateTraceId } from '@/lib/clientLogger';
-import { getLocalDateString } from '@/lib/date';
 import { RecipeCard, RecipeCardSkeleton } from './ui/RecipeCard';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
@@ -20,35 +18,6 @@ interface RecipeTabProps {
 
 type View = 'list' | 'portion' | 'category';
 type InputMode = 'servings' | 'grams';
-
-/**
- * Scale recipe nutrition to a specific portion
- */
-function scaleRecipePortion(
-  recipe: RecipeEntry,
-  portionAmount: number,
-  portionMode: InputMode
-): ScaledRecipePortion {
-  let portionWeightG: number;
-
-  if (portionMode === 'servings') {
-    const servingSizeG = recipe.servingSizeG || Math.round(recipe.totalYieldG / recipe.totalServings);
-    portionWeightG = portionAmount * servingSizeG;
-  } else {
-    portionWeightG = portionAmount;
-  }
-
-  const scaleFactor = portionWeightG / recipe.totalYieldG;
-
-  return {
-    weightG: Math.round(portionWeightG),
-    calories: Math.round(recipe.totalCalories * scaleFactor),
-    protein: Math.round(recipe.totalProtein * scaleFactor * 10) / 10,
-    carbs: Math.round(recipe.totalCarbs * scaleFactor * 10) / 10,
-    fat: Math.round(recipe.totalFat * scaleFactor * 10) / 10,
-    scaleFactor,
-  };
-}
 
 /**
  * Tab component for logging meals from saved recipes.
@@ -146,109 +115,44 @@ export function RecipeTab({ onSuccess }: RecipeTabProps) {
 
     setIsSaving(true);
     try {
-      const client = getAmplifyDataClient();
-      if (!client) {
-        logRemote.error('MEAL_LOG_ERROR', { traceId, error: 'Amplify client not ready' });
-        showToast('Amplify is not ready yet. Please try again.', 'error');
-        setIsSaving(false);
-        return;
-      }
-
-      const now = new Date();
-      const nowISO = now.toISOString();
-      const localDate = getLocalDateString(now);
-
-      // Create the meal
-      const { data: meal } = await client.models.Meal.create({
-        name: mealName || selectedRecipe.name,
-        category,
-        eatenAt: nowISO,
-        localDate, // Store user's local date for unambiguous day queries
-        totalCalories: scaledPortion.calories,
-        totalProtein: scaledPortion.protein,
-        totalCarbs: scaledPortion.carbs,
-        totalFat: scaledPortion.fat,
-        totalWeightG: scaledPortion.weightG,
-      });
-
-      if (!meal) {
-        logRemote.error('MEAL_CREATE_FAILED', { traceId, error: 'Meal.create returned null' });
-        throw new Error('Failed to create meal');
-      }
-
-      logRemote.info('MEAL_CREATED', { traceId, mealId: meal.id, eatenAt: nowISO, localDate });
-
-      // Create scaled ingredients
-      const ingredientResults = await Promise.all(
-        selectedRecipe.ingredients.map((ing, index) =>
-          client.models.MealIngredient.create({
-            mealId: meal.id,
+      const { verified, meal } = await logMeal(
+        {
+          name: mealName || selectedRecipe.name,
+          category,
+          ingredients: selectedRecipe.ingredients.map((ing) => ({
             name: ing.name,
-            eatenAt: nowISO,
-            localDate, // Store user's local date for unambiguous day queries
             weightG: Math.round(ing.weightG * scaledPortion.scaleFactor),
             calories: Math.round(ing.calories * scaledPortion.scaleFactor),
             protein: Math.round(ing.protein * scaledPortion.scaleFactor * 10) / 10,
             carbs: Math.round(ing.carbs * scaledPortion.scaleFactor * 10) / 10,
             fat: Math.round(ing.fat * scaledPortion.scaleFactor * 10) / 10,
             source: ing.source,
-            sortOrder: index,
-          })
-        )
+          })),
+          // scaledPortion's meal-level totals are the scaled recipe totals, not a
+          // sum of the (independently rounded) scaled ingredients above — pass
+          // them explicitly so logMeal doesn't recompute a possibly-different sum.
+          totals: {
+            totalCalories: scaledPortion.calories,
+            totalProtein: scaledPortion.protein,
+            totalCarbs: scaledPortion.carbs,
+            totalFat: scaledPortion.fat,
+            totalWeightG: scaledPortion.weightG,
+          },
+        },
+        { traceId, tab: 'recipe' }
       );
-
-      const ingredientsCreated = ingredientResults.filter(r => r.data).length;
-      logRemote.info('INGREDIENTS_CREATED', { traceId, mealId: meal.id, count: ingredientsCreated, expected: selectedRecipe.ingredients.length });
-
-      // Verify meal is readable using strongly consistent get
-      const { verified, attempts } = await verifyMealById(client, meal.id, { traceId });
-
-      // Trigger metabolic recalculation
-      await onMealLogged(nowISO);
-
-      logRemote.info('MEAL_LOG_COMPLETE', { traceId, mealId: meal.id, verified, attempts });
-
-      // Construct optimistic meal entry
-      const createdIngredients: IngredientEntry[] = ingredientResults
-        .filter(r => r.data)
-        .map(r => {
-          const ing = r.data!;
-          return {
-            id: ing.id,
-            mealId: meal.id,
-            name: ing.name,
-            weightG: ing.weightG,
-            calories: ing.calories,
-            protein: ing.protein,
-            carbs: ing.carbs,
-            fat: ing.fat,
-            source: ing.source,
-            servingDescription: ing.servingDescription,
-            servingSizeGrams: ing.servingSizeGrams,
-            sortOrder: ing.sortOrder ?? 0,
-          };
-        });
-
-      const optimisticMeal: MealEntry = {
-        id: meal.id,
-        name: meal.name,
-        category: meal.category as MealCategory,
-        eatenAt: meal.eatenAt,
-        totalCalories: meal.totalCalories,
-        totalProtein: meal.totalProtein,
-        totalCarbs: meal.totalCarbs,
-        totalFat: meal.totalFat,
-        totalWeightG: meal.totalWeightG,
-        ingredients: createdIngredients,
-      };
 
       const categoryInfo = MEAL_CATEGORY_INFO[category];
       showToast(`${categoryInfo.emoji} ${mealName || selectedRecipe.name} logged!`, 'success');
-      onSuccess({ verified, meal: optimisticMeal });
+      onSuccess({ verified, meal });
     } catch (error) {
-      logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
-      console.error('Error logging recipe portion:', error);
-      showToast('Failed to log meal. Please try again.', 'error');
+      if (error instanceof AmplifyClientNotReadyError) {
+        showToast('Amplify is not ready yet. Please try again.', 'error');
+      } else {
+        logRemote.error('MEAL_LOG_ERROR', { traceId, ...getErrorContext(error) });
+        console.error('Error logging recipe portion:', error);
+        showToast('Failed to log meal. Please try again.', 'error');
+      }
     } finally {
       setIsSaving(false);
     }

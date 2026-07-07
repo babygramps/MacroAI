@@ -5,6 +5,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { onMealLogged } from '@/lib/metabolicService';
 import { calculateCalorieTarget } from '@/lib/coachingEngine';
 import { getLocalDateString } from '@/lib/date';
+import { logMeal, AmplifyClientNotReadyError } from '@/lib/meal/logMeal';
 
 export const DEFAULT_GOALS: UserGoals = {
   calorieGoal: 2000,
@@ -461,7 +462,13 @@ export function scaleRecipePortion(
 }
 
 /**
- * Log a portion of a recipe as a meal with scaled ingredients
+ * Log a portion of a recipe as a meal with scaled ingredients.
+ *
+ * Thin wrapper over logMeal: scale the portion, shape it into logMeal's
+ * ingredients/totals inputs, and delegate meal + ingredient creation,
+ * verification, and metabolic recalculation to it. Mirrors the original
+ * no-op-when-Amplify-isn't-ready contract (returns rather than throwing) so
+ * any caller relying on that behavior keeps working unmodified.
  */
 export async function logRecipePortion(
   recipe: RecipeEntry,
@@ -470,50 +477,37 @@ export async function logRecipePortion(
   category: MealCategory,
   mealName: string
 ): Promise<void> {
-  const client = getAmplifyDataClient();
-  if (!client) return;
-
   const scaled = scaleRecipePortion(recipe, portionAmount, portionMode);
-  const now = new Date();
-  const nowISO = now.toISOString();
-  const localDate = getLocalDateString(now);
 
-  // Create the meal
-  const { data: meal } = await client.models.Meal.create({
-    name: mealName || recipe.name,
-    category,
-    eatenAt: nowISO,
-    localDate, // Store user's local date for unambiguous day queries
-    totalCalories: scaled.calories,
-    totalProtein: scaled.protein,
-    totalCarbs: scaled.carbs,
-    totalFat: scaled.fat,
-    totalWeightG: scaled.weightG,
-  });
-
-  if (!meal) {
-    throw new Error('Failed to create meal from recipe');
+  try {
+    await logMeal(
+      {
+        name: mealName || recipe.name,
+        category,
+        ingredients: recipe.ingredients.map((ing) => ({
+          name: ing.name,
+          weightG: Math.round(ing.weightG * scaled.scaleFactor),
+          calories: Math.round(ing.calories * scaled.scaleFactor),
+          protein: Math.round(ing.protein * scaled.scaleFactor * 10) / 10,
+          carbs: Math.round(ing.carbs * scaled.scaleFactor * 10) / 10,
+          fat: Math.round(ing.fat * scaled.scaleFactor * 10) / 10,
+          source: ing.source,
+        })),
+        // scaled's meal-level totals are the scaled recipe totals, not a sum
+        // of the (independently rounded) scaled ingredients above — pass them
+        // explicitly so logMeal doesn't recompute a possibly-different sum.
+        totals: {
+          totalCalories: scaled.calories,
+          totalProtein: scaled.protein,
+          totalCarbs: scaled.carbs,
+          totalFat: scaled.fat,
+          totalWeightG: scaled.weightG,
+        },
+      },
+      { tab: 'recipe' }
+    );
+  } catch (error) {
+    if (error instanceof AmplifyClientNotReadyError) return;
+    throw error;
   }
-
-  // Create scaled ingredients
-  await Promise.all(
-    recipe.ingredients.map((ing, index) =>
-      client.models.MealIngredient.create({
-        mealId: meal.id,
-        name: ing.name,
-        eatenAt: nowISO,
-        localDate, // Store user's local date for unambiguous day queries
-        weightG: Math.round(ing.weightG * scaled.scaleFactor),
-        calories: Math.round(ing.calories * scaled.scaleFactor),
-        protein: Math.round(ing.protein * scaled.scaleFactor * 10) / 10,
-        carbs: Math.round(ing.carbs * scaled.scaleFactor * 10) / 10,
-        fat: Math.round(ing.fat * scaled.scaleFactor * 10) / 10,
-        source: ing.source,
-        sortOrder: index,
-      })
-    )
-  );
-
-  // Trigger metabolic recalculation
-  await onMealLogged(nowISO);
 }
