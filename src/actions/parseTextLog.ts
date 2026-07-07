@@ -124,8 +124,11 @@ export async function parseTextLog(text: string): Promise<TextParseResult> {
   }
 
   try {
-    // Step 1: Check cache
-    const cachedResults = await getCachedResults(auth.client, trimmedText, CACHE_SOURCE);
+    // Step 1: Check cache. Explicit type argument: leaving T to its default
+    // makes tsc structurally compare the huge Amplify client types during
+    // inference and fail with "Excessive stack depth" (TS2321). Type-only,
+    // no behavior change.
+    const cachedResults = await getCachedResults<NormalizedFood[]>(auth.client, trimmedText, CACHE_SOURCE);
     if (cachedResults && cachedResults.length > 0) {
       actionConsole.info('Text parse cache hit', { resultsCount: cachedResults.length });
       return { success: true, foods: cachedResults };
@@ -184,9 +187,10 @@ export async function parseTextLog(text: string): Promise<TextParseResult> {
       foodNames: results.map(f => f.name)
     });
 
-    // Step 4: Cache successful results
+    // Step 4: Cache successful results (explicit type argument for the same
+    // TS2321 inference reason as the getCachedResults call above)
     if (results.length > 0) {
-      await saveToCache(auth.client, trimmedText, CACHE_SOURCE, results);
+      await saveToCache<NormalizedFood[]>(auth.client, trimmedText, CACHE_SOURCE, results);
     }
 
     if (results.length === 0) {

@@ -10,12 +10,18 @@ type ServerDataClient = AuthenticatedServerContext['client'];
  * parseTextLog (identical apart from a hardcoded vs. parameterized
  * CacheSource). The client is passed in — callers get it once from
  * `getAuthenticatedServerContext()` instead of building their own.
+ *
+ * Parameterized over the cached payload type because the FoodCache.results
+ * column is untyped JSON and different sources cache different shapes
+ * (NormalizedFood[] for food searches, ParsedRecipe for GEMINI_RECIPE).
+ * The default preserves the original NormalizedFood[] contract for
+ * existing callers.
  */
-export async function getCachedResults(
+export async function getCachedResults<T = NormalizedFood[]>(
   client: ServerDataClient,
   query: string,
   source: CacheSource
-): Promise<NormalizedFood[] | null> {
+): Promise<T | null> {
   const cacheKey = generateCacheKey(query, source);
 
   try {
@@ -26,7 +32,7 @@ export async function getCachedResults(
     if (data && data.length > 0) {
       const entry = data[0];
       if (entry.expiresAt && !isExpired(entry.expiresAt)) {
-        return entry.results as NormalizedFood[];
+        return entry.results as T;
       }
     }
   } catch (error) {
@@ -37,26 +43,15 @@ export async function getCachedResults(
 }
 
 /**
- * Namespaces a cache query so two callers sharing the same `CacheSource`
- * can't collide on the same cache row. parseRecipe (Task 4) uses this to
- * keep its recipe-shaped cache entries separate from parseTextLog's —
- * both cache under `CacheSource: 'GEMINI'`, but the cached payload shapes
- * differ (a `ParsedRecipe` vs `NormalizedFood[]`), and identical text could
- * plausibly be submitted to both actions.
- */
-export function namespaceCacheQuery(namespace: string, query: string): string {
-  return `${namespace}:${query}`;
-}
-
-/**
  * Shared replacement for the `saveToCache` copies in searchFoods and
- * parseTextLog. See `getCachedResults` for the client-passed-in rationale.
+ * parseTextLog. See `getCachedResults` for the client-passed-in and
+ * payload-type-parameter rationale.
  */
-export async function saveToCache(
+export async function saveToCache<T = NormalizedFood[]>(
   client: ServerDataClient,
   query: string,
   source: CacheSource,
-  results: NormalizedFood[]
+  results: T
 ): Promise<void> {
   const entry = createCacheEntry(query, source, results);
 

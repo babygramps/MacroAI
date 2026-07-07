@@ -6,7 +6,7 @@ import { getAuthenticatedServerContext } from '@/lib/serverAuth';
 import { actionConsole, toErrorResult, type FoodActionErrorCode } from '@/lib/server/actionShared';
 import { searchUSDAIngredient } from '@/lib/server/usda';
 import { generateStructuredJson, getGeminiNutritionFallback } from '@/lib/server/gemini';
-import { getCachedResults, saveToCache, namespaceCacheQuery } from '@/lib/server/foodCache';
+import { getCachedResults, saveToCache } from '@/lib/server/foodCache';
 
 // Error codes for recipe parsing debugging
 export type RecipeParseErrorCode = FoodActionErrorCode;
@@ -18,12 +18,14 @@ export interface RecipeParseResult {
   error?: ActionError & { code: RecipeParseErrorCode };
 }
 
-// parseRecipe and parseTextLog both cache under CacheSource 'GEMINI'; the
-// 'recipe' namespace prefix (via namespaceCacheQuery) keeps their cache rows
-// from colliding on identical input text even though the cached payload
-// shapes differ (a ParsedRecipe here vs NormalizedFood[] there).
-const CACHE_SOURCE = 'GEMINI' as const;
-const CACHE_NAMESPACE = 'recipe';
+// Distinct CacheSource from parseTextLog's 'GEMINI': identical text sent to
+// both actions must never resolve to the same cache row, because the cached
+// payload shapes differ (a ParsedRecipe here vs NormalizedFood[] there) and
+// FoodCache is global across users. generateCacheKey hashes
+// `${source}:${query}`, so a distinct source is collision-proof regardless
+// of what the user types (a query-prefix scheme was not — input starting
+// with the prefix could forge a collision).
+const CACHE_SOURCE = 'GEMINI_RECIPE' as const;
 
 // Types for Gemini recipe parsing response
 interface GeminiParsedRecipe {
@@ -147,24 +149,16 @@ export async function parseRecipe(recipeText: string): Promise<RecipeParseResult
     };
   }
 
-  const cacheQuery = namespaceCacheQuery(CACHE_NAMESPACE, trimmedText);
-
   try {
-    // Step 1: Check cache. foodCache.ts's helpers are typed for
-    // NormalizedFood[] (their only pre-existing consumer, parseTextLog,
-    // caches food-search results); the FoodCache.results column is untyped
-    // JSON (`a.json()` in the Amplify schema), so storing/reading a
-    // ParsedRecipe here is safe at runtime — the cast documents the type
-    // mismatch rather than widening the shared module's public contract for
-    // this one caller.
-    const cachedRecipe = await getCachedResults(auth.client, cacheQuery, CACHE_SOURCE);
+    // Step 1: Check cache (keyed on the raw recipe text under the
+    // recipe-specific GEMINI_RECIPE source).
+    const cachedRecipe = await getCachedResults<ParsedRecipe>(auth.client, trimmedText, CACHE_SOURCE);
     if (cachedRecipe) {
-      const recipe = cachedRecipe as unknown as ParsedRecipe;
       actionConsole.info('Recipe parse cache hit', {
-        recipeName: recipe.name,
-        ingredientsCount: recipe.ingredients?.length ?? 0,
+        recipeName: cachedRecipe.name,
+        ingredientsCount: cachedRecipe.ingredients?.length ?? 0,
       });
-      return { success: true, recipe };
+      return { success: true, recipe: cachedRecipe };
     }
 
     // Step 2: Parse recipe with Gemini
@@ -276,9 +270,8 @@ export async function parseRecipe(recipeText: string): Promise<RecipeParseResult
       ingredients: ingredientResults,
     };
 
-    // Step 5: Cache the successfully parsed recipe (see the cache-read
-    // comment above re: the NormalizedFood[]-typed cast).
-    await saveToCache(auth.client, cacheQuery, CACHE_SOURCE, recipe as unknown as NormalizedFood[]);
+    // Step 5: Cache the successfully parsed recipe
+    await saveToCache<ParsedRecipe>(auth.client, trimmedText, CACHE_SOURCE, recipe);
 
     return { success: true, recipe };
   } catch (error) {

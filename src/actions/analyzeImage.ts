@@ -247,6 +247,20 @@ Return ONLY a valid JSON array. Example:
       // reason === 'request_error': preserve the exact SAFETY/'blocked'
       // mapping the pre-refactor outer catch performed for this same call.
       const requestError: unknown = visionResult.reason === 'request_error' ? visionResult.error : undefined;
+
+      // Restore the rich contextual log the pre-refactor outer catch emitted
+      // for Gemini request failures (generateStructuredJson logs the raw
+      // error itself, but has no access to the image/timing context).
+      const requestErrorMessage = requestError instanceof Error ? requestError.message : String(requestError);
+      const requestErrorStack = requestError instanceof Error ? requestError.stack : undefined;
+      actionConsole.error('Image analysis error:', {
+        message: requestErrorMessage,
+        stack: requestErrorStack?.split('\n').slice(0, 5).join('\n'),
+        imageType: imageFile.type,
+        imageSize: imageFile.size,
+        durationMs: Date.now() - startedAt,
+      });
+
       if (isSafetyBlocked(requestError)) {
         return {
           success: false,

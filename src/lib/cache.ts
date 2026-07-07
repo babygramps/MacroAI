@@ -1,8 +1,10 @@
 import CryptoJS from 'crypto-js';
 import type { NormalizedFood } from './types';
 
-// Cache source type
-export type CacheSource = 'USDA' | 'OFF' | 'API_NINJAS' | 'GEMINI';
+// Cache source type. The FoodCache.source column is a plain string
+// (a.string() in the Amplify schema), so adding a value here is a
+// TypeScript-only change — no backend deploy required.
+export type CacheSource = 'USDA' | 'OFF' | 'API_NINJAS' | 'GEMINI' | 'GEMINI_RECIPE';
 
 // Cache TTL constants (in days)
 export const CACHE_TTL: Record<CacheSource, number> = {
@@ -10,6 +12,11 @@ export const CACHE_TTL: Record<CacheSource, number> = {
   OFF: 7, // Product data is stable
   API_NINJAS: 1, // 24 hours for NLP results
   GEMINI: 3, // 3 days for Gemini-parsed meals (cached by full query)
+  // 3 days for Gemini-parsed recipes. A distinct source (not a query prefix)
+  // so identical text sent to parseTextLog (GEMINI) and parseRecipe can never
+  // hash to the same cache row — the cached payload shapes differ
+  // (NormalizedFood[] vs ParsedRecipe) and FoodCache is global across users.
+  GEMINI_RECIPE: 3,
 };
 
 /**
@@ -41,24 +48,28 @@ export function isExpired(expiresAt: number): boolean {
 }
 
 /**
- * Cache entry structure for FoodCache model
+ * Cache entry structure for FoodCache model.
+ * Parameterized because the FoodCache.results column is untyped JSON and
+ * different sources cache different payload shapes (NormalizedFood[] for
+ * food searches, ParsedRecipe for GEMINI_RECIPE). Defaults preserve the
+ * original NormalizedFood[] contract for existing callers.
  */
-export interface CacheEntry {
+export interface CacheEntry<T = NormalizedFood[]> {
   cacheKey: string;
   source: string;
   query: string;
-  results: NormalizedFood[];
+  results: T;
   expiresAt: number;
 }
 
 /**
  * Create a new cache entry object
  */
-export function createCacheEntry(
+export function createCacheEntry<T = NormalizedFood[]>(
   query: string,
   source: CacheSource,
-  results: NormalizedFood[]
-): CacheEntry {
+  results: T
+): CacheEntry<T> {
   const ttlDays = CACHE_TTL[source];
 
   return {
