@@ -312,7 +312,7 @@ Return ONLY a valid JSON object:
 }`;
 
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },

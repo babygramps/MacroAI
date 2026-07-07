@@ -112,7 +112,7 @@ Return ONLY a JSON object with these exact fields:
 Use accurate nutrition data for this specific item. If it's a restaurant/branded item, use known published nutrition facts.`;
 
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -296,7 +296,7 @@ Return ONLY a valid JSON array. Example:
     console.info('Sending request to Gemini Vision...');
 
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: [
         {
           parts: [

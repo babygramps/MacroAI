@@ -172,7 +172,7 @@ Return ONLY valid JSON (or null if not a recipe):
 }`;
 
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
@@ -208,7 +208,7 @@ Return ONLY a JSON object with these exact fields:
 Use accurate nutrition data for this specific item.`;
 
     const response = await client.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3.5-flash',
       contents: prompt,
       config: {
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
