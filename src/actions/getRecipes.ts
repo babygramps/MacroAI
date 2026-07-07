@@ -4,6 +4,7 @@ import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/da
 import type { Schema } from '@/amplify/data/resource';
 import { cookies } from 'next/headers';
 import type { RecipeEntry, RecipeIngredientEntry, RecipesResponse } from '@/lib/types';
+import { listAllPages } from '@/lib/data/metabolicRepo';
 
 // Get server client for DynamoDB operations
 async function getServerClient() {
@@ -58,37 +59,45 @@ export async function getRecipes(): Promise<RecipesResponse> {
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
-    // Fetch ingredients for all recipes in parallel
-    const recipesWithIngredients = await Promise.all(
-      sortedRecipes.map(async (recipe) => {
-        const { data: ingredientsData } = await client.models.RecipeIngredient.listRecipeIngredientByRecipeId({
-          recipeId: recipe.id,
-        });
-
-        const ingredients = (ingredientsData || [])
-          .map(mapRecipeIngredient)
-          .toSorted((a, b) => a.sortOrder - b.sortOrder);
-
-        const entry: RecipeEntry = {
-          id: recipe.id,
-          name: recipe.name,
-          description: recipe.description ?? null,
-          totalYieldG: recipe.totalYieldG,
-          totalServings: recipe.totalServings,
-          servingDescription: recipe.servingDescription ?? null,
-          servingSizeG: recipe.servingSizeG ?? null,
-          totalCalories: recipe.totalCalories,
-          totalProtein: recipe.totalProtein,
-          totalCarbs: recipe.totalCarbs,
-          totalFat: recipe.totalFat,
-          sourceUrl: recipe.sourceUrl ?? null,
-          createdAt: recipe.createdAt,
-          ingredients,
-        };
-
-        return entry;
-      })
+    // Fetch ALL of this user's ingredients in one paginated query (RecipeIngredient
+    // is owner-scoped, so this only returns the calling user's rows) instead of
+    // issuing one listRecipeIngredientByRecipeId query per recipe (N+1), then
+    // group them by recipeId in memory.
+    const allIngredients = await listAllPages((nextToken) =>
+      client.models.RecipeIngredient.list(nextToken ? { nextToken } : undefined)
     );
+
+    const ingredientsByRecipeId = new Map<string, RecipeIngredientEntry[]>();
+    for (const ing of allIngredients) {
+      const mapped = mapRecipeIngredient(ing);
+      const existing = ingredientsByRecipeId.get(mapped.recipeId);
+      if (existing) {
+        existing.push(mapped);
+      } else {
+        ingredientsByRecipeId.set(mapped.recipeId, [mapped]);
+      }
+    }
+    // Preserve per-recipe ordering by sortOrder, same as the old per-recipe query result.
+    for (const ingredients of ingredientsByRecipeId.values()) {
+      ingredients.sort((a, b) => a.sortOrder - b.sortOrder);
+    }
+
+    const recipesWithIngredients: RecipeEntry[] = sortedRecipes.map((recipe) => ({
+      id: recipe.id,
+      name: recipe.name,
+      description: recipe.description ?? null,
+      totalYieldG: recipe.totalYieldG,
+      totalServings: recipe.totalServings,
+      servingDescription: recipe.servingDescription ?? null,
+      servingSizeG: recipe.servingSizeG ?? null,
+      totalCalories: recipe.totalCalories,
+      totalProtein: recipe.totalProtein,
+      totalCarbs: recipe.totalCarbs,
+      totalFat: recipe.totalFat,
+      sourceUrl: recipe.sourceUrl ?? null,
+      createdAt: recipe.createdAt,
+      ingredients: ingredientsByRecipeId.get(recipe.id) ?? [],
+    }));
 
     return { recipes: recipesWithIngredients };
   } catch (error) {
