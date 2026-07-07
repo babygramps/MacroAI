@@ -54,6 +54,19 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
     configure();
   }, [checkAuthState]);
 
+  // Dev-only: install browser-console metabolic debug tooling
+  // (window.resetMetabolicData, window.reviewHighCal, etc). Dynamically
+  // imported so it's statically stripped from the production bundle —
+  // this `if` is on `process.env.NODE_ENV`, which Next.js inlines at
+  // build time, letting webpack dead-code-eliminate the import() call.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'production') {
+      import('@/lib/metabolic/debugTools').catch((err) => {
+        console.warn('Failed to load metabolic debug tooling:', err);
+      });
+    }
+  }, []);
+
   // Listen to auth events
   useEffect(() => {
     const unsubscribe = Hub.listen('auth', ({ payload }) => {
