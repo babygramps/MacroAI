@@ -22,8 +22,8 @@ import {
 } from '@/lib/data/metabolicRepo';
 import { formatDateKey } from './statsHelpers';
 import { calculateTrendWeights } from './trendEngine';
-import { buildComputedState, calculateColdStartTdee } from './expenditureEngine';
-import { dampWhooshEffect, validateDailyLogForTdee } from './edgeCaseHandler';
+import { calculateColdStartTdee } from './expenditureEngine';
+import { computeStateChain } from './metabolic/stateChain';
 import type { DailyLog } from './types';
 
 // ============================================
@@ -221,78 +221,26 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
       }
     }
 
-    // Process each day and calculate/persist ComputedState
+    // Compute the full day-by-day state chain (pure) using the seed above.
+    // The whoosh-dampening diagnostic log is reproduced here via the observer so
+    // this path's logging stays identical to before the extraction.
+    const states = computeStateChain({
+      trendData,
+      dailyLogsByDate: dailyLogMap,
+      initialTdee: prevTdee,
+      onWhooshDamp: ({ date, scaleWeightDeltaKg, trendWeightDeltaKg, adjustedWeightDeltaKg }) => {
+        console.log(
+          `[metabolicService] Whoosh dampening ${date}: scaleDelta=${scaleWeightDeltaKg.toFixed(3)}, trendDelta=${trendWeightDeltaKg.toFixed(3)}, usedDelta=${adjustedWeightDeltaKg.toFixed(3)}`
+        );
+      },
+    });
+
+    // Persist each computed state with the SAME per-day serial create/update
+    // writes as before (batching/diff-skip is Task 8).
     let daysRecalculated = 0;
-    let validDaysProcessed = 0;
-    let consecutiveOutlierCount = 0; // For the sustained-anomaly guardrail
-    const recentRawTdees: number[] = []; // Track for variance calculation
+    for (const state of states) {
+      const existingId = existingStateMap.get(state.date);
 
-    for (let i = 0; i < trendData.length; i++) {
-      const point = trendData[i];
-      const prevPoint = i > 0 ? trendData[i - 1] : point;
-      const prevTrendWeight = prevPoint.trendWeight;
-      const dailyLog = dailyLogMap.get(point.date) ?? null;
-
-      // Count valid days processed so far
-      const validDaysSoFar = validDaysProcessed;
-
-      // Calculate variance of recent raw TDEE values (last 7)
-      const recentSlice = recentRawTdees.slice(-7);
-      const recentVariance = recentSlice.length >= 2
-        ? recentSlice.reduce((sum, v) => {
-            const mean = recentSlice.reduce((s, x) => s + x, 0) / recentSlice.length;
-            return sum + (v - mean) ** 2;
-          }, 0) / recentSlice.length
-        : 0;
-
-      let adjustedWeightDeltaKg: number | undefined;
-      if (i > 0 && point.scaleWeight !== null && prevPoint.scaleWeight !== null) {
-        const scaleWeightDeltaKg = point.scaleWeight - prevPoint.scaleWeight;
-        const trendWeightDeltaKg = point.trendWeight - prevTrendWeight;
-        adjustedWeightDeltaKg = dampWhooshEffect(scaleWeightDeltaKg, trendWeightDeltaKg);
-        if (adjustedWeightDeltaKg !== trendWeightDeltaKg) {
-          console.log(
-            `[metabolicService] Whoosh dampening ${point.date}: scaleDelta=${scaleWeightDeltaKg.toFixed(3)}, trendDelta=${trendWeightDeltaKg.toFixed(3)}, usedDelta=${adjustedWeightDeltaKg.toFixed(3)}`
-          );
-        }
-      }
-
-      // Build the computed state with dynamic flux range
-      const state = buildComputedState(
-        point.date,
-        point.trendWeight,
-        prevTrendWeight,
-        dailyLog,
-        prevTdee,
-        undefined, // stepCountDelta
-        validDaysSoFar,
-        recentVariance,
-        adjustedWeightDeltaKg,
-        { recentRawTdees: recentRawTdees.slice(-7), consecutiveOutlierCount }
-      );
-
-      const isValidForTdee =
-        dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
-
-      // Track consecutive outlier exclusions for the sustained-anomaly guardrail
-      if (state.wasOutlierExcluded) {
-        consecutiveOutlierCount++;
-      } else if (isValidForTdee) {
-        consecutiveOutlierCount = 0;
-      }
-
-      // Track raw TDEE variance from valid update days only
-      if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {
-        recentRawTdees.push(state.rawTdeeKcal);
-      }
-
-      if (isValidForTdee) {
-        validDaysProcessed++;
-      }
-
-      // Persist to database
-      const existingId = existingStateMap.get(point.date);
-      
       if (existingId) {
         // Update existing state
         await client.models.ComputedState.update({
@@ -317,8 +265,6 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
         });
       }
 
-      // Chain the TDEE for next iteration
-      prevTdee = state.estimatedTdeeKcal;
       daysRecalculated++;
     }
 

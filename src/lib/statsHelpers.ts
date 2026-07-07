@@ -23,7 +23,6 @@ import { calculateTrendWeights, getWeeklyWeightChange } from './trendEngine';
 import {
   calculateColdStartTdee,
   determineConfidenceLevel,
-  buildComputedState,
 } from './expenditureEngine';
 import {
   buildWeeklyCheckIn,
@@ -31,7 +30,7 @@ import {
   getWeekStartDate,
   getWeekEndDate,
 } from './coachingEngine';
-import { dampWhooshEffect, validateDailyLogForTdee } from './edgeCaseHandler';
+import { computeStateChain } from './metabolic/stateChain';
 
 /**
  * Format a date to YYYY-MM-DD string
@@ -50,17 +49,6 @@ function getStartOfDay(date: Date): Date {
   const start = new Date(date);
   start.setHours(0, 0, 0, 0);
   return start;
-}
-
-/**
- * Calculate variance of a numeric array
- * Used for TDEE flux confidence range calculation
- */
-function calculateVariance(values: number[]): number {
-  if (values.length < 2) return 0;
-  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-  const squaredDiffs = values.map(v => (v - mean) ** 2);
-  return squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
 /**
@@ -642,66 +630,19 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
     }
   }
 
-  // Build computed states with dynamic flux range
-  const states: ComputedState[] = [];
-  const recentRawTdees: number[] = []; // Track recent raw TDEE values for variance
-  let validDaysProcessed = 0;
-  let consecutiveOutlierCount = 0; // For the sustained-anomaly guardrail
-
-  for (let i = 0; i < trendData.length; i++) {
-    const point = trendData[i];
-    const prevPoint = i > 0 ? trendData[i - 1] : point;
-    const prevTrendWeight = prevPoint.trendWeight;
-    const dailyLog = dailyLogs.find(d => d.date === point.date) ?? null;
-
-    // Count valid days so far (days with calorie data)
-    const validDaysSoFar = validDaysProcessed;
-
-    // Calculate variance of recent raw TDEE values (last 7)
-    const recentVariance = calculateVariance(recentRawTdees.slice(-7));
-
-    let adjustedWeightDeltaKg: number | undefined;
-    if (i > 0 && point.scaleWeight !== null && prevPoint.scaleWeight !== null) {
-      const scaleWeightDeltaKg = point.scaleWeight - prevPoint.scaleWeight;
-      const trendWeightDeltaKg = point.trendWeight - prevTrendWeight;
-      adjustedWeightDeltaKg = dampWhooshEffect(scaleWeightDeltaKg, trendWeightDeltaKg);
-    }
-
-    const state = buildComputedState(
-      point.date,
-      point.trendWeight,
-      prevTrendWeight,
-      dailyLog,
-      prevTdee,
-      undefined, // stepCountDelta
-      validDaysSoFar,
-      recentVariance,
-      adjustedWeightDeltaKg,
-      { recentRawTdees: recentRawTdees.slice(-7), consecutiveOutlierCount }
-    );
-
-    const isValidForTdee =
-      dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
-
-    // Track consecutive outlier exclusions for the sustained-anomaly guardrail
-    if (state.wasOutlierExcluded) {
-      consecutiveOutlierCount++;
-    } else if (isValidForTdee) {
-      consecutiveOutlierCount = 0;
-    }
-
-    // Track raw TDEE for variance calculation
-    if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {
-      recentRawTdees.push(state.rawTdeeKcal);
-    }
-
-    if (isValidForTdee) {
-      validDaysProcessed++;
-    }
-
-    states.push(state);
-    prevTdee = state.estimatedTdeeKcal;
+  // Build a date-keyed lookup for the pure state chain.
+  const dailyLogsByDate = new Map<string, DailyLog>();
+  for (const dailyLog of dailyLogs) {
+    dailyLogsByDate.set(dailyLog.date, dailyLog);
   }
+
+  // Compute the full day-by-day state chain (pure). Seeded from the cold-start
+  // estimate above; this read path does not read a day-before persisted state.
+  const states = computeStateChain({
+    trendData,
+    dailyLogsByDate,
+    initialTdee: prevTdee,
+  });
 
   console.log('[statsHelpers] Computed', states.length, 'states on-the-fly');
   return states;
