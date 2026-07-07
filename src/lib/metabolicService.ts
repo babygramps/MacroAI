@@ -14,11 +14,17 @@
  */
 
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import {
+  fetchUserGoals,
+  fetchWeightHistory,
+  fetchDailyLogsRange,
+  fetchComputedStates,
+} from '@/lib/data/metabolicRepo';
 import { formatDateKey } from './statsHelpers';
 import { calculateTrendWeights } from './trendEngine';
 import { buildComputedState, calculateColdStartTdee } from './expenditureEngine';
 import { dampWhooshEffect, validateDailyLogForTdee } from './edgeCaseHandler';
-import type { DailyLog, UserGoals, WeightLogEntry } from './types';
+import type { DailyLog } from './types';
 
 // ============================================
 // Daily Nutrition Aggregation
@@ -133,117 +139,6 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
 // ============================================
 
 /**
- * Fetch user goals from the database
- */
-async function fetchUserGoals(): Promise<UserGoals | null> {
-  const client = getAmplifyDataClient();
-  if (!client) return null;
-
-  try {
-    const { data: profiles } = await client.models.UserProfile.list();
-    if (!profiles || profiles.length === 0) return null;
-
-    const profile = profiles[0];
-    return {
-      calorieGoal: profile.calorieGoal ?? 2000,
-      proteinGoal: profile.proteinGoal ?? 150,
-      carbsGoal: profile.carbsGoal ?? 200,
-      fatGoal: profile.fatGoal ?? 65,
-      targetWeightKg: profile.targetWeightKg ?? undefined,
-      preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
-      preferredUnitSystem: (profile.preferredUnitSystem as 'metric' | 'imperial') ?? 'metric',
-      heightCm: profile.heightCm ?? undefined,
-      birthDate: profile.birthDate ?? undefined,
-      sex: (profile.sex as 'male' | 'female') ?? undefined,
-      initialBodyFatPct: profile.initialBodyFatPct ?? undefined,
-      expenditureStrategy: (profile.expenditureStrategy as 'static' | 'dynamic') ?? 'dynamic',
-      startDate: profile.startDate ?? undefined,
-      athleteStatus: profile.athleteStatus ?? false,
-      goalType: (profile.goalType as 'lose' | 'gain' | 'maintain') ?? 'maintain',
-      goalRate: profile.goalRate ?? 0.5,
-    };
-  } catch (error) {
-    console.error('[metabolicService] Error fetching user goals:', error);
-    return null;
-  }
-}
-
-/**
- * Fetch weight history for a date range
- */
-async function fetchWeightHistory(startDate: Date, endDate: Date): Promise<WeightLogEntry[]> {
-  const client = getAmplifyDataClient();
-  if (!client) return [];
-
-  try {
-    const { data: logs } = await client.models.WeightLog.list({
-      filter: {
-        recordedAt: {
-          between: [startDate.toISOString(), endDate.toISOString()],
-        },
-      },
-    });
-
-    if (!logs) return [];
-
-    const entries: WeightLogEntry[] = logs.map((log) => ({
-      id: log.id,
-      weightKg: log.weightKg,
-      recordedAt: log.recordedAt,
-      note: log.note ?? undefined,
-    }));
-
-    // Sort by date ascending
-    entries.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
-    return entries;
-  } catch (error) {
-    console.error('[metabolicService] Error fetching weight history:', error);
-    return [];
-  }
-}
-
-/**
- * Fetch DailyLog entries for a date range
- */
-async function fetchDailyLogsRange(startDate: Date, endDate: Date): Promise<DailyLog[]> {
-  const client = getAmplifyDataClient();
-  if (!client) return [];
-
-  const startKey = formatDateKey(startDate);
-  const endKey = formatDateKey(endDate);
-
-  try {
-    const { data: logs } = await client.models.DailyLog.list({
-      filter: {
-        date: {
-          between: [startKey, endKey],
-        },
-      },
-    });
-
-    if (!logs) return [];
-
-    const result: DailyLog[] = logs.map((log) => ({
-      date: log.date,
-      scaleWeightKg: log.scaleWeightKg ?? null,
-      nutritionCalories: log.nutritionCalories ?? null,
-      nutritionProteinG: log.nutritionProteinG ?? null,
-      nutritionCarbsG: log.nutritionCarbsG ?? null,
-      nutritionFatG: log.nutritionFatG ?? null,
-      stepCount: log.stepCount ?? null,
-      logStatus: (log.logStatus as 'complete' | 'partial' | 'skipped') ?? 'skipped',
-    }));
-
-    // Sort by date
-    result.sort((a, b) => a.date.localeCompare(b.date));
-    return result;
-  } catch (error) {
-    console.error('[metabolicService] Error fetching daily logs range:', error);
-    return [];
-  }
-}
-
-/**
  * Recalculate TDEE from a specific date forward
  * This handles the cascade effect when historical data is modified
  * 
@@ -266,17 +161,11 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
   try {
     // Fetch all required data in parallel
     const [userGoals, weightEntries, dailyLogs, existingStates] = await Promise.all([
-      fetchUserGoals(),
-      fetchWeightHistory(startDate, today),
-      fetchDailyLogsRange(startDate, today),
+      fetchUserGoals(client),
+      fetchWeightHistory(startDate, today, client),
+      fetchDailyLogsRange(formatDateKey(startDate), formatDateKey(today), client),
       // Also fetch existing ComputedStates to update them
-      client.models.ComputedState.list({
-        filter: {
-          date: {
-            between: [formatDateKey(startDate), formatDateKey(today)],
-          },
-        },
-      }),
+      fetchComputedStates(formatDateKey(startDate), formatDateKey(today), client),
     ]);
 
     if (weightEntries.length === 0) {
@@ -285,8 +174,8 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
 
     // Build a map of existing states for quick lookup (date -> id)
     const existingStateMap = new Map<string, string>();
-    if (existingStates.data) {
-      for (const state of existingStates.data) {
+    for (const state of existingStates) {
+      if (state.id) {
         existingStateMap.set(state.date, state.id);
       }
     }

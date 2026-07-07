@@ -1,9 +1,14 @@
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import {
+  listAllPages,
+  fetchUserGoals as repoFetchUserGoals,
+  fetchWeightHistory as repoFetchWeightHistory,
+  fetchComputedStates as repoFetchComputedStates,
+} from '@/lib/data/metabolicRepo';
 import type {
   DayData,
   DailySummary,
   WeeklyStats,
-  UserGoals,
   WeightLogEntry,
   WeightStats,
   DailyLog,
@@ -56,28 +61,6 @@ function calculateVariance(values: number[]): number {
   const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
   const squaredDiffs = values.map(v => (v - mean) ** 2);
   return squaredDiffs.reduce((sum, v) => sum + v, 0) / values.length;
-}
-
-/**
- * Helper to fetch ALL pages from an Amplify list/query operation.
- * Amplify's list() returns only one page of results from DynamoDB.
- * Without this, scan-based queries can miss records as the table grows.
- */
-async function listAllPages<T>(
-  queryFn: (nextToken?: string | null) => Promise<{ data: T[]; nextToken?: string | null }>
-): Promise<T[]> {
-  const allItems: T[] = [];
-  let currentToken: string | null | undefined = undefined;
-
-  do {
-    const result = await queryFn(currentToken);
-    if (result.data) {
-      allItems.push(...result.data);
-    }
-    currentToken = result.nextToken ?? null;
-  } while (currentToken);
-
-  return allItems;
 }
 
 /**
@@ -330,46 +313,12 @@ export async function fetchWeeklyStats(endDate: Date = new Date()): Promise<Week
 
 /**
  * Fetch user goals (with metabolic modeling fields)
+ *
+ * Delegates to the canonical fetcher/mapper in metabolicRepo; re-exported
+ * under this name so existing importers (e.g. src/app/stats/page.tsx) keep
+ * working unchanged.
  */
-export async function fetchUserGoals(): Promise<UserGoals | null> {
-  const client = getAmplifyDataClient();
-  if (!client) {
-    return null;
-  }
-  try {
-    const { data: profiles } = await client.models.UserProfile.list();
-    if (profiles && profiles.length > 0) {
-      const profile = profiles[0];
-      // Determine unit system - prefer new field, fall back to legacy
-      const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ??
-        (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
-
-      return {
-        calorieGoal: profile.calorieGoal ?? 2000,
-        proteinGoal: profile.proteinGoal ?? 150,
-        carbsGoal: profile.carbsGoal ?? 200,
-        fatGoal: profile.fatGoal ?? 65,
-        targetWeightKg: profile.targetWeightKg ?? undefined,
-        preferredWeightUnit: (profile.preferredWeightUnit as 'kg' | 'lbs') ?? 'kg',
-        preferredUnitSystem: unitSystem,
-        // Metabolic modeling fields
-        heightCm: profile.heightCm ?? undefined,
-        birthDate: profile.birthDate ?? undefined,
-        sex: (profile.sex as 'male' | 'female') ?? undefined,
-        initialBodyFatPct: profile.initialBodyFatPct ?? undefined,
-        expenditureStrategy: (profile.expenditureStrategy as 'static' | 'dynamic') ?? 'dynamic',
-        startDate: profile.startDate ?? undefined,
-        athleteStatus: profile.athleteStatus ?? false,
-        goalType: (profile.goalType as 'lose' | 'gain' | 'maintain') ?? 'maintain',
-        goalRate: profile.goalRate ?? 0.5,
-      };
-    }
-    return null;
-  } catch (error) {
-    console.error('[statsHelpers] Error fetching user goals:', error);
-    return null;
-  }
-}
+export const fetchUserGoals = repoFetchUserGoals;
 
 // ============================================
 // Weight Tracking Helper Functions
@@ -396,36 +345,15 @@ export async function fetchWeightHistory(days: number = 30): Promise<WeightLogEn
     days,
   });
 
-  try {
-    const { data: logs } = await client.models.WeightLog.list({
-      filter: {
-        recordedAt: {
-          between: [startDate.toISOString(), today.toISOString()],
-        },
-      },
-    });
+  const entries = await repoFetchWeightHistory(startDate, today, client);
 
-    if (!logs || logs.length === 0) {
-      console.log('[statsHelpers] No weight entries found');
-      return [];
-    }
-
-    const entries: WeightLogEntry[] = logs.map((log) => ({
-      id: log.id,
-      weightKg: log.weightKg,
-      recordedAt: log.recordedAt,
-      note: log.note ?? undefined,
-    }));
-
-    // Sort by date ascending (oldest first)
-    entries.sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
-
-    console.log('[statsHelpers] Weight history fetched:', entries.length, 'entries');
-    return entries;
-  } catch (error) {
-    console.error('[statsHelpers] Error fetching weight history:', error);
+  if (entries.length === 0) {
+    console.log('[statsHelpers] No weight entries found');
     return [];
   }
+
+  console.log('[statsHelpers] Weight history fetched:', entries.length, 'entries');
+  return entries;
 }
 
 /**
@@ -630,33 +558,15 @@ export async function fetchComputedStates(days: number = 30): Promise<ComputedSt
 
   try {
     // Check if we have stored computed states
-    const { data: storedStates } = await client.models.ComputedState.list({
-      filter: {
-        date: {
-          between: [formatDateKey(startDate), formatDateKey(today)],
-        },
-      },
-    });
+    const storedStates = await repoFetchComputedStates(
+      formatDateKey(startDate),
+      formatDateKey(today),
+      client
+    );
 
-    if (storedStates && storedStates.length > 0) {
+    if (storedStates.length > 0) {
       console.log('[statsHelpers] Found', storedStates.length, 'stored computed states');
-
-      // Convert to our type
-      const states: ComputedState[] = storedStates.map(s => ({
-        id: s.id,
-        date: s.date,
-        trendWeightKg: s.trendWeightKg,
-        estimatedTdeeKcal: s.estimatedTdeeKcal,
-        rawTdeeKcal: s.rawTdeeKcal ?? s.estimatedTdeeKcal,
-        fluxConfidenceRange: s.fluxConfidenceRange ?? 200,
-        energyDensityUsed: s.energyDensityUsed ?? 7700,
-        weightDeltaKg: s.weightDeltaKg ?? 0,
-      }));
-
-      // Sort by date
-      states.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      return states;
+      return storedStates;
     }
 
     // No stored states - compute on the fly
