@@ -273,6 +273,24 @@ export function scaleNutrition(
 }
 
 /**
+ * Scale nutrition to a target weight AND apply a friendly display name.
+ * Built on top of `scaleNutrition` (no re-derived math) — replaces the 3
+ * identical `scaleToWeight` copies in analyzeImage/parseTextLog/parseRecipe,
+ * which scaled from a hardcoded /100 (USDA per-100g data). `scaleNutrition`
+ * divides by `food.servingSize` instead, which is equivalent for every
+ * existing call site (they only ever scale a `normalizeUSDA(food, false)`
+ * result, whose servingSize is always 100) and is more correct in general.
+ */
+export function scaleToWeightWithName(
+  food: NormalizedFood,
+  weightG: number,
+  name?: string
+): NormalizedFood {
+  const scaled = scaleNutrition(food, weightG);
+  return name !== undefined ? { ...scaled, name } : scaled;
+}
+
+/**
  * Validate that a normalized food object has reasonable values
  */
 export function isValidFood(food: NormalizedFood): boolean {
