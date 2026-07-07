@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react';
 import type { LogStatus } from '@/lib/types';
 import { updateDayStatus } from '@/actions/updateDayStatus';
+import { onDayStatusChanged } from '@/lib/metabolicService';
+import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { showToast } from './Toast';
 
 interface DayStatusActionProps {
@@ -85,6 +87,9 @@ export function DayStatusAction({
     try {
       const result = await updateDayStatus(selectedDate, newStatus);
       if (result.success) {
+        onDayStatusChanged(selectedDate).catch((error) => {
+          logRemote.error('DAY_STATUS_TDEE_RECALC_FAILED', getErrorContext(error));
+        });
         onStatusChange(newStatus);
         showToast(
           newStatus === 'skipped'

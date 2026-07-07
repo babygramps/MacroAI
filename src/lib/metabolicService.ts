@@ -482,6 +482,25 @@ export async function onWeightLogged(date: string | Date): Promise<void> {
   await recalculateTdeeFromDate(dateKey);
 }
 
+/**
+ * Handle day status changed event
+ * Called after a day's logStatus is updated (e.g. marked skipped/complete)
+ *
+ * @param date - Date whose status changed
+ */
+export async function onDayStatusChanged(date: string | Date): Promise<void> {
+  const dateKey = typeof date === 'string'
+    ? formatDateKey(new Date(date))
+    : formatDateKey(date);
+
+  // Step 1: Update the DailyLog to reflect current nutrition data
+  await aggregateDailyNutrition(dateKey);
+
+  // Step 2: Recalculate TDEE from this date forward
+  // Skipping/unskipping a day changes which days are excluded from TDEE calculations
+  await recalculateTdeeFromDate(dateKey);
+}
+
 // ============================================
 // Backfill Utility
 // ============================================

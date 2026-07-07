@@ -1,39 +1,13 @@
 'use server';
 
-import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
-import type { Schema } from '@/amplify/data/resource';
-import { cookies } from 'next/headers';
 import type { LogStatus } from '@/lib/types';
-import { recalculateTdeeFromDate } from '@/lib/metabolicService';
-
-/**
- * Format date to YYYY-MM-DD string
- */
-function formatDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
+import { getServerDataClient } from '@/lib/serverAuth';
+import { getLocalDateString } from '@/lib/date';
 
 interface UpdateDayStatusResult {
   success: boolean;
   error?: string;
   logStatus?: LogStatus;
-}
-
-// Get client with cookies for server-side operations
-async function getServerClient() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const outputs = require('@/amplify_outputs.json');
-    return generateServerClientUsingCookies<Schema>({
-      config: outputs,
-      cookies: cookies,
-    });
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -46,12 +20,12 @@ export async function updateDayStatus(
 ): Promise<UpdateDayStatusResult> {
   console.log('[updateDayStatus] Updating status for', date, 'to', status);
 
-  const client = await getServerClient();
+  const client = await getServerDataClient();
   if (!client) {
     return { success: false, error: 'Not authenticated' };
   }
 
-  const dateKey = formatDateKey(date);
+  const dateKey = getLocalDateString(date);
 
   try {
     // Check if DailyLog exists for this date
@@ -124,12 +98,6 @@ export async function updateDayStatus(
       console.log('[updateDayStatus] Created new DailyLog for', dateKey);
     }
 
-    // Trigger TDEE recalculation from this date forward
-    // This ensures skipped days are properly excluded from calculations
-    console.log('[updateDayStatus] Triggering TDEE recalculation from', dateKey);
-    const daysRecalculated = await recalculateTdeeFromDate(dateKey);
-    console.log('[updateDayStatus] Recalculated TDEE for', daysRecalculated, 'days');
-
     return { success: true, logStatus: status };
   } catch (error) {
     console.error('[updateDayStatus] Error:', error);
@@ -144,12 +112,12 @@ export async function updateDayStatus(
  * Fetch the log status for a specific day
  */
 export async function fetchDayStatus(date: Date): Promise<LogStatus | null> {
-  const client = await getServerClient();
+  const client = await getServerDataClient();
   if (!client) {
     return null;
   }
 
-  const dateKey = formatDateKey(date);
+  const dateKey = getLocalDateString(date);
 
   try {
     const { data: existingLogs } = await client.models.DailyLog.listDailyLogByDate({
@@ -175,15 +143,15 @@ export async function fetchDayStatusRange(
   startDate: Date,
   endDate: Date
 ): Promise<Map<string, LogStatus>> {
-  const client = await getServerClient();
+  const client = await getServerDataClient();
   const statusMap = new Map<string, LogStatus>();
 
   if (!client) {
     return statusMap;
   }
 
-  const startKey = formatDateKey(startDate);
-  const endKey = formatDateKey(endDate);
+  const startKey = getLocalDateString(startDate);
+  const endKey = getLocalDateString(endDate);
 
   try {
     const { data: dailyLogs } = await client.models.DailyLog.list({
