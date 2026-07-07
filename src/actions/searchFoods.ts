@@ -1,22 +1,15 @@
 'use server';
 
-import type { NormalizedFood, USDASearchResponse, OFFResponse, USDAFood, USDAFoodPortion, ActionError } from '@/lib/types';
+import type { NormalizedFood, USDAFood, OFFResponse, ActionError } from '@/lib/types';
 import { normalizeUSDA, normalizeOFF } from '@/lib/normalizer';
-import { generateCacheKey, createCacheEntry, isExpired, type CacheSource } from '@/lib/cache';
-import { generateServerClientUsingCookies } from '@aws-amplify/adapter-nextjs/data';
-import type { Schema } from '@/amplify/data/resource';
-import { cookies } from 'next/headers';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import type { CacheSource } from '@/lib/cache';
 import { calculateRelevanceScore, findBestMatch, generateWordVariants } from '@/lib/search/relevance';
-import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
 import { getAuthenticatedServerContext } from '@/lib/serverAuth';
-
-const console = {
-  log: logDebug,
-  info: logInfo,
-  warn: logWarn,
-  error: logError,
-} as const;
+import { actionConsole } from '@/lib/server/actionShared';
+import { searchUsda, fetchUsdaFoodDetails } from '@/lib/server/usda';
+import { generateStructuredJson } from '@/lib/server/gemini';
+import { getUsdaApiKey } from '@/lib/server/env';
+import { getCachedResults, saveToCache } from '@/lib/server/foodCache';
 
 // Error codes for search debugging
 export type SearchErrorCode =
@@ -40,88 +33,6 @@ function isBarcode(query: string): boolean {
   return /^\d{8,14}$/.test(cleaned);
 }
 
-// Full food details response from USDA /v1/food/{fdcId} endpoint
-interface USDAFoodDetails {
-  fdcId: number;
-  description: string;
-  dataType: string;
-  foodNutrients: Array<{
-    nutrient: {
-      id: number;
-      number: string;
-      name: string;
-      unitName: string;
-    };
-    amount: number;
-  }>;
-  foodPortions?: USDAFoodPortion[];
-  brandOwner?: string;
-  brandName?: string;
-  ingredients?: string;
-  servingSize?: number;
-  servingSizeUnit?: string;
-  householdServingFullText?: string;
-  foodCategory?: {
-    id: number;
-    code: string;
-    description: string;
-  };
-}
-
-/**
- * Fetch full food details from USDA including portion information
- * The search endpoint doesn't return foodPortions, so we need this for accurate serving sizes
- */
-async function fetchFoodDetails(fdcId: number): Promise<USDAFood | null> {
-  const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey) {
-    console.error('USDA_API_KEY not configured');
-    return null;
-  }
-
-  try {
-    const response = await fetch(
-      `https://api.nal.usda.gov/fdc/v1/food/${fdcId}?api_key=${apiKey}`,
-      { next: { revalidate: 3600 } }
-    );
-
-    if (!response.ok) {
-      console.error(`Failed to fetch food details for ${fdcId}: ${response.status}`);
-      return null;
-    }
-
-    const data: USDAFoodDetails = await response.json();
-
-    // Convert the full details format to our USDAFood format
-    // The full details endpoint has a different nutrient structure
-    const foodNutrients = data.foodNutrients.map(fn => ({
-      nutrientId: fn.nutrient.id,
-      nutrientName: fn.nutrient.name,
-      nutrientNumber: fn.nutrient.number,
-      unitName: fn.nutrient.unitName,
-      value: fn.amount,
-    }));
-
-    return {
-      fdcId: data.fdcId,
-      description: data.description,
-      dataType: data.dataType,
-      foodNutrients,
-      brandOwner: data.brandOwner,
-      brandName: data.brandName,
-      ingredients: data.ingredients,
-      servingSize: data.servingSize,
-      servingSizeUnit: data.servingSizeUnit,
-      foodCategory: data.foodCategory?.description,
-      foodPortions: data.foodPortions,
-      householdServingFullText: data.householdServingFullText,
-    };
-  } catch (error) {
-    console.error(`Error fetching food details for ${fdcId}:`, error);
-    return null;
-  }
-}
-
 /**
  * Enrich a USDAFood from search results with portion data from full details
  * Only fetches details if the food doesn't already have serving info
@@ -136,7 +47,7 @@ async function enrichWithPortionData(food: USDAFood): Promise<USDAFood> {
     return food;
   }
 
-  const fullDetails = await fetchFoodDetails(food.fdcId);
+  const fullDetails = await fetchUsdaFoodDetails(food.fdcId);
 
   if (fullDetails) {
     return {
@@ -149,73 +60,6 @@ async function enrichWithPortionData(food: USDAFood): Promise<USDAFood> {
   }
 
   return food;
-}
-
-
-// Get client with cookies for server-side operations
-async function getServerClient() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const outputs = require('@/amplify_outputs.json');
-    return generateServerClientUsingCookies<Schema>({
-      config: outputs,
-      cookies: cookies,
-    });
-  } catch {
-    return null;
-  }
-}
-
-// Check cache for existing results
-async function getCachedResults(
-  query: string,
-  source: CacheSource
-): Promise<NormalizedFood[] | null> {
-  const client = await getServerClient();
-  if (!client) return null;
-
-  const cacheKey = generateCacheKey(query, source);
-
-  try {
-    const { data } = await client.models.FoodCache.listFoodCacheByCacheKey({
-      cacheKey,
-    });
-
-    if (data && data.length > 0) {
-      const entry = data[0];
-      if (entry.expiresAt && !isExpired(entry.expiresAt)) {
-        return entry.results as NormalizedFood[];
-      }
-    }
-  } catch (error) {
-    console.error('Cache lookup error:', error);
-  }
-
-  return null;
-}
-
-// Save results to cache
-async function saveToCache(
-  query: string,
-  source: CacheSource,
-  results: NormalizedFood[]
-): Promise<void> {
-  const client = await getServerClient();
-  if (!client) return;
-
-  const entry = createCacheEntry(query, source, results);
-
-  try {
-    await client.models.FoodCache.create({
-      cacheKey: entry.cacheKey,
-      source: entry.source,
-      query: entry.query,
-      results: JSON.parse(JSON.stringify(entry.results)),
-      expiresAt: entry.expiresAt,
-    });
-  } catch (error) {
-    console.error('Cache save error:', error);
-  }
 }
 
 // Use Gemini to generate optimal USDA search terms
@@ -237,24 +81,23 @@ interface GeminiQueryAnalysis {
 
 const MAX_QUERY_LENGTH = 200;
 
+// Default analysis used for every non-happy-path outcome (missing API key,
+// empty response, or a request/parse error) — the pre-refactor code
+// returned this exact same shape from all three of those branches.
+function defaultQueryAnalysis(userQuery: string): GeminiQueryAnalysis {
+  return {
+    is_food: true, // Assume food when Gemini is unavailable or fails
+    has_brand: false,
+    brand_name: null,
+    brand_owner: null,
+    product_keywords: userQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2),
+    fallback_searches: [{ usda_search_term: userQuery, display_name: userQuery, description: '' }],
+  };
+}
+
 async function analyzeQueryWithGemini(userQuery: string): Promise<GeminiQueryAnalysis> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return {
-      is_food: true, // Assume food when no API key
-      has_brand: false,
-      brand_name: null,
-      brand_owner: null,
-      product_keywords: userQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-      fallback_searches: [{ usda_search_term: userQuery, display_name: userQuery, description: '' }],
-    };
-  }
-
-  try {
-    const client = new GoogleGenAI({ apiKey });
-
-    const safeQuery = userQuery.slice(0, MAX_QUERY_LENGTH);
-    const prompt = `You are a USDA food database expert. Analyze this food search query.
+  const safeQuery = userQuery.slice(0, MAX_QUERY_LENGTH);
+  const prompt = `You are a USDA food database expert. Analyze this food search query.
 
 USER_INPUT_START
 ${safeQuery}
@@ -311,39 +154,14 @@ Return ONLY a valid JSON object:
   ]
 }`;
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        responseMimeType: 'application/json',
-      },
-    });
+  // All failure modes (missing key, empty response, parse/request error)
+  // collapse to the same "assume food" default here, exactly as the
+  // pre-refactor local copy behaved.
+  const result = await generateStructuredJson<GeminiQueryAnalysis>(prompt, {
+    logContext: 'Gemini query analysis error:',
+  });
 
-    const responseText = response.text;
-    if (!responseText) {
-      return {
-        is_food: true, // Assume food on empty response
-        has_brand: false,
-        brand_name: null,
-        brand_owner: null,
-        product_keywords: userQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-        fallback_searches: [{ usda_search_term: userQuery, display_name: userQuery, description: '' }],
-      };
-    }
-
-    return JSON.parse(responseText) as GeminiQueryAnalysis;
-  } catch (error) {
-    console.error('Gemini query analysis error:', error);
-    return {
-      is_food: true, // Assume food on error
-      has_brand: false,
-      brand_name: null,
-      brand_owner: null,
-      product_keywords: userQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2),
-      fallback_searches: [{ usda_search_term: userQuery, display_name: userQuery, description: '' }],
-    };
-  }
+  return result.ok ? result.data : defaultQueryAnalysis(userQuery);
 }
 
 /**
@@ -356,9 +174,11 @@ async function searchBrandedProducts(
   productKeywords: string[],
   originalQuery: string
 ): Promise<NormalizedFood[]> {
-  const apiKey = process.env.USDA_API_KEY;
+  // Checked once up front (matching the pre-refactor short-circuit) so a
+  // missing key logs once and skips the parallel searches entirely, rather
+  // than letting each of the 3 parallel `searchUsda` calls log separately.
+  const apiKey = getUsdaApiKey();
   if (!apiKey) {
-    console.error('USDA_API_KEY not configured');
     return [];
   }
 
@@ -379,20 +199,7 @@ async function searchBrandedProducts(
       searchQueries.push(productKeywords.join(' ')); // e.g., "big mac"
     }
 
-    const searchPromises = searchQueries.map(async (query) => {
-      const response = await fetch(
-        `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(query)}&dataType=Foundation,SR%20Legacy,Branded&pageSize=25`,
-        { next: { revalidate: 3600 } }
-      );
-
-      if (!response.ok) {
-        console.error(`USDA search failed for "${query}": ${response.status}`);
-        return [];
-      }
-
-      const data: USDASearchResponse = await response.json();
-      return data.foods || [];
-    });
+    const searchPromises = searchQueries.map(async (query) => (await searchUsda(query, { pageSize: 25 })) ?? []);
 
     const allResults = await Promise.all(searchPromises);
 
@@ -460,84 +267,64 @@ async function searchBrandedProducts(
     return enrichedFoods.map(food => normalizeUSDA(food));
 
   } catch (error) {
-    console.error('Brand search error:', error);
+    actionConsole.error('Brand search error:', error);
     return [];
   }
 }
 
 // Search USDA FoodData Central for a specific term (returns best matching result)
 async function searchUSDAForTerm(searchTerm: string, displayName: string, originalQuery?: string): Promise<NormalizedFood | null> {
-  const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey) {
-    console.error('USDA_API_KEY not configured');
-    return null;
-  }
-
+  // try/catch scoped like the pre-refactor version: it wraps the enrichment
+  // and normalization steps too (not just the fetch), so a downstream
+  // failure degrades gracefully to `null` for this one term instead of
+  // rejecting the outer Promise.all and failing the whole multi-term search.
+  // (searchUsda() already catches its own fetch/HTTP failures and logs under
+  // this exact same message, so this mostly guards findBestMatch/
+  // enrichWithPortionData/normalizeUSDA.)
   try {
-    // Fetch more results (10) so we can pick the best match
-    const response = await fetch(
-      `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(searchTerm)}&dataType=Foundation,SR%20Legacy,Branded&pageSize=10`,
-      { next: { revalidate: 3600 } }
-    );
-
-    if (!response.ok) {
-      throw new Error(`USDA API error: ${response.status}`);
+    const foods = await searchUsda(searchTerm);
+    if (!foods || foods.length === 0) {
+      return null;
     }
 
-    const data: USDASearchResponse = await response.json();
+    // Use relevance scoring to find the best match
+    const { food: usdaFood } = findBestMatch(foods, searchTerm, originalQuery);
 
-    if (data.foods && data.foods.length > 0) {
-      // Use relevance scoring to find the best match
-      const { food: usdaFood } = findBestMatch(data.foods, searchTerm, originalQuery);
-
-      if (!usdaFood) {
-        return null;
-      }
-
-      // Enrich with portion data for accurate serving sizes
-      const enrichedFood = await enrichWithPortionData(usdaFood);
-      const normalized = normalizeUSDA(enrichedFood);
-      // Use the friendly display name instead of USDA's verbose name
-      return {
-        ...normalized,
-        name: displayName || normalized.name,
-      };
+    if (!usdaFood) {
+      return null;
     }
 
-    return null;
+    // Enrich with portion data for accurate serving sizes
+    const enrichedFood = await enrichWithPortionData(usdaFood);
+    const normalized = normalizeUSDA(enrichedFood);
+    // Use the friendly display name instead of USDA's verbose name
+    return {
+      ...normalized,
+      name: displayName || normalized.name,
+    };
   } catch (error) {
-    console.error('USDA search error for:', searchTerm, error);
+    actionConsole.error('USDA search error for:', searchTerm, error);
     return null;
   }
 }
 
 // Search USDA with raw query (fallback, returns multiple results)
 async function searchUSDADirect(query: string): Promise<NormalizedFood[]> {
-  const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey) {
-    console.error('USDA_API_KEY not configured');
-    return [];
-  }
-
+  // See searchUSDAForTerm's comment: try/catch also guards the enrichment/
+  // normalization steps, matching the pre-refactor scope.
   try {
-    const response = await fetch(
-      `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(query)}&dataType=Foundation,SR%20Legacy,Branded&pageSize=10`,
-      { next: { revalidate: 3600 } }
-    );
-
-    if (!response.ok) {
-      throw new Error(`USDA API error: ${response.status}`);
+    const foods = await searchUsda(query);
+    if (!foods) {
+      return [];
     }
 
-    const data: USDASearchResponse = await response.json();
-
     const enrichedFoods = await Promise.all(
-      data.foods.slice(0, 10).map(enrichWithPortionData)
+      foods.slice(0, 10).map(enrichWithPortionData)
     );
 
     return enrichedFoods.map(food => normalizeUSDA(food));
   } catch (error) {
-    console.error('USDA search error:', error);
+    actionConsole.error('USDA search error:', error);
     return [];
   }
 }
@@ -547,7 +334,7 @@ async function searchOFF(barcode: string): Promise<NormalizedFood[]> {
   try {
     const response = await fetch(
       `https://world.openfoodfacts.org/api/v2/product/${barcode}.json`,
-      { next: { revalidate: 3600 } }
+      { next: { revalidate: 3600 }, signal: AbortSignal.timeout(8000) }
     );
 
     if (!response.ok) {
@@ -562,7 +349,7 @@ async function searchOFF(barcode: string): Promise<NormalizedFood[]> {
 
     return [];
   } catch (error) {
-    console.error('OFF search error:', error);
+    actionConsole.error('OFF search error:', error);
     return [];
   }
 }
@@ -578,7 +365,7 @@ async function searchOFF(barcode: string): Promise<NormalizedFood[]> {
  *    d. Return deduplicated results
  */
 export async function searchFoods(query: string): Promise<SearchResult> {
-  console.info('Search started', { query, queryLength: query?.length });
+  actionConsole.info('Search started', { query, queryLength: query?.length });
 
   if (!query || query.trim().length === 0) {
     return { success: true, foods: [] };
@@ -611,11 +398,14 @@ export async function searchFoods(query: string): Promise<SearchResult> {
   const isBarcodeQuery = isBarcode(trimmedQuery);
 
   try {
-    // Step 1: Check cache
+    // Step 1: Check cache. Explicit type argument: leaving T to its default
+    // makes tsc structurally compare the huge Amplify client types during
+    // inference and fail with "Excessive stack depth" (TS2321). Type-only,
+    // no behavior change.
     const cacheSource: CacheSource = isBarcodeQuery ? 'OFF' : 'USDA';
-    const cachedResults = await getCachedResults(trimmedQuery, cacheSource);
+    const cachedResults = await getCachedResults<NormalizedFood[]>(auth.client, trimmedQuery, cacheSource);
     if (cachedResults && cachedResults.length > 0) {
-      console.info('Search cache hit', { query: trimmedQuery, resultsCount: cachedResults.length });
+      actionConsole.info('Search cache hit', { query: trimmedQuery, resultsCount: cachedResults.length });
       return { success: true, foods: cachedResults };
     }
 
@@ -625,11 +415,11 @@ export async function searchFoods(query: string): Promise<SearchResult> {
     if (isBarcodeQuery) {
       // Barcodes go directly to Open Food Facts
       results = await searchOFF(trimmedQuery);
-      console.info('Barcode search completed', { barcode: trimmedQuery, resultsCount: results.length });
+      actionConsole.info('Barcode search completed', { barcode: trimmedQuery, resultsCount: results.length });
     } else {
       // Use Gemini to analyze the query
       const analysis = await analyzeQueryWithGemini(trimmedQuery);
-      console.info('Gemini analysis completed', {
+      actionConsole.info('Gemini analysis completed', {
         query: trimmedQuery,
         isFood: analysis.is_food,
         hasBrand: analysis.has_brand,
@@ -639,7 +429,7 @@ export async function searchFoods(query: string): Promise<SearchResult> {
 
       // If Gemini determined this is NOT a food query, return appropriate error
       if (!analysis.is_food) {
-        console.info('Non-food query rejected', { query: trimmedQuery });
+        actionConsole.info('Non-food query rejected', { query: trimmedQuery });
         return {
           success: false,
           foods: [],
@@ -661,10 +451,10 @@ export async function searchFoods(query: string): Promise<SearchResult> {
 
         // If branded search found results, use them
         if (results.length > 0) {
-          console.info('Brand search completed', { brand: analysis.brand_name, resultsCount: results.length });
+          actionConsole.info('Brand search completed', { brand: analysis.brand_name, resultsCount: results.length });
         } else {
           // Fallback to generic searches if brand search failed
-          console.warn('Brand search empty, trying fallback', { brand: analysis.brand_name });
+          actionConsole.warn('Brand search empty, trying fallback', { brand: analysis.brand_name });
           const fallbackPromises = analysis.fallback_searches.map(suggestion =>
             searchUSDAForTerm(suggestion.usda_search_term, suggestion.display_name, trimmedQuery)
           );
@@ -708,12 +498,13 @@ export async function searchFoods(query: string): Promise<SearchResult> {
       }
     }
 
-    // Step 3: Save to cache if we got results
+    // Step 3: Save to cache if we got results. Explicit type argument for
+    // the same TS2321 inference reason as the getCachedResults call above.
     if (results.length > 0) {
-      await saveToCache(trimmedQuery, cacheSource, results);
+      await saveToCache<NormalizedFood[]>(auth.client, trimmedQuery, cacheSource, results);
     }
 
-    console.info('Search completed', { query: trimmedQuery, resultsCount: results.length, foodNames: results.slice(0, 3).map(f => f.name) });
+    actionConsole.info('Search completed', { query: trimmedQuery, resultsCount: results.length, foodNames: results.slice(0, 3).map(f => f.name) });
 
     // Return with appropriate error for no results
     if (results.length === 0) {
@@ -730,7 +521,7 @@ export async function searchFoods(query: string): Promise<SearchResult> {
     return { success: true, foods: results };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Search failed', { query: trimmedQuery, error: errorMessage });
+    actionConsole.error('Search failed', { query: trimmedQuery, error: errorMessage });
 
     return {
       success: false,
