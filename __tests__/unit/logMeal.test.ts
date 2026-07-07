@@ -36,6 +36,7 @@ jest.mock('@/lib/clientLogger', () => ({
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { verifyMealById } from '@/lib/meal/mealVerification';
 import { onMealLogged } from '@/lib/metabolicService';
+import { logRemote } from '@/lib/clientLogger';
 import {
   logMeal,
   buildOptimisticMeal,
@@ -321,5 +322,87 @@ describe('logMeal', () => {
 
     expect(result.meal.ingredients).toHaveLength(1);
     expect(result.meal.ingredients[0].name).toBe('a');
+  });
+});
+
+// Contract test: pins the event names and field sets logMeal emits via
+// logRemote, so a future edit can't silently drop/rename a field or event
+// without a test failing. Every tab (search/text/photo/recipe) relies on
+// this shape being stable for its own trace correlation.
+describe('logMeal trace-event contract', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (getAmplifyDataClient as jest.Mock).mockReturnValue({
+      models: {
+        Meal: { create: mockMealCreate },
+        MealIngredient: { create: mockIngredientCreate },
+      },
+    });
+  });
+
+  it('emits MEAL_CREATED, INGREDIENTS_CREATED, and MEAL_LOG_COMPLETE with their documented field sets on success', async () => {
+    mockMealCreate.mockResolvedValue({ data: baseMealRow });
+    mockIngredientCreate.mockResolvedValue({
+      data: { id: 'ing-1', mealId: 'meal-1', name: 'Chicken breast', weightG: 200, calories: 330, protein: 62, carbs: 0, fat: 7, source: 'USDA', sortOrder: 0 },
+    });
+
+    const eatenAt = new Date(2026, 0, 15, 12, 0, 0);
+
+    await logMeal(
+      { name: 'Lunch', category: 'meal', eatenAt, ingredients: [ingredient()] },
+      { traceId: 'trace-1', tab: 'text' }
+    );
+
+    expect(logRemote.info).toHaveBeenCalledWith('MEAL_CREATED', {
+      traceId: 'trace-1',
+      tab: 'text',
+      mealId: 'meal-1',
+      eatenAt: eatenAt.toISOString(),
+      localDate: '2026-01-15',
+    });
+
+    expect(logRemote.info).toHaveBeenCalledWith('INGREDIENTS_CREATED', {
+      traceId: 'trace-1',
+      tab: 'text',
+      mealId: 'meal-1',
+      count: 1,
+      expected: 1,
+    });
+
+    expect(logRemote.info).toHaveBeenCalledWith('MEAL_LOG_COMPLETE', {
+      traceId: 'trace-1',
+      tab: 'text',
+      mealId: 'meal-1',
+      verified: true,
+      attempts: 1,
+    });
+  });
+
+  it('emits MEAL_LOG_ERROR with {traceId, tab, error} when the Amplify client is not ready', async () => {
+    (getAmplifyDataClient as jest.Mock).mockReturnValue(null);
+
+    await expect(
+      logMeal({ name: 'Snack', category: 'snack', ingredients: [ingredient()] }, { traceId: 'trace-2', tab: 'photo' })
+    ).rejects.toThrow(AmplifyClientNotReadyError);
+
+    expect(logRemote.error).toHaveBeenCalledWith('MEAL_LOG_ERROR', {
+      traceId: 'trace-2',
+      tab: 'photo',
+      error: 'Amplify client not ready',
+    });
+  });
+
+  it('emits MEAL_CREATE_FAILED with {traceId, tab, error} when Meal.create returns no data', async () => {
+    mockMealCreate.mockResolvedValue({ data: null });
+
+    await expect(
+      logMeal({ name: 'Meal', category: 'meal', ingredients: [ingredient()] }, { traceId: 'trace-3', tab: 'recipe' })
+    ).rejects.toThrow('Failed to create meal');
+
+    expect(logRemote.error).toHaveBeenCalledWith('MEAL_CREATE_FAILED', {
+      traceId: 'trace-3',
+      tab: 'recipe',
+      error: 'Meal.create returned null',
+    });
   });
 });

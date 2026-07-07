@@ -36,7 +36,7 @@ export interface LogMealOptions {
   /** Correlates this call's trace events; also passed to verifyMealById. */
   traceId?: string;
   /** Name of the calling tab, attached to logMeal's own trace events. */
-  tab?: string;
+  tab?: 'search' | 'text' | 'photo' | 'recipe';
 }
 
 export interface LogMealResult {
