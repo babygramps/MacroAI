@@ -199,7 +199,9 @@ export function runKalmanFilter(
 ): KalmanState[] {
   if (days.length === 0) return [];
 
-  const firstWeight = days[0].weightKg ?? 0;
+  // Seed from the first actual weigh-in, not day 0 (which may be a leading
+  // gap with no measurement); initializing at 0 kg would poison the filter.
+  const firstWeight = days.find((d) => d.weightKg != null)?.weightKg ?? 0;
   let state = initKalmanState(firstWeight, initialTdee, params);
 
   const out: KalmanState[] = [state];
