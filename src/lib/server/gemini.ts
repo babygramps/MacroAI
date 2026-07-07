@@ -25,7 +25,24 @@ export function getGeminiClient(): GoogleGenAI | null {
 
 export interface GenerateStructuredJsonOptions {
   timeoutMs?: number;
+  /**
+   * Label used as the error-log message, so each call site keeps its
+   * historical log identity (e.g. 'Gemini parsing error:' in parseTextLog's
+   * parseWithGemini vs 'Gemini fallback error:' in the nutrition fallback).
+   * Defaults to a generic label.
+   */
+  logContext?: string;
 }
+
+/**
+ * Discriminated result so callers can distinguish failure modes —
+ * analyzeImage (Task 4) maps 'empty_response' and 'parse_error' to
+ * different user-facing error codes. Callers that treat all failures
+ * uniformly (parseTextLog today) just check `.ok`.
+ */
+export type StructuredJsonResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; reason: 'no_client' | 'empty_response' | 'parse_error' | 'request_error' };
 
 /**
  * Shared wrapper around `client.models.generateContent` for the 7 call
@@ -33,15 +50,21 @@ export interface GenerateStructuredJsonOptions {
  * `responseMimeType: 'application/json'` config, then JSON.parse the
  * response text. Accepts either plain text contents or multimodal
  * `Content[]` (e.g. analyzeImage's inlineData image parts).
- * Returns null (logged) on missing key, empty response, or parse/network error.
+ *
+ * Request and JSON-parse errors are logged under `opts.logContext`; an
+ * empty response is NOT logged here — no pre-refactor call site logged it
+ * inside the helper, so callers decide.
  */
 export async function generateStructuredJson<T>(
   contents: ContentListUnion,
   opts: GenerateStructuredJsonOptions = {}
-): Promise<T | null> {
+): Promise<StructuredJsonResult<T>> {
   const client = getGeminiClient();
-  if (!client) return null;
+  if (!client) return { ok: false, reason: 'no_client' };
 
+  const logLabel = opts.logContext ?? 'Gemini generateContent error:';
+
+  let responseText: string | undefined;
   try {
     const response = await client.models.generateContent({
       model: GEMINI_MODEL,
@@ -52,14 +75,23 @@ export async function generateStructuredJson<T>(
         abortSignal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
       },
     });
-
-    const responseText = response.text;
-    if (!responseText) return null;
-
-    return JSON.parse(responseText) as T;
+    responseText = response.text;
   } catch (error) {
-    logError('Gemini generateContent error:', error);
-    return null;
+    logError(logLabel, error);
+    return { ok: false, reason: 'request_error' };
+  }
+
+  if (!responseText) {
+    return { ok: false, reason: 'empty_response' };
+  }
+
+  try {
+    return { ok: true, data: JSON.parse(responseText) as T };
+  } catch (error) {
+    // Pre-refactor code caught JSON.parse failures in the same catch as the
+    // request itself, under the same per-call-site label — preserved here.
+    logError(logLabel, error);
+    return { ok: false, reason: 'parse_error' };
   }
 }
 
@@ -70,6 +102,28 @@ interface GeminiFallbackFood {
   protein_g: number;
   carbs_g: number;
   fat_g: number;
+}
+
+/**
+ * Pure prompt builder for the nutrition fallback — exported for unit
+ * testing so the `mentionBrandedHint` divergence (see
+ * GeminiNutritionFallbackOptions) can't silently drift.
+ */
+export function buildNutritionFallbackPrompt(
+  displayName: string,
+  weightG: number,
+  mentionBrandedHint: boolean
+): string {
+  const brandedHint = mentionBrandedHint
+    ? " If it's a restaurant/branded item, use known published nutrition facts."
+    : '';
+
+  return `Provide accurate nutrition data for: "${displayName}" (${weightG}g total)
+
+Return ONLY a JSON object with these exact fields:
+{"name": "${displayName}", "estimated_weight_g": ${weightG}, "calories": 250, "protein_g": 20, "carbs_g": 30, "fat_g": 10}
+
+Use accurate nutrition data for this specific item.${brandedHint}`;
 }
 
 export interface GeminiNutritionFallbackOptions {
@@ -94,19 +148,12 @@ export async function getGeminiNutritionFallback(
 ): Promise<NormalizedFood | null> {
   const { mentionBrandedHint = true } = opts;
 
-  const brandedHint = mentionBrandedHint
-    ? " If it's a restaurant/branded item, use known published nutrition facts."
-    : '';
+  const prompt = buildNutritionFallbackPrompt(displayName, weightG, mentionBrandedHint);
 
-  const prompt = `Provide accurate nutrition data for: "${displayName}" (${weightG}g total)
+  const result = await generateStructuredJson<GeminiFallbackFood>(prompt, {
+    logContext: 'Gemini fallback error:',
+  });
+  if (!result.ok) return null;
 
-Return ONLY a JSON object with these exact fields:
-{"name": "${displayName}", "estimated_weight_g": ${weightG}, "calories": 250, "protein_g": 20, "carbs_g": 30, "fat_g": 10}
-
-Use accurate nutrition data for this specific item.${brandedHint}`;
-
-  const parsed = await generateStructuredJson<GeminiFallbackFood>(prompt);
-  if (!parsed) return null;
-
-  return normalizeGemini(parsed);
+  return normalizeGemini(result.data);
 }

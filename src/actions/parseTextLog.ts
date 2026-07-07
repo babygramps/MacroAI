@@ -73,8 +73,12 @@ Return ONLY a valid JSON array (empty [] if not food-related):
   {"usda_search_term": "pork bacon cooked", "display_name": "3 Strips of Bacon", "quantity": 3, "weight_g": 24, "is_branded": false}
 ]`;
 
-  const parsed = await generateStructuredJson<GeminiParsedIngredient[]>(prompt);
-  return parsed ?? [];
+  // All failure modes (missing key, empty response, parse/request error)
+  // collapse to [] here, exactly as the pre-refactor local copy behaved.
+  const result = await generateStructuredJson<GeminiParsedIngredient[]>(prompt, {
+    logContext: 'Gemini parsing error:',
+  });
+  return result.ok ? result.data : [];
 }
 
 /**
