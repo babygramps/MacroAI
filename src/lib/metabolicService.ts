@@ -335,6 +335,7 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     // Process each day and calculate/persist ComputedState
     let daysRecalculated = 0;
     let validDaysProcessed = 0;
+    let consecutiveOutlierCount = 0; // For the sustained-anomaly guardrail
     const recentRawTdees: number[] = []; // Track for variance calculation
 
     for (let i = 0; i < trendData.length; i++) {
@@ -377,11 +378,19 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
         undefined, // stepCountDelta
         validDaysSoFar,
         recentVariance,
-        adjustedWeightDeltaKg
+        adjustedWeightDeltaKg,
+        { recentRawTdees: recentRawTdees.slice(-7), consecutiveOutlierCount }
       );
 
       const isValidForTdee =
         dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
+
+      // Track consecutive outlier exclusions for the sustained-anomaly guardrail
+      if (state.wasOutlierExcluded) {
+        consecutiveOutlierCount++;
+      } else if (isValidForTdee) {
+        consecutiveOutlierCount = 0;
+      }
 
       // Track raw TDEE variance from valid update days only
       if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {

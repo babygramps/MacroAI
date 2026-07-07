@@ -736,6 +736,7 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
   const states: ComputedState[] = [];
   const recentRawTdees: number[] = []; // Track recent raw TDEE values for variance
   let validDaysProcessed = 0;
+  let consecutiveOutlierCount = 0; // For the sustained-anomaly guardrail
 
   for (let i = 0; i < trendData.length; i++) {
     const point = trendData[i];
@@ -765,11 +766,19 @@ async function computeStatesOnTheFly(days: number): Promise<ComputedState[]> {
       undefined, // stepCountDelta
       validDaysSoFar,
       recentVariance,
-      adjustedWeightDeltaKg
+      adjustedWeightDeltaKg,
+      { recentRawTdees: recentRawTdees.slice(-7), consecutiveOutlierCount }
     );
 
     const isValidForTdee =
       dailyLog !== null && validateDailyLogForTdee(dailyLog, prevTdee).isValid;
+
+    // Track consecutive outlier exclusions for the sustained-anomaly guardrail
+    if (state.wasOutlierExcluded) {
+      consecutiveOutlierCount++;
+    } else if (isValidForTdee) {
+      consecutiveOutlierCount = 0;
+    }
 
     // Track raw TDEE for variance calculation
     if (isValidForTdee && state.rawTdeeKcal !== state.estimatedTdeeKcal) {

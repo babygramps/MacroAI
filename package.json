@@ -14,6 +14,7 @@
     "test:e2e": "playwright test",
     "test:tdee": "jest --testPathPatterns=trendEngine --testPathPatterns=expenditureEngine --testPathPatterns=coachingEngine --testPathPatterns=edgeCaseHandler",
     "validate:tdee": "npx tsx scripts/validate-tdee.ts",
+    "backtest:tdee": "npx tsx scripts/backtest-tdee.ts",
     "backfill:metabolic": "npx tsx scripts/backfill-metabolic.ts"
   },
   "dependencies": {

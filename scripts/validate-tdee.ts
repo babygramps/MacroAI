@@ -212,10 +212,30 @@ function validateTdeeCalculations(fixture: TestFixture): ValidationResult {
       }
     }
     
-    // 2. Validate energy density selection
+    // 2. Validate energy density selection.
+    // The back-solve now uses a single symmetric density (V3 bias fix). Rows
+    // written before that change may still carry the legacy surplus density;
+    // those are stale (recalculate to refresh), not wrong, so warn instead of fail.
     if (storedState.weightDeltaKg !== undefined) {
       const expectedDensity = selectEnergyDensity(storedState.weightDeltaKg);
-      if (storedState.energyDensityUsed !== expectedDensity) {
+      if (storedState.energyDensityUsed === expectedDensity) {
+        passed++;
+      } else if (storedState.energyDensityUsed === METABOLIC_CONSTANTS.ENERGY_DENSITY_SURPLUS) {
+        energyDensityCorrect = false;
+        issues.push({
+          id: generateIssueId('DENSITY'),
+          type: 'ENERGY_DENSITY_LEGACY',
+          severity: 'warning',
+          date,
+          message: `Legacy energy density ${storedState.energyDensityUsed} (pre-symmetric-density row); recalculate to refresh to ${expectedDensity}`,
+          expected: expectedDensity,
+          actual: storedState.energyDensityUsed,
+          context: { weightDelta: storedState.weightDeltaKg },
+          relevantCode: { file: 'src/lib/expenditureEngine.ts', function: 'selectEnergyDensity', lines: '42-58' },
+          suggestedFix: 'Run a recalculation/backfill so stored energyDensityUsed reflects the symmetric estimation density',
+        });
+        warnings++;
+      } else {
         energyDensityCorrect = false;
         issues.push({
           id: generateIssueId('DENSITY'),
@@ -226,12 +246,10 @@ function validateTdeeCalculations(fixture: TestFixture): ValidationResult {
           expected: expectedDensity,
           actual: storedState.energyDensityUsed,
           context: { weightDelta: storedState.weightDeltaKg },
-          relevantCode: { file: 'src/lib/expenditureEngine.ts', function: 'selectEnergyDensity', lines: '39-49' },
-          suggestedFix: 'Verify energy density selection based on weight delta sign',
+          relevantCode: { file: 'src/lib/expenditureEngine.ts', function: 'selectEnergyDensity', lines: '42-58' },
+          suggestedFix: 'Verify the back-solve uses the symmetric estimation density',
         });
         failed++;
-      } else {
-        passed++;
       }
     }
     

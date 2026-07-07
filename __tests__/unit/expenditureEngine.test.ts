@@ -21,19 +21,20 @@ import type { DailyLog, UserGoals } from '@/lib/types';
 
 describe('expenditureEngine', () => {
   describe('selectEnergyDensity', () => {
-    it('should return 7700 for deficit (losing weight)', () => {
-      expect(selectEnergyDensity(-0.1)).toBe(METABOLIC_CONSTANTS.ENERGY_DENSITY_DEFICIT);
+    it('should return the symmetric estimation density for deficit (losing weight)', () => {
+      expect(selectEnergyDensity(-0.1)).toBe(METABOLIC_CONSTANTS.ENERGY_DENSITY_ESTIMATION_KCAL_PER_KG);
       expect(selectEnergyDensity(-0.5)).toBe(7700);
     });
 
-    it('should return 5500 for surplus (gaining weight)', () => {
-      expect(selectEnergyDensity(0.1)).toBe(METABOLIC_CONSTANTS.ENERGY_DENSITY_SURPLUS);
-      expect(selectEnergyDensity(0.5)).toBe(5500);
+    it('should return the SAME symmetric density for surplus (gaining weight)', () => {
+      // V3 bias fix: the back-solve must use one symmetric density in both
+      // directions, otherwise weight oscillation ratchets TDEE upward.
+      expect(selectEnergyDensity(0.1)).toBe(METABOLIC_CONSTANTS.ENERGY_DENSITY_ESTIMATION_KCAL_PER_KG);
+      expect(selectEnergyDensity(0.5)).toBe(7700);
     });
 
-    it('should return 5500 for zero delta (no change)', () => {
-      // Zero is not negative, so it falls into the surplus/neutral branch
-      expect(selectEnergyDensity(0)).toBe(5500);
+    it('should return the symmetric density for zero delta (no change)', () => {
+      expect(selectEnergyDensity(0)).toBe(7700);
     });
   });
 
@@ -47,10 +48,10 @@ describe('expenditureEngine', () => {
     });
 
     it('should calculate TDEE correctly for surplus (weight gain)', () => {
-      // TDEE = 3000 - (0.1 * 5500) = 3000 - 550 = 2450
+      // Symmetric density: TDEE = 3000 - (0.1 * 7700) = 3000 - 770 = 2230
       const result = calculateRawTdee(3000, 0.1);
-      expect(result.rawTdee).toBe(2450);
-      expect(result.energyDensity).toBe(5500);
+      expect(result.rawTdee).toBe(2230);
+      expect(result.energyDensity).toBe(7700);
     });
 
     it('should return calories when delta is zero', () => {
@@ -446,6 +447,82 @@ describe('expenditureEngine', () => {
       // Uses override instead of trend delta (-0.5)
       expect(result.weightDeltaKg).toBe(-0.2);
       expect(result.rawTdeeKcal).toBe(3540); // 2000 - (-0.2 * 7700)
+    });
+  });
+
+  describe('buildComputedState outlier rejection', () => {
+    // Recent raw-TDEE window: mean 2500, stdDev ~59.8 kcal.
+    const recentRawTdees = [2400, 2450, 2500, 2550, 2600, 2500, 2500];
+
+    const makeLog = (calories: number): DailyLog => ({
+      date: '2026-02-01',
+      scaleWeightKg: 84,
+      nutritionCalories: calories,
+      nutritionProteinG: 150,
+      nutritionCarbsG: 200,
+      nutritionFatG: 65,
+      stepCount: null,
+      logStatus: 'complete',
+    });
+
+    it('excludes an isolated outlier day (holds previous TDEE, widens flux)', () => {
+      // calories 3200, weightDelta 0 -> rawTdee 3200; z = (3200-2500)/59.8 ~ 11.7 > 2.5
+      const result = buildComputedState(
+        '2026-02-01', 84, 84, makeLog(3200), 2500,
+        undefined, 7 /*daysTracked*/, 0, 0 /*weightDeltaOverride*/,
+        { recentRawTdees, consecutiveOutlierCount: 0 }
+      );
+
+      expect(result.wasOutlierExcluded).toBe(true);
+      expect(result.estimatedTdeeKcal).toBe(2500); // held
+      expect(result.rawTdeeKcal).toBe(2500);
+      expect(result.fluxConfidenceRange).toBeGreaterThanOrEqual(400);
+    });
+
+    it('does not exclude a day within the z-threshold', () => {
+      // calories 2580 -> rawTdee 2580; z ~ 1.34 < 2.5 -> normal smoothing
+      const result = buildComputedState(
+        '2026-02-01', 84, 84, makeLog(2580), 2500,
+        undefined, 7, 0, 0,
+        { recentRawTdees, consecutiveOutlierCount: 0 }
+      );
+
+      expect(result.wasOutlierExcluded).toBe(false);
+      // smoothTdee(2580, 2500) = 2580*0.05 + 2500*0.95 = 2504
+      expect(result.estimatedTdeeKcal).toBe(2504);
+    });
+
+    it('never excludes during cold start (fewer than 5 tracked days)', () => {
+      const result = buildComputedState(
+        '2026-02-01', 84, 84, makeLog(3200), 2500,
+        undefined, 3 /*daysTracked < 5*/, 0, 0,
+        { recentRawTdees, consecutiveOutlierCount: 0 }
+      );
+
+      expect(result.wasOutlierExcluded).toBe(false);
+      // smoothTdee(3200, 2500) = 3200*0.05 + 2500*0.95 = 2535
+      expect(result.estimatedTdeeKcal).toBe(2535);
+    });
+
+    it('accepts a sustained anomaly after 3 consecutive outlier days (real trend)', () => {
+      const result = buildComputedState(
+        '2026-02-01', 84, 84, makeLog(3200), 2500,
+        undefined, 7, 0, 0,
+        { recentRawTdees, consecutiveOutlierCount: 3 }
+      );
+
+      expect(result.wasOutlierExcluded).toBe(false);
+      expect(result.estimatedTdeeKcal).toBe(2535);
+    });
+
+    it('does not attempt outlier rejection when no outlier context is provided', () => {
+      const result = buildComputedState(
+        '2026-02-01', 84, 84, makeLog(3200), 2500,
+        undefined, 7, 0, 0
+      );
+
+      expect(result.wasOutlierExcluded).toBe(false);
+      expect(result.estimatedTdeeKcal).toBe(2535);
     });
   });
 

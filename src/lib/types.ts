@@ -203,6 +203,12 @@ export const METABOLIC_CONSTANTS = {
   TDEE_EMA_ALPHA_RESPONSIVE: 0.1, // Used when activity changes significantly
 
   // Energy density (kcal per kg)
+  // Symmetric density for the TDEE back-solve. Must be direction-independent:
+  // an asymmetric density makes weight oscillation ratchet estimated TDEE
+  // upward over time (the V2 bias MacroFactor removed in V3).
+  ENERGY_DENSITY_ESTIMATION_KCAL_PER_KG: 7700,
+  // Direction-specific densities used ONLY by the coaching engine to convert a
+  // goal weekly rate into a calorie deficit/surplus target. Not used for estimation.
   ENERGY_DENSITY_DEFICIT: 7700, // ~3500 kcal/lb - fat loss dominant
   ENERGY_DENSITY_SURPLUS: 5500, // Accounts for anabolic inefficiency
 

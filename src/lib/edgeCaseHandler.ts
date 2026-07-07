@@ -8,9 +8,8 @@
  * 4. Data quality validation
  */
 
-import { 
-  type DailyLog, 
-  type ComputedState,
+import {
+  type DailyLog,
   type UserGoals,
   type GoalType,
 } from './types';
@@ -358,42 +357,46 @@ export function calculateDataQualityScore(
 
 /**
  * Detect if a computed TDEE value is an outlier
+ *
+ * @param zThreshold - Standard-deviation multiple beyond which a value is an
+ *   outlier. Defaults to 2; the estimation loop uses a more conservative 2.5 so
+ *   only extreme anomalies (likely mis-logs) are rejected.
  */
 export function isTdeeOutlier(
   rawTdee: number,
   recentAverage: number,
-  stdDev: number
+  stdDev: number,
+  zThreshold: number = 2
 ): { isOutlier: boolean; deviation: number } {
   const deviation = Math.abs(rawTdee - recentAverage);
   const zScore = stdDev > 0 ? deviation / stdDev : 0;
-  
-  // Consider outlier if > 2 standard deviations
-  const isOutlier = zScore > 2;
-  
+
+  const isOutlier = zScore > zThreshold;
+
   if (isOutlier) {
-    console.log(`[EdgeCaseHandler] TDEE outlier detected: ${rawTdee} vs avg ${recentAverage} (z=${zScore.toFixed(2)})`);
+    console.log(`[EdgeCaseHandler] TDEE outlier detected: ${rawTdee} vs avg ${recentAverage} (z=${zScore.toFixed(2)}, threshold=${zThreshold})`);
   }
-  
+
   return { isOutlier, deviation };
 }
 
 /**
- * Calculate statistics for recent TDEE values
+ * Calculate summary statistics for a set of TDEE values (e.g. a rolling window
+ * of recent raw daily TDEE estimates).
  */
 export function calculateTdeeStatistics(
-  computedStates: ComputedState[]
+  values: number[]
 ): { average: number; stdDev: number; min: number; max: number } {
-  if (computedStates.length === 0) {
+  if (values.length === 0) {
     return { average: 0, stdDev: 0, min: 0, max: 0 };
   }
-  
-  const values = computedStates.map(s => s.estimatedTdeeKcal);
+
   const average = values.reduce((a, b) => a + b, 0) / values.length;
   const variance = values.reduce((sum, val) => sum + Math.pow(val - average, 2), 0) / values.length;
   const stdDev = Math.sqrt(variance);
   const min = Math.min(...values);
   const max = Math.max(...values);
-  
+
   return { average, stdDev, min, max };
 }
 

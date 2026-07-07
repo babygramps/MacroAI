@@ -15,13 +15,12 @@ import {
   type UserGoals,
   type ConfidenceLevel,
 } from './types';
-import { validateDailyLogForTdee } from './edgeCaseHandler';
+import { validateDailyLogForTdee, isTdeeOutlier, calculateTdeeStatistics } from './edgeCaseHandler';
 
 const {
   TDEE_EMA_ALPHA,
   TDEE_EMA_ALPHA_RESPONSIVE,
-  ENERGY_DENSITY_DEFICIT,
-  ENERGY_DENSITY_SURPLUS,
+  ENERGY_DENSITY_ESTIMATION_KCAL_PER_KG,
   STEP_RESPONSIVENESS_THRESHOLD,
   COLD_START_DAYS,
   DEFAULT_ACTIVITY_MULTIPLIER,
@@ -29,26 +28,66 @@ const {
 
 const MAX_RAW_TDEE_DELTA = 1200;
 
+// Outlier rejection guardrails. Only reject once there is enough history to
+// compute meaningful statistics, use a conservative z-threshold so only extreme
+// anomalies (likely mis-logs) are dropped, and never reject a *sustained*
+// anomaly — 3+ consecutive breaches are treated as a real trend, not noise.
+const OUTLIER_MIN_HISTORY_DAYS = 5;
+const OUTLIER_Z_THRESHOLD = 2.5;
+const OUTLIER_MAX_CONSECUTIVE = 3;
+
 /**
- * Select the appropriate energy density factor based on weight change direction
- * 
- * V3 "Modular" approach:
- * - Deficit (losing): 7700 kcal/kg (high energy density, fat loss dominant)
- * - Surplus (gaining): 5500 kcal/kg (accounts for anabolic inefficiency)
- * 
- * @param weightDeltaKg - Weight change (negative = losing, positive = gaining)
+ * Rolling context the estimation loop supplies so a single day's back-solved
+ * TDEE can be tested against recent history for outlier rejection.
+ */
+export interface OutlierContext {
+  /** Recent raw (pre-smoothing) daily TDEE values, e.g. the last 7. */
+  recentRawTdees: number[];
+  /** How many immediately-preceding days were already excluded as outliers. */
+  consecutiveOutlierCount: number;
+}
+
+/** ComputedState plus per-day metadata the loop needs but does not persist. */
+export type ComputedStateResult = ComputedState & { wasOutlierExcluded: boolean };
+
+/**
+ * Decide whether a day's raw back-solved TDEE should be rejected as an outlier.
+ * Returns false (accept) unless every guardrail is satisfied and the value is
+ * beyond the z-threshold relative to the recent raw-TDEE window.
+ */
+function shouldExcludeAsOutlier(
+  rawTdee: number,
+  daysTracked: number,
+  outlierContext?: OutlierContext
+): boolean {
+  if (!outlierContext) return false;
+  if (daysTracked < OUTLIER_MIN_HISTORY_DAYS) return false;
+  if (outlierContext.recentRawTdees.length < OUTLIER_MIN_HISTORY_DAYS) return false;
+  if (outlierContext.consecutiveOutlierCount >= OUTLIER_MAX_CONSECUTIVE) return false;
+
+  const stats = calculateTdeeStatistics(outlierContext.recentRawTdees);
+  return isTdeeOutlier(rawTdee, stats.average, stats.stdDev, OUTLIER_Z_THRESHOLD).isOutlier;
+}
+
+/**
+ * Energy density used to back-solve TDEE from a trend-weight change.
+ *
+ * This is intentionally symmetric (direction-independent). An asymmetric
+ * density (e.g. 7700 losing / 5500 gaining) means a down-day adds more implied
+ * expenditure than an equal up-day subtracts, so normal weight oscillation
+ * ratchets estimated TDEE upward over time. MacroFactor removed exactly this
+ * bias in V3; we keep a single symmetric density here.
+ *
+ * The parameter is retained so callers can still record `energyDensityUsed`
+ * per day, but the returned value no longer depends on the sign.
+ *
+ * @param weightDeltaKg - Weight change (retained for call-site symmetry; the
+ *   returned density no longer depends on its sign)
  * @returns Energy density in kcal/kg
  */
 export function selectEnergyDensity(weightDeltaKg: number): number {
-  if (weightDeltaKg < 0) {
-    // Losing weight - fat loss releases ~7700 kcal/kg
-    return ENERGY_DENSITY_DEFICIT;
-  } else {
-    // Gaining weight - muscle gain is energetically expensive
-    // Stores ~600 kcal but costs ~2000+ to synthesize
-    // We use a lower effective density to account for this
-    return ENERGY_DENSITY_SURPLUS;
-  }
+  void weightDeltaKg; // intentionally unused: density is direction-independent
+  return ENERGY_DENSITY_ESTIMATION_KCAL_PER_KG;
 }
 
 /**
@@ -301,7 +340,9 @@ export function calculateFluxRange(
  * @param stepCountDelta - Optional step count change
  * @param daysTracked - Number of days with valid data so far (for dynamic flux range)
  * @param recentTdeeVariance - Variance in recent raw TDEE values (for dynamic flux range)
- * @returns ComputedState object
+ * @param weightDeltaOverrideKg - Optional weight delta to use instead of the trend delta
+ * @param outlierContext - Optional recent-history context enabling outlier rejection
+ * @returns ComputedState plus a wasOutlierExcluded flag for the caller's loop
  */
 export function buildComputedState(
   date: string,
@@ -312,24 +353,29 @@ export function buildComputedState(
   stepCountDelta?: number,
   daysTracked: number = 0,
   recentTdeeVariance: number = 0,
-  weightDeltaOverrideKg?: number
-): ComputedState {
+  weightDeltaOverrideKg?: number,
+  outlierContext?: OutlierContext
+): ComputedStateResult {
   const trendWeightDeltaKg = trendWeightKg - prevTrendWeightKg;
   const weightDeltaKg = weightDeltaOverrideKg ?? trendWeightDeltaKg;
 
+  // Shared "hold previous TDEE + widen uncertainty" result, used whenever a day
+  // cannot (or should not) update the estimate.
+  const holdResult = (): ComputedStateResult => ({
+    date,
+    trendWeightKg,
+    estimatedTdeeKcal: prevTdee,
+    rawTdeeKcal: prevTdee,
+    fluxConfidenceRange: Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance)),
+    energyDensityUsed: selectEnergyDensity(weightDeltaKg),
+    weightDeltaKg,
+    wasOutlierExcluded: false,
+  });
+
   // If no calorie data or day quality is invalid, hold previous TDEE and widen uncertainty.
   if (!dailyLog) {
-    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
     console.log(`[ExpenditureEngine] Day ${date} has no DailyLog - holding previous TDEE`);
-    return {
-      date,
-      trendWeightKg,
-      estimatedTdeeKcal: prevTdee,
-      rawTdeeKcal: prevTdee,
-      fluxConfidenceRange: missingFlux,
-      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
-      weightDeltaKg,
-    };
+    return holdResult();
   }
 
   const validation = validateDailyLogForTdee(dailyLog, prevTdee);
@@ -337,33 +383,25 @@ export function buildComputedState(
     console.log(
       `[ExpenditureEngine] Day ${date} excluded from TDEE update: ${validation.reason ?? 'invalid daily log'}`
     );
-    // Missing data = high uncertainty; use dynamic range but with a floor of 400
-    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
-    return {
-      date,
-      trendWeightKg,
-      estimatedTdeeKcal: prevTdee,
-      rawTdeeKcal: prevTdee,
-      fluxConfidenceRange: missingFlux,
-      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
-      weightDeltaKg,
-    };
+    return holdResult();
   }
-  
+
   const nutritionCalories = dailyLog.nutritionCalories;
   if (nutritionCalories === null) {
     // Defensive guard for type narrowing; validation above should catch this.
-    const missingFlux = Math.max(400, calculateFluxRange(daysTracked, recentTdeeVariance));
     console.log(`[ExpenditureEngine] Day ${date} has null calories post-validation - holding previous TDEE`);
-    return {
-      date,
-      trendWeightKg,
-      estimatedTdeeKcal: prevTdee,
-      rawTdeeKcal: prevTdee,
-      fluxConfidenceRange: missingFlux,
-      energyDensityUsed: selectEnergyDensity(weightDeltaKg),
-      weightDeltaKg,
-    };
+    return holdResult();
+  }
+
+  // Reject days whose back-solved TDEE is an extreme outlier relative to recent
+  // history (likely a mis-log). Guardrails in shouldExcludeAsOutlier prevent
+  // this from suppressing genuine, sustained metabolic changes.
+  const { rawTdee: unsmoothedRawTdee } = calculateRawTdee(nutritionCalories, weightDeltaKg);
+  if (shouldExcludeAsOutlier(unsmoothedRawTdee, daysTracked, outlierContext)) {
+    console.log(
+      `[ExpenditureEngine] Day ${date} excluded as TDEE outlier (raw=${unsmoothedRawTdee}) - holding previous TDEE`
+    );
+    return { ...holdResult(), wasOutlierExcluded: true };
   }
 
   const { estimatedTdee, rawTdee, energyDensity } = calculateDailyExpenditure(
@@ -372,7 +410,7 @@ export function buildComputedState(
     prevTdee,
     stepCountDelta
   );
-  
+
   return {
     date,
     trendWeightKg,
@@ -381,6 +419,7 @@ export function buildComputedState(
     fluxConfidenceRange: calculateFluxRange(daysTracked, recentTdeeVariance),
     energyDensityUsed: energyDensity,
     weightDeltaKg,
+    wasOutlierExcluded: false,
   };
 }
 

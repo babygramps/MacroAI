@@ -16,7 +16,7 @@ import {
   validateWeightEntry,
   validateCalorieEntry,
 } from '@/lib/edgeCaseHandler';
-import type { DailyLog, ComputedState, UserGoals } from '@/lib/types';
+import type { DailyLog, UserGoals } from '@/lib/types';
 
 describe('edgeCaseHandler', () => {
   describe('isPartialLogging', () => {
@@ -310,6 +310,12 @@ describe('edgeCaseHandler', () => {
       const result = isTdeeOutlier(2600, 2500, 0);
       expect(result.isOutlier).toBe(false);
     });
+
+    it('should respect a custom z-threshold', () => {
+      // 2.4 sd out: an outlier at the default 2, but not at a 2.5 threshold
+      expect(isTdeeOutlier(2740, 2500, 100).isOutlier).toBe(true);
+      expect(isTdeeOutlier(2740, 2500, 100, 2.5).isOutlier).toBe(false);
+    });
   });
 
   describe('calculateTdeeStatistics', () => {
@@ -322,14 +328,8 @@ describe('edgeCaseHandler', () => {
     });
 
     it('should calculate statistics correctly', () => {
-      const states: ComputedState[] = [
-        { date: '2026-01-01', trendWeightKg: 85, estimatedTdeeKcal: 2400, rawTdeeKcal: 2400, fluxConfidenceRange: 200, energyDensityUsed: 7700, weightDeltaKg: -0.1 },
-        { date: '2026-01-02', trendWeightKg: 85, estimatedTdeeKcal: 2500, rawTdeeKcal: 2500, fluxConfidenceRange: 200, energyDensityUsed: 7700, weightDeltaKg: -0.1 },
-        { date: '2026-01-03', trendWeightKg: 85, estimatedTdeeKcal: 2600, rawTdeeKcal: 2600, fluxConfidenceRange: 200, energyDensityUsed: 7700, weightDeltaKg: -0.1 },
-      ];
-      
-      const result = calculateTdeeStatistics(states);
-      
+      const result = calculateTdeeStatistics([2400, 2500, 2600]);
+
       expect(result.average).toBe(2500);
       expect(result.min).toBe(2400);
       expect(result.max).toBe(2600);
