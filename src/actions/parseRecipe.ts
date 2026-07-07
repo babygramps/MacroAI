@@ -45,6 +45,41 @@ interface GeminiParsedIngredient {
   is_branded: boolean;
 }
 
+// Mirrors GeminiParsedRecipe — keep in sync.
+const PARSED_RECIPE_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    total_yield_description: { type: 'string' },
+    estimated_total_weight_g: { type: 'number' },
+    servings: { type: 'number' },
+    serving_description: { type: 'string' },
+    serving_size_g: { type: 'number' },
+    ingredients: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          usda_search_term: { type: 'string' },
+          display_name: { type: 'string' },
+          weight_g: { type: 'number' },
+          is_branded: { type: 'boolean' },
+        },
+        required: ['usda_search_term', 'display_name', 'weight_g', 'is_branded'],
+      },
+    },
+  },
+  required: [
+    'name',
+    'total_yield_description',
+    'estimated_total_weight_g',
+    'servings',
+    'serving_description',
+    'serving_size_g',
+    'ingredients',
+  ],
+};
+
 const MAX_RECIPE_TEXT_LENGTH = 8000;
 
 // Parse recipe with Gemini
@@ -103,6 +138,7 @@ Return ONLY valid JSON (or null if not a recipe):
   // collapse to null here, exactly as the pre-refactor local copy behaved.
   const result = await generateStructuredJson<GeminiParsedRecipe>(prompt, {
     logContext: 'Gemini recipe parsing error:',
+    responseJsonSchema: PARSED_RECIPE_SCHEMA,
   });
   return result.ok ? result.data : null;
 }

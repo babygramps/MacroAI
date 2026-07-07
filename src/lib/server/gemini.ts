@@ -32,6 +32,13 @@ export interface GenerateStructuredJsonOptions {
    * Defaults to a generic label.
    */
   logContext?: string;
+  /**
+   * Plain JSON Schema forwarded as the request's `responseJsonSchema`,
+   * constraining decoding server-side so the model cannot emit malformed
+   * JSON. gemini-3.5-flash was observed emitting a stray closing brace on
+   * ~1/3 of array-of-objects prompts without it (2026-07-07).
+   */
+  responseJsonSchema?: unknown;
 }
 
 /**
@@ -69,35 +76,47 @@ export async function generateStructuredJson<T>(
 
   const logLabel = opts.logContext ?? 'Gemini generateContent error:';
 
-  let responseText: string | undefined;
-  try {
-    const response = await client.models.generateContent({
-      model: GEMINI_MODEL,
-      contents,
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        responseMimeType: 'application/json',
-        abortSignal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-      },
-    });
-    responseText = response.text;
-  } catch (error) {
-    logError(logLabel, error);
-    return { ok: false, reason: 'request_error', error };
+  // One retry, on parse failures only: the model intermittently emits
+  // malformed JSON even in JSON mode (see responseJsonSchema doc above);
+  // a fresh generation is independent, so a second attempt usually lands.
+  // Request errors and empty responses are not retried — callers map those
+  // to distinct user-facing codes and they are not transient in the same way.
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    let responseText: string | undefined;
+    try {
+      const response = await client.models.generateContent({
+        model: GEMINI_MODEL,
+        contents,
+        config: {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          ...(opts.responseJsonSchema !== undefined && {
+            responseJsonSchema: opts.responseJsonSchema,
+          }),
+          abortSignal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+        },
+      });
+      responseText = response.text;
+    } catch (error) {
+      logError(logLabel, error);
+      return { ok: false, reason: 'request_error', error };
+    }
+
+    if (!responseText) {
+      return { ok: false, reason: 'empty_response' };
+    }
+
+    try {
+      return { ok: true, data: JSON.parse(responseText) as T };
+    } catch (error) {
+      // Pre-refactor code caught JSON.parse failures in the same catch as the
+      // request itself, under the same per-call-site label — preserved here.
+      logError(logLabel, error);
+    }
   }
 
-  if (!responseText) {
-    return { ok: false, reason: 'empty_response' };
-  }
-
-  try {
-    return { ok: true, data: JSON.parse(responseText) as T };
-  } catch (error) {
-    // Pre-refactor code caught JSON.parse failures in the same catch as the
-    // request itself, under the same per-call-site label — preserved here.
-    logError(logLabel, error);
-    return { ok: false, reason: 'parse_error' };
-  }
+  return { ok: false, reason: 'parse_error' };
 }
 
 interface GeminiFallbackFood {
@@ -108,6 +127,20 @@ interface GeminiFallbackFood {
   carbs_g: number;
   fat_g: number;
 }
+
+// Mirrors GeminiFallbackFood — keep in sync.
+const NUTRITION_FALLBACK_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string' },
+    estimated_weight_g: { type: 'number' },
+    calories: { type: 'number' },
+    protein_g: { type: 'number' },
+    carbs_g: { type: 'number' },
+    fat_g: { type: 'number' },
+  },
+  required: ['name', 'estimated_weight_g', 'calories', 'protein_g', 'carbs_g', 'fat_g'],
+};
 
 /**
  * Pure prompt builder for the nutrition fallback — exported for unit
@@ -157,6 +190,7 @@ export async function getGeminiNutritionFallback(
 
   const result = await generateStructuredJson<GeminiFallbackFood>(prompt, {
     logContext: 'Gemini fallback error:',
+    responseJsonSchema: NUTRITION_FALLBACK_SCHEMA,
   });
   if (!result.ok) return null;
 

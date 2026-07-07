@@ -79,6 +79,38 @@ interface GeminiQueryAnalysis {
   fallback_searches: GeminiSearchSuggestion[]; // Generic search terms if brand search fails
 }
 
+// Mirrors GeminiQueryAnalysis — keep in sync.
+const QUERY_ANALYSIS_SCHEMA = {
+  type: 'object',
+  properties: {
+    is_food: { type: 'boolean' },
+    has_brand: { type: 'boolean' },
+    brand_name: { type: ['string', 'null'] },
+    brand_owner: { type: ['string', 'null'] },
+    product_keywords: { type: 'array', items: { type: 'string' } },
+    fallback_searches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          usda_search_term: { type: 'string' },
+          display_name: { type: 'string' },
+          description: { type: 'string' },
+        },
+        required: ['usda_search_term', 'display_name', 'description'],
+      },
+    },
+  },
+  required: [
+    'is_food',
+    'has_brand',
+    'brand_name',
+    'brand_owner',
+    'product_keywords',
+    'fallback_searches',
+  ],
+};
+
 const MAX_QUERY_LENGTH = 200;
 
 // Default analysis used for every non-happy-path outcome (missing API key,
@@ -159,6 +191,7 @@ Return ONLY a valid JSON object:
   // pre-refactor local copy behaved.
   const result = await generateStructuredJson<GeminiQueryAnalysis>(prompt, {
     logContext: 'Gemini query analysis error:',
+    responseJsonSchema: QUERY_ANALYSIS_SCHEMA,
   });
 
   return result.ok ? result.data : defaultQueryAnalysis(userQuery);

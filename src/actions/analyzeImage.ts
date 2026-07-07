@@ -15,6 +15,21 @@ interface GeminiImageParsedItem {
   is_branded: boolean; // True for restaurant/branded items (Big Mac, etc.)
 }
 
+// Mirrors GeminiImageParsedItem[] — keep in sync. Empty array = no food found.
+const IMAGE_ITEMS_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      usda_search_term: { type: 'string' },
+      display_name: { type: 'string' },
+      estimated_weight_g: { type: 'number' },
+      is_branded: { type: 'boolean' },
+    },
+    required: ['usda_search_term', 'display_name', 'estimated_weight_g', 'is_branded'],
+  },
+};
+
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB guardrail
 const MAX_DESCRIPTION_LENGTH = 800;
 
@@ -203,7 +218,7 @@ Return ONLY a valid JSON array. Example:
           ],
         },
       ],
-      { logContext: 'Image analysis error:' }
+      { logContext: 'Image analysis error:', responseJsonSchema: IMAGE_ITEMS_SCHEMA }
     );
 
     if (!visionResult.ok) {

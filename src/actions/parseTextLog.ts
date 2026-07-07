@@ -29,6 +29,23 @@ interface GeminiParsedIngredient {
   is_branded: boolean; // True for restaurant/branded items (Big Mac, etc.)
 }
 
+// Mirrors GeminiParsedIngredient[] — keep in sync. An empty array is the
+// prompt's not-food signal, so no minItems.
+const PARSED_INGREDIENTS_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      usda_search_term: { type: 'string' },
+      display_name: { type: 'string' },
+      quantity: { type: 'number' },
+      weight_g: { type: 'number' },
+      is_branded: { type: 'boolean' },
+    },
+    required: ['usda_search_term', 'display_name', 'quantity', 'weight_g', 'is_branded'],
+  },
+};
+
 const MAX_TEXT_LENGTH = 4000;
 
 // Step 1: Use Gemini to parse meal into USDA-searchable ingredients
@@ -77,6 +94,7 @@ Return ONLY a valid JSON array (empty [] if not food-related):
   // collapse to [] here, exactly as the pre-refactor local copy behaved.
   const result = await generateStructuredJson<GeminiParsedIngredient[]>(prompt, {
     logContext: 'Gemini parsing error:',
+    responseJsonSchema: PARSED_INGREDIENTS_SCHEMA,
   });
   return result.ok ? result.data : [];
 }
