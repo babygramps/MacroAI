@@ -11,6 +11,7 @@ import { showToast } from './ui/Toast';
 import { ConfirmModal } from './ui/ConfirmModal';
 import { deleteMealEntry, updateMeal, duplicateMealEntry } from '@/lib/data/dashboard';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
+import { resolveEffectiveTdee } from '@/lib/selectors/dayStatusSelectors';
 import { DashboardHeader } from './dashboard/DashboardHeader';
 import { DashboardRings } from './dashboard/DashboardRings';
 import { WeightCard } from './dashboard/WeightCard';
@@ -94,9 +95,15 @@ export function Dashboard() {
     isSyncing,
     dayStatus,
     dayStatusMap,
+    latestTdee,
     refresh,
     updateDayStatus,
   } = useDashboardData(selectedDate);
+
+  const effectiveTdee = resolveEffectiveTdee({
+    latestComputedTdee: latestTdee,
+    calorieGoal: goals.calorieGoal,
+  });
 
   const handleDateChange = useCallback((newDate: Date) => {
     setSelectedDate(newDate);
@@ -251,7 +258,7 @@ export function Dashboard() {
           selectedDate={selectedDate}
           currentStatus={dayStatus}
           totalCalories={summary.totalCalories}
-          estimatedTdee={goals.calorieGoal}
+          estimatedTdee={effectiveTdee}
           onStatusChange={updateDayStatus}
           isLoading={isLoading}
         />
@@ -283,7 +290,7 @@ export function Dashboard() {
           selectedDate={selectedDate}
           currentStatus={dayStatus}
           totalCalories={summary.totalCalories}
-          estimatedTdee={goals.calorieGoal}
+          estimatedTdee={effectiveTdee}
           onStatusChange={updateDayStatus}
         />
       </main>

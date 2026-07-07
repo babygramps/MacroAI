@@ -16,6 +16,7 @@ interface UseDashboardDataResult {
   isSyncing: boolean;
   dayStatus: LogStatus | null;
   dayStatusMap: Map<string, LogStatus>;
+  latestTdee: number | null;
   refresh: () => Promise<void>;
   updateDayStatus: (status: LogStatus) => void;
 }
@@ -61,6 +62,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
   const [isSyncing, setIsSyncing] = useState(false);
   const [dayStatus, setDayStatus] = useState<LogStatus | null>(null);
   const [dayStatusMap, setDayStatusMap] = useState<Map<string, LogStatus>>(new Map());
+  const [latestTdee, setLatestTdee] = useState<number | null>(null);
   const hasLoadedRef = useRef(false);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
@@ -164,6 +166,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       setSummary(data.summary);
       setLatestWeight(data.latestWeight);
       setNeedsOnboarding(data.needsOnboarding);
+      setLatestTdee(data.latestTdee);
       setDayStatus(status);
 
       // Update the status map for the current day
@@ -237,6 +240,7 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
     isSyncing,
     dayStatus,
     dayStatusMap,
+    latestTdee,
     refresh,
     updateDayStatus: updateDayStatusLocal,
   };

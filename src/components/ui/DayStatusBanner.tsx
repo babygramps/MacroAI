@@ -5,6 +5,7 @@ import type { LogStatus } from '@/lib/types';
 import { updateDayStatus } from '@/actions/updateDayStatus';
 import { onDayStatusChanged } from '@/lib/metabolicService';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
+import { assessPartialLogging, DEFAULT_FALLBACK_TDEE } from '@/lib/selectors/dayStatusSelectors';
 import { showToast } from './Toast';
 
 interface DayStatusBannerProps {
@@ -42,7 +43,7 @@ export function DayStatusBanner({
   selectedDate,
   currentStatus,
   totalCalories,
-  estimatedTdee = 2000,
+  estimatedTdee = DEFAULT_FALLBACK_TDEE,
   onStatusChange,
   isLoading = false,
 }: DayStatusBannerProps) {
@@ -142,7 +143,7 @@ export function DayStatusBanner({
   }
 
   // Check if the day looks incomplete (low or no calories)
-  const isLowCalories = totalCalories > 0 && totalCalories < estimatedTdee * 0.5;
+  const isLowCalories = assessPartialLogging(totalCalories, estimatedTdee).isPartial;
   const hasNoFood = totalCalories === 0;
 
   // Determine if we should show a warning (incomplete-looking) or just an option

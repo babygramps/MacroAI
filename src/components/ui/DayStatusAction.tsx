@@ -5,6 +5,7 @@ import type { LogStatus } from '@/lib/types';
 import { updateDayStatus } from '@/actions/updateDayStatus';
 import { onDayStatusChanged } from '@/lib/metabolicService';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
+import { assessPartialLogging, DEFAULT_FALLBACK_TDEE } from '@/lib/selectors/dayStatusSelectors';
 import { showToast } from './Toast';
 
 interface DayStatusActionProps {
@@ -76,7 +77,7 @@ export function DayStatusAction({
   selectedDate,
   currentStatus,
   totalCalories,
-  estimatedTdee = 2000,
+  estimatedTdee = DEFAULT_FALLBACK_TDEE,
   onStatusChange,
 }: DayStatusActionProps) {
   const [isUpdating, setIsUpdating] = useState(false);
@@ -115,7 +116,7 @@ export function DayStatusAction({
   const isTodayDate = isToday(selectedDate);
   const hasFood = totalCalories > 0;
   const isLate = isLateInDay();
-  const isLowCalories = hasFood && totalCalories < estimatedTdee * 0.5;
+  const isLowCalories = assessPartialLogging(totalCalories, estimatedTdee).isPartial;
 
   const renderOptions = () => (
     <div className="flex flex-col gap-2">

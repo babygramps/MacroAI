@@ -52,6 +52,7 @@ const baseData = {
   summary: emptySummary,
   latestWeight: null,
   needsOnboarding: false,
+  latestTdee: null,
 };
 
 describe('useDashboardData', () => {

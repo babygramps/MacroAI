@@ -18,6 +18,8 @@ interface DashboardData {
   summary: DailySummary;
   latestWeight: WeightLogEntry | null;
   needsOnboarding: boolean;
+  /** Most recent smoothed TDEE from ComputedState (last ~7 days), or null if none yet. */
+  latestTdee: number | null;
 }
 
 export function calculateDailyTotals(meals: MealEntry[]): DailySummary {
@@ -142,6 +144,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
       },
       latestWeight: null,
       needsOnboarding: false,
+      latestTdee: null,
     };
   }
   const selectedDateStart = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0).toISOString();
@@ -182,6 +185,17 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
   let needsOnboarding = false;
   let goals: UserGoals = DEFAULT_GOALS;
 
+  // Derive the most recent smoothed TDEE from the ComputedState data already
+  // fetched above (last ~7 days) - exposed to callers and reused below for
+  // the dynamic calorie target.
+  const computedStates = latestComputedStates.data ?? [];
+  let latestTdee: number | null = null;
+  if (computedStates.length > 0) {
+    // Sort by date descending to get the most recent TDEE
+    const sorted = [...computedStates].sort((a, b) => b.date.localeCompare(a.date));
+    latestTdee = sorted[0].estimatedTdeeKcal;
+  }
+
   if (profiles && profiles.length > 0) {
     const profile = profiles[0];
     const unitSystem = (profile.preferredUnitSystem as 'metric' | 'imperial') ??
@@ -194,14 +208,9 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     const goalRate = profile.goalRate ?? 0.5;
 
     // Use TDEE-based dynamic calorie target when available
-    let dynamicCalorieGoal = staticCalorieGoal;
-    const computedStates = latestComputedStates.data ?? [];
-    if (computedStates.length > 0) {
-      // Sort by date descending to get the most recent TDEE
-      const sorted = [...computedStates].sort((a, b) => b.date.localeCompare(a.date));
-      const latestTdee = sorted[0].estimatedTdeeKcal;
-      dynamicCalorieGoal = calculateCalorieTarget(latestTdee, goalType, goalRate);
-    }
+    const dynamicCalorieGoal = latestTdee !== null
+      ? calculateCalorieTarget(latestTdee, goalType, goalRate)
+      : staticCalorieGoal;
 
     goals = {
       calorieGoal: dynamicCalorieGoal,
@@ -255,6 +264,7 @@ export async function fetchDashboardData(date: Date): Promise<DashboardData> {
     summary: calculateDailyTotals(allMeals),
     latestWeight: selectedDateWeight,
     needsOnboarding,
+    latestTdee,
   };
 }
 
