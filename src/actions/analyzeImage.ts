@@ -1,18 +1,11 @@
 'use server';
 
-import type { NormalizedFood, USDASearchResponse } from '@/lib/types';
-import { normalizeUSDA, normalizeGemini, withValidation } from '@/lib/normalizer';
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
-import { findBestMatch } from '@/lib/search/relevance';
-import { logDebug, logError, logInfo, logWarn } from '@/lib/logger';
+import type { NormalizedFood, ActionError } from '@/lib/types';
+import { scaleToWeightWithName, withValidation } from '@/lib/normalizer';
 import { getAuthenticatedServerContext } from '@/lib/serverAuth';
-
-const console = {
-  log: logDebug,
-  info: logInfo,
-  warn: logWarn,
-  error: logError,
-} as const;
+import { actionConsole, type FoodActionErrorCode } from '@/lib/server/actionShared';
+import { searchUSDAIngredient } from '@/lib/server/usda';
+import { generateStructuredJson, getGeminiClient, getGeminiNutritionFallback } from '@/lib/server/gemini';
 
 // Types for Gemini image parsing response
 interface GeminiImageParsedItem {
@@ -22,133 +15,34 @@ interface GeminiImageParsedItem {
   is_branded: boolean; // True for restaurant/branded items (Big Mac, etc.)
 }
 
-// Fallback nutrition data from Gemini (used when USDA lookup fails)
-interface GeminiFallbackFood {
-  name: string;
-  estimated_weight_g: number;
-  calories: number;
-  protein_g: number;
-  carbs_g: number;
-  fat_g: number;
-}
-
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8MB guardrail
 const MAX_DESCRIPTION_LENGTH = 800;
 
 // Error codes for user-friendly messaging
-export type ImageAnalysisErrorCode =
-  | 'no_api_key'
-  | 'no_image'
-  | 'gemini_empty_response'
-  | 'gemini_no_food_detected'
-  | 'gemini_parse_error'
-  | 'gemini_api_error'
-  | 'unknown_error';
+export type ImageAnalysisErrorCode = FoodActionErrorCode;
 
 // Structured result for better error handling
 export interface ImageAnalysisResult {
   success: boolean;
   foods: NormalizedFood[];
-  error?: {
-    code: ImageAnalysisErrorCode;
-    message: string;
-    details?: string; // For debugging - Gemini raw response, etc.
-  };
+  error?: ActionError & { code: ImageAnalysisErrorCode };
 }
 
-// Search USDA for a single ingredient (returns best match using relevance scoring)
-async function searchUSDAIngredient(searchTerm: string): Promise<NormalizedFood | null> {
-  const apiKey = process.env.USDA_API_KEY;
-  if (!apiKey) {
-    console.error('USDA_API_KEY not configured');
-    return null;
-  }
-
-  try {
-    // Fetch more results (10) so we can pick the best match
-    const response = await fetch(
-      `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(searchTerm)}&dataType=Foundation,SR%20Legacy,Branded&pageSize=10`,
-      { next: { revalidate: 3600 } }
-    );
-
-    if (!response.ok) {
-      throw new Error(`USDA API error: ${response.status}`);
-    }
-
-    const data: USDASearchResponse = await response.json();
-
-    if (data.foods && data.foods.length > 0) {
-      // Use relevance scoring to find the best match
-      const { food: usdaFood } = findBestMatch(data.foods, searchTerm);
-
-      if (!usdaFood) {
-        return null;
-      }
-
-      // Return per-100g data for ingredient scaling (scaleToServing=false)
-      return normalizeUSDA(usdaFood, false);
-    }
-
-    return null;
-  } catch (error) {
-    console.error('USDA search error for:', searchTerm, error);
-    return null;
-  }
-}
-
-// Fallback: Get full nutrition estimate from Gemini for branded/complex items
-async function getGeminiFallback(item: GeminiImageParsedItem): Promise<NormalizedFood | null> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
-
-  try {
-    const client = new GoogleGenAI({ apiKey });
-
-    const prompt = `Provide accurate nutrition data for: "${item.display_name}" (${item.estimated_weight_g}g total)
-
-Return ONLY a JSON object with these exact fields:
-{"name": "${item.display_name}", "estimated_weight_g": ${item.estimated_weight_g}, "calories": 250, "protein_g": 20, "carbs_g": 30, "fat_g": 10}
-
-Use accurate nutrition data for this specific item. If it's a restaurant/branded item, use known published nutrition facts.`;
-
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: prompt,
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const responseText = response.text;
-    if (!responseText) return null;
-
-    const parsed: GeminiFallbackFood = JSON.parse(responseText);
-    return normalizeGemini(parsed);
-  } catch (error) {
-    console.error('Gemini fallback error:', error);
-    return null;
-  }
-}
-
-// Scale USDA nutrition (per 100g) to actual portion weight
-function scaleToWeight(food: NormalizedFood, targetWeight: number, displayName: string): NormalizedFood {
-  const scaleFactor = targetWeight / 100; // USDA data is per 100g
-
-  return {
-    ...food,
-    name: displayName, // Use the friendly display name
-    calories: Math.round(food.calories * scaleFactor),
-    protein: Math.round(food.protein * scaleFactor * 10) / 10,
-    carbs: Math.round(food.carbs * scaleFactor * 10) / 10,
-    fat: Math.round(food.fat * scaleFactor * 10) / 10,
-    servingSize: targetWeight,
-  };
+/**
+ * Detects the Gemini "content blocked" failure mode (safety filters, etc.)
+ * from a thrown/carried error. Pre-refactor this lived inline in the outer
+ * catch block; kept as its own function since it's now needed both there
+ * (for genuinely unexpected exceptions) and in the Vision call's
+ * `request_error` branch (which no longer throws).
+ */
+function isSafetyBlocked(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('SAFETY') || message.includes('blocked');
 }
 
 /**
  * Analyze a food image using Gemini 3 Flash Vision + USDA data
- * 
+ *
  * HYBRID STRATEGY:
  * 1. Use Gemini Vision to identify food items and estimate weights
  * 2. Query USDA for each item (parallel)
@@ -170,9 +64,11 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     };
   }
 
-  const geminiKey = process.env.GEMINI_API_KEY;
-  if (!geminiKey) {
-    console.error('GEMINI_API_KEY not configured');
+  // Checked eagerly (before image validation/conversion), matching the
+  // pre-refactor order, so a missing key short-circuits before any image
+  // processing/logging happens. getGeminiClient() -> getGeminiApiKey()
+  // already logs 'GEMINI_API_KEY not configured' on a miss.
+  if (!getGeminiClient()) {
     return {
       success: false,
       foods: [],
@@ -189,7 +85,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
   const startedAt = Date.now();
 
   if (!imageFile) {
-    console.error('No image provided');
+    actionConsole.error('No image provided');
     return {
       success: false,
       foods: [],
@@ -212,7 +108,7 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
   }
 
   // Log incoming image details for debugging
-  console.info('analyzeImage called', {
+  actionConsole.info('analyzeImage called', {
     fileName: imageFile.name,
     fileType: imageFile.type,
     fileSize: imageFile.size,
@@ -227,13 +123,11 @@ export async function analyzeImage(formData: FormData): Promise<ImageAnalysisRes
     const arrayBuffer = await imageFile.arrayBuffer();
     const base64Image = Buffer.from(arrayBuffer).toString('base64');
 
-    console.info('Image converted to base64', {
+    actionConsole.info('Image converted to base64', {
       base64Length: base64Image.length,
       mimeType: imageFile.type || 'image/jpeg',
       durationMs: Date.now() - startedAt,
     });
-
-    const client = new GoogleGenAI({ apiKey: geminiKey });
 
     // Build context section if user provided a description
     const userContextSection = safeUserDescription
@@ -293,11 +187,10 @@ Return ONLY a valid JSON array. Example:
   {"usda_search_term": "rice brown cooked", "display_name": "Brown Rice", "estimated_weight_g": 150, "is_branded": false}
 ]`;
 
-    console.info('Sending request to Gemini Vision...');
+    actionConsole.info('Sending request to Gemini Vision...');
 
-    const response = await client.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: [
+    const visionResult = await generateStructuredJson<GeminiImageParsedItem[]>(
+      [
         {
           parts: [
             { text: prompt },
@@ -310,53 +203,74 @@ Return ONLY a valid JSON array. Example:
           ],
         },
       ],
-      config: {
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-        responseMimeType: 'application/json',
-      },
-    });
+      { logContext: 'Image analysis error:' }
+    );
 
-    const responseText = response.text;
+    if (!visionResult.ok) {
+      if (visionResult.reason === 'no_client') {
+        // Unreachable in practice (the eager getGeminiClient() check above
+        // already returned), kept for exhaustiveness over the discriminated
+        // union and as defense in depth.
+        return {
+          success: false,
+          foods: [],
+          error: {
+            code: 'no_api_key',
+            message: 'AI service is not configured. Please contact support.',
+          },
+        };
+      }
 
-    // Log the raw response for debugging
-    console.info('Gemini raw response received', {
-      hasResponse: !!responseText,
-      responseLength: responseText?.length ?? 0,
-      responsePreview: responseText?.substring(0, 500) ?? 'null',
-    });
+      if (visionResult.reason === 'empty_response') {
+        actionConsole.warn('Gemini returned empty response');
+        return {
+          success: false,
+          foods: [],
+          error: {
+            code: 'gemini_empty_response',
+            message: 'The AI could not process this image. Please try a clearer photo.',
+          },
+        };
+      }
 
-    if (!responseText) {
-      console.warn('Gemini returned empty response');
+      if (visionResult.reason === 'parse_error') {
+        return {
+          success: false,
+          foods: [],
+          error: {
+            code: 'gemini_parse_error',
+            message: 'The AI returned an unexpected response. Please try again.',
+          },
+        };
+      }
+
+      // reason === 'request_error': preserve the exact SAFETY/'blocked'
+      // mapping the pre-refactor outer catch performed for this same call.
+      const requestError: unknown = visionResult.reason === 'request_error' ? visionResult.error : undefined;
+      if (isSafetyBlocked(requestError)) {
+        return {
+          success: false,
+          foods: [],
+          error: {
+            code: 'gemini_api_error',
+            message: 'This image could not be analyzed. Please try a different photo.',
+          },
+        };
+      }
+
       return {
         success: false,
         foods: [],
         error: {
-          code: 'gemini_empty_response',
-          message: 'The AI could not process this image. Please try a clearer photo.',
+          code: 'unknown_error',
+          message: 'Something went wrong analyzing your photo. Please try again.',
         },
       };
     }
 
-    // Try to parse the JSON response
-    let parsedItems: GeminiImageParsedItem[];
-    try {
-      parsedItems = JSON.parse(responseText);
-    } catch (parseError) {
-      console.error('Failed to parse Gemini response as JSON', {
-        parseError: parseError instanceof Error ? parseError.message : String(parseError),
-        rawResponse: responseText.substring(0, 1000),
-      });
-      return {
-        success: false,
-        foods: [],
-        error: {
-          code: 'gemini_parse_error',
-          message: 'The AI returned an unexpected response. Please try again.',
-        },
-      };
-    }
+    const parsedItems = visionResult.data;
 
-    console.info(`Gemini identified ${parsedItems.length} food items`, {
+    actionConsole.info(`Gemini identified ${parsedItems.length} food items`, {
       items: parsedItems.map(i => i.display_name),
     });
 
@@ -379,22 +293,24 @@ Return ONLY a valid JSON array. Example:
         let food: NormalizedFood | null = null;
 
         if (item.is_branded) {
-          // Branded item - use Gemini directly
-          console.log(`Using Gemini fallback for branded item: ${item.display_name}`);
-          food = await getGeminiFallback(item);
+          // Branded item - use Gemini directly. analyzeImage's fallback
+          // prompt is the branded-hint variant (mentionBrandedHint defaults
+          // to true).
+          actionConsole.log(`Using Gemini fallback for branded item: ${item.display_name}`);
+          food = await getGeminiNutritionFallback(item.display_name, item.estimated_weight_g);
         } else {
           // Try USDA first
-          console.log(`Searching USDA for: ${item.usda_search_term}`);
+          actionConsole.log(`Searching USDA for: ${item.usda_search_term}`);
           const usdaResult = await searchUSDAIngredient(item.usda_search_term);
 
           if (usdaResult) {
             // Scale USDA result to actual weight
-            food = scaleToWeight(usdaResult, item.estimated_weight_g, item.display_name);
-            console.log(`USDA match found for ${item.display_name}: ${usdaResult.name}`);
+            food = scaleToWeightWithName(usdaResult, item.estimated_weight_g, item.display_name);
+            actionConsole.log(`USDA match found for ${item.display_name}: ${usdaResult.name}`);
           } else {
             // USDA miss - fallback to Gemini
-            console.log(`USDA miss for ${item.display_name}, using Gemini fallback`);
-            food = await getGeminiFallback(item);
+            actionConsole.log(`USDA miss for ${item.display_name}, using Gemini fallback`);
+            food = await getGeminiNutritionFallback(item.display_name, item.estimated_weight_g);
           }
         }
 
@@ -404,8 +320,8 @@ Return ONLY a valid JSON array. Example:
       })
     );
 
-    console.info(`Returning ${results.length} food items with nutrition data`);
-    console.info('analyzeImage completed', {
+    actionConsole.info(`Returning ${results.length} food items with nutrition data`);
+    actionConsole.info('analyzeImage completed', {
       durationMs: Date.now() - startedAt,
       foodsReturned: results.length,
     });
@@ -417,7 +333,7 @@ Return ONLY a valid JSON array. Example:
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
 
-    console.error('Image analysis error:', {
+    actionConsole.error('Image analysis error:', {
       message: errorMessage,
       stack: errorStack?.split('\n').slice(0, 5).join('\n'),
       imageType: imageFile.type,
@@ -426,7 +342,7 @@ Return ONLY a valid JSON array. Example:
     });
 
     // Check for specific Gemini API errors
-    if (errorMessage.includes('SAFETY') || errorMessage.includes('blocked')) {
+    if (isSafetyBlocked(error)) {
       return {
         success: false,
         foods: [],
