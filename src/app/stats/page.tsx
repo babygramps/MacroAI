@@ -9,12 +9,12 @@ import { FoodLogModal } from '@/components/FoodLogModal';
 import { AppHeader } from '@/components/ui/AppHeader';
 import { BottomNav } from '@/components/ui/BottomNav';
 import {
-  fetchWeeklyStats,
-  fetchUserGoals,
-  fetchWeightStatsWithTrend,
-  fetchMetabolicInsights,
-  fetchTdeeHistory,
-} from '@/lib/statsHelpers';
+  fetchStatsBundle,
+  deriveWeeklyStats,
+  deriveWeightStatsWithTrend,
+  deriveMetabolicInsights,
+  deriveTdeeHistory,
+} from '@/lib/stats/statsBundle';
 import { METABOLIC_CONSTANTS } from '@/lib/types';
 import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights, TdeeDataPoint } from '@/lib/types';
 
@@ -32,13 +32,15 @@ export default function StatsPage() {
   const loadStats = useCallback(async () => {
     console.log('[StatsPage] Loading stats...');
     try {
-      const [weeklyStats, userGoals, weightData, insights, tdeeData] = await Promise.all([
-        fetchWeeklyStats(),
-        fetchUserGoals(),
-        fetchWeightStatsWithTrend(),
-        fetchMetabolicInsights(),
-        fetchTdeeHistory(30),
-      ]);
+      // Single fetch for everything the page needs; each derive* call below
+      // is a pure, in-memory read of that one bundle (see
+      // src/lib/stats/statsBundle.ts - Task 13).
+      const bundle = await fetchStatsBundle(30);
+      const weeklyStats = deriveWeeklyStats(bundle);
+      const userGoals = bundle.userGoals;
+      const weightData = deriveWeightStatsWithTrend(bundle);
+      const insights = deriveMetabolicInsights(bundle);
+      const tdeeData = deriveTdeeHistory(bundle);
 
       console.log('[StatsPage] Stats loaded:', {
         daysCount: weeklyStats.days.length,
