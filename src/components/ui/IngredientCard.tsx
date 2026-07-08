@@ -72,11 +72,11 @@ function getFoodEmoji(name: string): string {
   return '🍽️';
 }
 
-export function IngredientCard({ 
-  ingredient, 
-  onUpdate, 
+export const IngredientCard = memo(function IngredientCard({
+  ingredient,
+  onUpdate,
   onRemove,
-  isEditable = true 
+  isEditable = true
 }: IngredientCardProps) {
   const emoji = useMemo(() => getFoodEmoji(ingredient.name), [ingredient.name]);
   const [isEditing, setIsEditing] = useState(false);
@@ -382,7 +382,7 @@ export function IngredientCard({
       )}
     </div>
   );
-}
+});
 
 // Compact version for listing (no edit capabilities)
 export const IngredientListItem = memo(function IngredientListItem({ ingredient }: { ingredient: IngredientEntry }) {

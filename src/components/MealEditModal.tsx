@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import type { MealEntry, IngredientEntry, MealCategory, NormalizedFood } from '@/lib/types';
 import { calculateMealTotals } from '@/lib/meal/totals';
 import { CategoryPicker } from './ui/CategoryPicker';
@@ -52,17 +52,22 @@ export function MealEditModal({ isOpen, meal, onClose, onSave, onDelete }: MealE
   // Calculate totals from current ingredients (memoized to avoid recalc on unrelated re-renders)
   const totals = useMemo(() => calculateMealTotals(ingredients), [ingredients]);
 
-  if (!isOpen || !meal) return null;
-
-  const handleUpdateIngredient = async (id: string, updates: Partial<IngredientEntry>) => {
+  // Stable callbacks passed down to the memoized IngredientCard — without
+  // useCallback these would be recreated on every MealEditModal render (e.g.
+  // typing in the meal-name input), defeating React.memo on every card in
+  // the list. Hooks must run unconditionally, so these are declared here,
+  // above the `!isOpen || !meal` early return below.
+  const handleUpdateIngredient = useCallback(async (id: string, updates: Partial<IngredientEntry>) => {
     setIngredients((prev) =>
       prev.map((ing) => (ing.id === id ? { ...ing, ...updates } : ing))
     );
-  };
+  }, []);
 
-  const handleRemoveIngredient = (id: string) => {
+  const handleRemoveIngredient = useCallback((id: string) => {
     setIngredients((prev) => prev.filter((ing) => ing.id !== id));
-  };
+  }, []);
+
+  if (!isOpen || !meal) return null;
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;

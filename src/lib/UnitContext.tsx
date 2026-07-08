@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import type { UnitSystem } from './types';
 import { getWeightUnit, getHeightUnit } from './unitConversions';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
@@ -25,7 +25,10 @@ export function UnitProvider({ children }: UnitProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [profileId, setProfileId] = useState<string | null>(null);
 
-  const fetchUnitPreference = async () => {
+  // Stable across renders (only reads/writes state setters + the module-level
+  // Amplify client accessor) so it can safely be a dependency of the
+  // callbacks/memo below without ever forcing them to change identity.
+  const fetchUnitPreference = useCallback(async () => {
     try {
       const client = getAmplifyDataClient();
       if (!client) {
@@ -36,11 +39,11 @@ export function UnitProvider({ children }: UnitProviderProps) {
       if (profiles && profiles.length > 0) {
         const profile = profiles[0];
         setProfileId(profile.id);
-        
+
         // Determine unit system from profile
-        const savedSystem = (profile.preferredUnitSystem as UnitSystem) ?? 
+        const savedSystem = (profile.preferredUnitSystem as UnitSystem) ??
           (profile.preferredWeightUnit === 'lbs' ? 'imperial' : 'metric');
-        
+
         setUnitSystemState(savedSystem);
       }
     } catch (error) {
@@ -48,15 +51,18 @@ export function UnitProvider({ children }: UnitProviderProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchUnitPreference();
-  }, []);
+  }, [fetchUnitPreference]);
 
-  const setUnitSystem = async (system: UnitSystem) => {
+  // Reads `profileId` from closure, so it must be recreated whenever that
+  // changes — omitting it would let this silently save against a stale
+  // profile.
+  const setUnitSystem = useCallback(async (system: UnitSystem) => {
     setUnitSystemState(system);
-    
+
     if (profileId) {
       try {
         const client = getAmplifyDataClient();
@@ -72,21 +78,23 @@ export function UnitProvider({ children }: UnitProviderProps) {
         console.error('[UnitContext] Error saving unit preference:', error);
       }
     }
-  };
+  }, [profileId]);
 
-  const refreshUnits = async () => {
+  const refreshUnits = useCallback(async () => {
     setIsLoading(true);
     await fetchUnitPreference();
-  };
+  }, [fetchUnitPreference]);
 
-  const value: UnitContextValue = {
+  // Memoized so consumers of useUnits() only re-render when one of these
+  // values actually changes, instead of on every UnitProvider render.
+  const value: UnitContextValue = useMemo(() => ({
     unitSystem,
     weightUnit: getWeightUnit(unitSystem),
     heightUnit: getHeightUnit(unitSystem),
     isLoading,
     setUnitSystem,
     refreshUnits,
-  };
+  }), [unitSystem, isLoading, setUnitSystem, refreshUnits]);
 
   return (
     <UnitContext.Provider value={value}>
