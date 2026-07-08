@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import type { TdeeDataPoint } from '@/lib/types';
+import { formatShortDate } from '@/lib/date';
+import { createSmoothPath } from './charts/geometry';
 
 interface TdeeChartProps {
     data: TdeeDataPoint[];
@@ -9,13 +11,14 @@ interface TdeeChartProps {
     showRawPoints?: boolean;
 }
 
-// Get short date format (Jan 5)
-function formatShortDate(dateString: string): string {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
-        ? new Date(`${dateString}T00:00:00`)
-        : new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+// Chart dimensions (module-level: these are literal constants, not derived
+// from props/state, so they have stable identity across renders and don't
+// belong in any useMemo dependency array).
+const chartWidth = 320;
+const chartHeight = 180;
+const padding = { top: 25, bottom: 35, left: 50, right: 15 };
+const graphWidth = chartWidth - padding.left - padding.right;
+const graphHeight = chartHeight - padding.top - padding.bottom;
 
 export function TdeeChart({
     data,
@@ -26,127 +29,129 @@ export function TdeeChart({
     const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
     const svgRef = useRef<SVGSVGElement>(null);
 
-    // Chart dimensions
-    const chartWidth = 320;
-    const chartHeight = 180;
-    const padding = { top: 25, bottom: 35, left: 50, right: 15 };
+    // All pure point/path geometry, memoized on its true inputs. None of this
+    // reads hoveredIndex or animatedProgress, so mouse-move driven re-renders
+    // reuse this object instead of re-running the spline math every frame.
+    const {
+        rawPoints,
+        smoothedPoints,
+        linePath,
+        upperBandPoints,
+        lowerBandPoints,
+        upperBandPath,
+        lowerBandPath,
+        confidenceBandPath,
+        areaPath,
+        targetY,
+        yLabels,
+        xLabels,
+    } = useMemo(() => {
+        // Collect all TDEE values for y-axis scaling (include confidence bands)
+        const rawValues = data
+            .filter((d) => d.rawTdee !== null)
+            .map((d) => d.rawTdee as number);
+        const smoothedValues = data.map((d) => d.smoothedTdee);
+        const upperBandValues = data.map((d) => d.smoothedTdee + d.fluxConfidenceRange);
+        const lowerBandValues = data.map((d) => Math.max(0, d.smoothedTdee - d.fluxConfidenceRange));
+        const allValues = [...rawValues, ...smoothedValues, ...upperBandValues, ...lowerBandValues];
 
-    const graphWidth = chartWidth - padding.left - padding.right;
-    const graphHeight = chartHeight - padding.top - padding.bottom;
+        if (targetCalories) {
+            allValues.push(targetCalories);
+        }
 
-    // Collect all TDEE values for y-axis scaling (include confidence bands)
-    const rawValues = data
-        .filter((d) => d.rawTdee !== null)
-        .map((d) => d.rawTdee as number);
-    const smoothedValues = data.map((d) => d.smoothedTdee);
-    const upperBandValues = data.map((d) => d.smoothedTdee + d.fluxConfidenceRange);
-    const lowerBandValues = data.map((d) => Math.max(0, d.smoothedTdee - d.fluxConfidenceRange));
-    const allValues = [...rawValues, ...smoothedValues, ...upperBandValues, ...lowerBandValues];
+        const minTdee = Math.min(...allValues);
+        const maxTdee = Math.max(...allValues);
+        const tdeeRange = maxTdee - minTdee || 500; // Minimum range of 500 kcal
+        const tdeePadding = tdeeRange * 0.1; // Add 10% padding
 
-    if (targetCalories) {
-        allValues.push(targetCalories);
-    }
+        const yMin = minTdee - tdeePadding;
+        const yMax = maxTdee + tdeePadding;
+        const yRange = yMax - yMin;
 
-    const minTdee = Math.min(...allValues);
-    const maxTdee = Math.max(...allValues);
-    const tdeeRange = maxTdee - minTdee || 500; // Minimum range of 500 kcal
-    const tdeePadding = tdeeRange * 0.1; // Add 10% padding
+        // Generate points for raw TDEE (scatter points)
+        const rawPoints = data
+            .map((entry, index) => {
+                if (entry.rawTdee === null) return null;
+                const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+                const y = padding.top + graphHeight - ((entry.rawTdee - yMin) / yRange) * graphHeight;
+                return { x, y, value: entry.rawTdee, date: entry.date, index };
+            })
+            .filter((p): p is { x: number; y: number; value: number; date: string; index: number } => p !== null);
 
-    const yMin = minTdee - tdeePadding;
-    const yMax = maxTdee + tdeePadding;
-    const yRange = yMax - yMin;
-
-    // Generate points for raw TDEE (scatter points)
-    const rawPoints = data
-        .map((entry, index) => {
-            if (entry.rawTdee === null) return null;
+        // Generate points for smoothed TDEE (smooth line)
+        const smoothedPoints = data.map((entry, index) => {
             const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
-            const y = padding.top + graphHeight - ((entry.rawTdee - yMin) / yRange) * graphHeight;
-            return { x, y, value: entry.rawTdee, date: entry.date, index };
-        })
-        .filter((p): p is { x: number; y: number; value: number; date: string; index: number } => p !== null);
+            const y = padding.top + graphHeight - ((entry.smoothedTdee - yMin) / yRange) * graphHeight;
+            return { x, y, value: entry.smoothedTdee, date: entry.date, index };
+        });
 
-    // Generate points for smoothed TDEE (smooth line)
-    const smoothedPoints = data.map((entry, index) => {
-        const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
-        const y = padding.top + graphHeight - ((entry.smoothedTdee - yMin) / yRange) * graphHeight;
-        return { x, y, value: entry.smoothedTdee, date: entry.date, index };
-    });
+        const linePath = createSmoothPath(smoothedPoints);
 
-    // Create smooth curve path using catmull-rom spline
-    function createSmoothPath(pts: { x: number; y: number }[]): string {
-        if (pts.length < 2) return '';
-        if (pts.length === 2) {
-            return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
-        }
+        // Generate confidence band points (upper and lower bounds)
+        const upperBandPoints = data.map((entry, index) => {
+            const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+            const upperValue = entry.smoothedTdee + entry.fluxConfidenceRange;
+            const y = padding.top + graphHeight - ((upperValue - yMin) / yRange) * graphHeight;
+            return { x, y };
+        });
 
-        let path = `M ${pts[0].x} ${pts[0].y}`;
+        const lowerBandPoints = data.map((entry, index) => {
+            const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+            const lowerValue = Math.max(0, entry.smoothedTdee - entry.fluxConfidenceRange);
+            const y = padding.top + graphHeight - ((lowerValue - yMin) / yRange) * graphHeight;
+            return { x, y };
+        });
 
-        for (let i = 0; i < pts.length - 1; i++) {
-            const p0 = pts[i - 1] || pts[i];
-            const p1 = pts[i];
-            const p2 = pts[i + 1];
-            const p3 = pts[i + 2] || p2;
+        // Create confidence band area path (upper curve forward, lower curve backward),
+        // plus the standalone forward upper/lower paths used to draw the dashed band
+        // edges, so they don't need to be recomputed again at render time.
+        const upperBandPath = createSmoothPath(upperBandPoints);
+        const lowerBandPath = createSmoothPath(lowerBandPoints);
+        const confidenceBandPath = upperBandPoints.length >= 2 && lowerBandPoints.length >= 2
+            ? `${upperBandPath} L ${lowerBandPoints[lowerBandPoints.length - 1].x} ${lowerBandPoints[lowerBandPoints.length - 1].y} ${createSmoothPath([...lowerBandPoints].reverse()).replace('M', 'L')} L ${upperBandPoints[0].x} ${upperBandPoints[0].y} Z`
+            : '';
 
-            const cp1x = p1.x + (p2.x - p0.x) / 6;
-            const cp1y = p1.y + (p2.y - p0.y) / 6;
-            const cp2x = p2.x - (p3.x - p1.x) / 6;
-            const cp2y = p2.y - (p3.y - p1.y) / 6;
+        // Create gradient area path
+        const areaPath = linePath && smoothedPoints.length > 0
+            ? `${linePath} L ${smoothedPoints[smoothedPoints.length - 1]?.x} ${padding.top + graphHeight} L ${smoothedPoints[0]?.x} ${padding.top + graphHeight} Z`
+            : '';
 
-            path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-        }
+        // Target line position
+        const targetY = targetCalories
+            ? padding.top + graphHeight - ((targetCalories - yMin) / yRange) * graphHeight
+            : null;
 
-        return path;
-    }
+        // Y-axis labels (3 labels)
+        const yLabels = [
+            { value: yMax, y: padding.top },
+            { value: (yMax + yMin) / 2, y: padding.top + graphHeight / 2 },
+            { value: yMin, y: padding.top + graphHeight },
+        ];
 
-    const linePath = createSmoothPath(smoothedPoints);
+        // X-axis labels (first and last date)
+        const xLabels =
+            data.length > 0
+                ? [
+                    { label: formatShortDate(data[0].date), x: padding.left },
+                    { label: formatShortDate(data[data.length - 1].date), x: chartWidth - padding.right },
+                ]
+                : [];
 
-    // Generate confidence band points (upper and lower bounds)
-    const upperBandPoints = data.map((entry, index) => {
-        const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
-        const upperValue = entry.smoothedTdee + entry.fluxConfidenceRange;
-        const y = padding.top + graphHeight - ((upperValue - yMin) / yRange) * graphHeight;
-        return { x, y };
-    });
-
-    const lowerBandPoints = data.map((entry, index) => {
-        const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
-        const lowerValue = Math.max(0, entry.smoothedTdee - entry.fluxConfidenceRange);
-        const y = padding.top + graphHeight - ((lowerValue - yMin) / yRange) * graphHeight;
-        return { x, y };
-    });
-
-    // Create confidence band area path (upper curve forward, lower curve backward)
-    const upperPath = createSmoothPath(upperBandPoints);
-    const confidenceBandPath = upperBandPoints.length >= 2 && lowerBandPoints.length >= 2
-        ? `${upperPath} L ${lowerBandPoints[lowerBandPoints.length - 1].x} ${lowerBandPoints[lowerBandPoints.length - 1].y} ${createSmoothPath([...lowerBandPoints].reverse()).replace('M', 'L')} L ${upperBandPoints[0].x} ${upperBandPoints[0].y} Z`
-        : '';
-
-    // Create gradient area path
-    const areaPath = linePath && smoothedPoints.length > 0
-        ? `${linePath} L ${smoothedPoints[smoothedPoints.length - 1]?.x} ${padding.top + graphHeight} L ${smoothedPoints[0]?.x} ${padding.top + graphHeight} Z`
-        : '';
-
-    // Target line position
-    const targetY = targetCalories
-        ? padding.top + graphHeight - ((targetCalories - yMin) / yRange) * graphHeight
-        : null;
-
-    // Y-axis labels (3 labels)
-    const yLabels = [
-        { value: yMax, y: padding.top },
-        { value: (yMax + yMin) / 2, y: padding.top + graphHeight / 2 },
-        { value: yMin, y: padding.top + graphHeight },
-    ];
-
-    // X-axis labels (first and last date)
-    const xLabels =
-        data.length > 0
-            ? [
-                { label: formatShortDate(data[0].date), x: padding.left },
-                { label: formatShortDate(data[data.length - 1].date), x: chartWidth - padding.right },
-            ]
-            : [];
+        return {
+            rawPoints,
+            smoothedPoints,
+            linePath,
+            upperBandPoints,
+            lowerBandPoints,
+            upperBandPath,
+            lowerBandPath,
+            confidenceBandPath,
+            areaPath,
+            targetY,
+            yLabels,
+            xLabels,
+        };
+    }, [data, targetCalories]);
 
     // Handle mouse move for hover
     const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -357,7 +362,7 @@ export function TdeeChart({
                 {/* Upper confidence band edge (dashed) */}
                 {upperBandPoints.length >= 2 && (
                     <path
-                        d={createSmoothPath(upperBandPoints)}
+                        d={upperBandPath}
                         fill="none"
                         stroke="#FF6B35"
                         strokeWidth={0.75}
@@ -370,7 +375,7 @@ export function TdeeChart({
                 {/* Lower confidence band edge (dashed) */}
                 {lowerBandPoints.length >= 2 && (
                     <path
-                        d={createSmoothPath(lowerBandPoints)}
+                        d={lowerBandPath}
                         fill="none"
                         stroke="#FF6B35"
                         strokeWidth={0.75}

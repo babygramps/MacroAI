@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { DayData, LogStatus } from '@/lib/types';
 
 interface WeeklyChartProps {
@@ -9,6 +9,16 @@ interface WeeklyChartProps {
   /** Map of date strings (YYYY-MM-DD) to their log status */
   dayStatuses?: Map<string, LogStatus>;
 }
+
+// Chart dimensions (module-level: these are literal constants, not derived
+// from props/state, so they have stable identity across renders and don't
+// belong in any useMemo dependency array).
+const chartWidth = 320;
+const chartHeight = 180;
+const barWidth = 32;
+const barGap = 12;
+const padding = { top: 35, bottom: 30, left: 10, right: 10 };
+const graphHeight = chartHeight - padding.top - padding.bottom;
 
 // Get day abbreviation from date string (YYYY-MM-DD)
 function getDayAbbr(dateString: string): string {
@@ -27,28 +37,30 @@ function isToday(dateString: string): boolean {
 export function WeeklyChart({ data, calorieGoal, dayStatuses }: WeeklyChartProps) {
   const [animatedHeights, setAnimatedHeights] = useState<number[]>(data.map(() => 0));
 
-  // Chart dimensions - increased top padding for goal label and calorie values
-  const chartWidth = 320;
-  const chartHeight = 180;
-  const barWidth = 32;
-  const barGap = 12;
-  const padding = { top: 35, bottom: 30, left: 10, right: 10 };
-  
-  const graphHeight = chartHeight - padding.top - padding.bottom;
-  
-  // Calculate max value for scaling (at least the goal)
-  const maxCalories = Math.max(
-    calorieGoal * 1.2, // 20% above goal for headroom
-    ...data.map(d => d.summary.totalCalories)
-  );
-  
-  // Calculate bar heights as percentages
-  const barHeights = data.map(d => 
-    (d.summary.totalCalories / maxCalories) * graphHeight
-  );
-  
-  // Goal line position
-  const goalLineY = padding.top + graphHeight - (calorieGoal / maxCalories) * graphHeight;
+  // Bar geometry, memoized on its true inputs (data, calorieGoal). This
+  // doesn't read any hover/animation state, so re-renders that don't change
+  // data or the goal reuse the same computed values.
+  const { barHeights, goalLineY, startX } = useMemo(() => {
+    // Calculate max value for scaling (at least the goal)
+    const maxCalories = Math.max(
+      calorieGoal * 1.2, // 20% above goal for headroom
+      ...data.map(d => d.summary.totalCalories)
+    );
+
+    // Calculate bar heights as percentages
+    const barHeights = data.map(d =>
+      (d.summary.totalCalories / maxCalories) * graphHeight
+    );
+
+    // Goal line position
+    const goalLineY = padding.top + graphHeight - (calorieGoal / maxCalories) * graphHeight;
+
+    // Calculate total width needed
+    const totalBarsWidth = data.length * barWidth + (data.length - 1) * barGap;
+    const startX = (chartWidth - totalBarsWidth) / 2;
+
+    return { barHeights, goalLineY, startX };
+  }, [data, calorieGoal]);
 
   // Animate bars on mount
   useEffect(() => {
@@ -57,10 +69,6 @@ export function WeeklyChart({ data, calorieGoal, dayStatuses }: WeeklyChartProps
     }, 100);
     return () => clearTimeout(timer);
   }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Calculate total width needed
-  const totalBarsWidth = data.length * barWidth + (data.length - 1) * barGap;
-  const startX = (chartWidth - totalBarsWidth) / 2;
 
   return (
     <div className="w-full">

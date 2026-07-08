@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import type { WeightLogEntry, WeightDataPoint } from '@/lib/types';
+import { formatShortDate } from '@/lib/date';
+import { createSmoothPath, type SplinePoint } from './charts/geometry';
 
 interface WeightChartProps {
   data: WeightLogEntry[];
@@ -12,13 +14,14 @@ interface WeightChartProps {
   showTrendLine?: boolean;
 }
 
-// Get short date format (Jan 5)
-function formatShortDate(dateString: string): string {
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
-    ? new Date(`${dateString}T00:00:00`)
-    : new Date(dateString);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
+// Chart dimensions (module-level: these are literal constants, not derived
+// from props/state, so they have stable identity across renders and don't
+// belong in any useMemo dependency array).
+const chartWidth = 320;
+const chartHeight = 180;
+const padding = { top: 25, bottom: 35, left: 45, right: 15 };
+const graphWidth = chartWidth - padding.left - padding.right;
+const graphHeight = chartHeight - padding.top - padding.bottom;
 
 // Convert kg to lbs if needed
 function convertWeight(weightKg: number, unit: 'kg' | 'lbs'): number {
@@ -26,6 +29,14 @@ function convertWeight(weightKg: number, unit: 'kg' | 'lbs'): number {
     return Math.round(weightKg * 2.20462 * 10) / 10;
   }
   return Math.round(weightKg * 10) / 10;
+}
+
+// Helper to get date from either raw log entry or trend data point
+function getDateFromEntry(entry: WeightLogEntry | WeightDataPoint): string {
+  if ('recordedAt' in entry) {
+    return entry.recordedAt;
+  }
+  return entry.date;
 }
 
 export function WeightChart({
@@ -39,151 +50,145 @@ export function WeightChart({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Chart dimensions
-  const chartWidth = 320;
-  const chartHeight = 180;
-  const padding = { top: 25, bottom: 35, left: 45, right: 15 };
-
-  const graphWidth = chartWidth - padding.left - padding.right;
-  const graphHeight = chartHeight - padding.top - padding.bottom;
-
-  // Calculate trend uncertainty band from residuals (scale - trend deviation)
-  const residuals: number[] = [];
-  if (trendData && trendData.length > 0) {
-    for (const point of trendData) {
-      if (point.scaleWeight !== null) {
-        residuals.push(Math.abs(point.scaleWeight - point.trendWeight));
+  // All pure point/path geometry, memoized on its true inputs. None of this
+  // reads hoveredIndex or animatedProgress, so mouse-move driven re-renders
+  // reuse this object instead of re-running the spline math every frame.
+  const {
+    scalePoints,
+    trendPoints,
+    upperTrendBandPoints,
+    lowerTrendBandPoints,
+    linePath,
+    upperBandPath,
+    lowerBandPath,
+    areaPath,
+    trendConfidenceBandPath,
+    goalY,
+    yLabels,
+    xLabels,
+  } = useMemo(() => {
+    // Calculate trend uncertainty band from residuals (scale - trend deviation)
+    const residuals: number[] = [];
+    if (trendData && trendData.length > 0) {
+      for (const point of trendData) {
+        if (point.scaleWeight !== null) {
+          residuals.push(Math.abs(point.scaleWeight - point.trendWeight));
+        }
       }
     }
-  }
-  // Standard deviation of residuals (min 0.2kg to always show some band)
-  const residualStdDev = residuals.length >= 2
-    ? Math.max(0.2, Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / residuals.length))
-    : 0.5; // Default when not enough data
+    // Standard deviation of residuals (min 0.2kg to always show some band)
+    const residualStdDev = residuals.length >= 2
+      ? Math.max(0.2, Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / residuals.length))
+      : 0.5; // Default when not enough data
 
-  // Collect all weights (raw + trend + target + band) for y-axis scaling
-  const rawWeights = data.map((d) => convertWeight(d.weightKg, unit));
-  const trendWeights = trendData?.map((d) => convertWeight(d.trendWeight, unit)) ?? [];
-  const upperBandWeights = trendData?.map((d) => convertWeight(d.trendWeight + residualStdDev, unit)) ?? [];
-  const lowerBandWeights = trendData?.map((d) => convertWeight(d.trendWeight - residualStdDev, unit)) ?? [];
-  const allWeights = [...rawWeights, ...trendWeights, ...upperBandWeights, ...lowerBandWeights];
+    // Collect all weights (raw + trend + target + band) for y-axis scaling
+    const rawWeights = data.map((d) => convertWeight(d.weightKg, unit));
+    const trendWeights = trendData?.map((d) => convertWeight(d.trendWeight, unit)) ?? [];
+    const upperBandWeights = trendData?.map((d) => convertWeight(d.trendWeight + residualStdDev, unit)) ?? [];
+    const lowerBandWeights = trendData?.map((d) => convertWeight(d.trendWeight - residualStdDev, unit)) ?? [];
+    const allWeights = [...rawWeights, ...trendWeights, ...upperBandWeights, ...lowerBandWeights];
 
-  if (targetWeight) {
-    allWeights.push(convertWeight(targetWeight, unit));
-  }
-
-  const minWeight = Math.min(...allWeights);
-  const maxWeight = Math.max(...allWeights);
-  const weightRange = maxWeight - minWeight || 1;
-  const weightPadding = weightRange * 0.1; // Add 10% padding
-
-  const yMin = minWeight - weightPadding;
-  const yMax = maxWeight + weightPadding;
-  const yRange = yMax - yMin;
-
-  // Generate points for raw scale weights (scatter points)
-  const scalePoints = data.map((entry, index) => {
-    const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
-    const weight = convertWeight(entry.weightKg, unit);
-    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
-    return { x, y, weight, date: entry.recordedAt, index };
-  });
-
-  // Generate points for trend weights (smooth line)
-  const trendPoints = (trendData ?? []).map((entry, index, arr) => {
-    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
-    const weight = convertWeight(entry.trendWeight, unit);
-    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
-    // Also include scale weight for this date if available
-    const scaleWeight = entry.scaleWeight !== null ? convertWeight(entry.scaleWeight, unit) : null;
-    return { x, y, weight, date: entry.date, index, scaleWeight };
-  });
-
-  // Generate trend confidence band points
-  const upperTrendBandPoints = (trendData ?? []).map((entry, index, arr) => {
-    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
-    const weight = convertWeight(entry.trendWeight + residualStdDev, unit);
-    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
-    return { x, y };
-  });
-
-  const lowerTrendBandPoints = (trendData ?? []).map((entry, index, arr) => {
-    const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
-    const weight = convertWeight(entry.trendWeight - residualStdDev, unit);
-    const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
-    return { x, y };
-  });
-
-  // Create smooth curve path using catmull-rom spline
-  function createSmoothPath(pts: { x: number; y: number }[]): string {
-    if (pts.length < 2) return '';
-    if (pts.length === 2) {
-      return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`;
+    if (targetWeight) {
+      allWeights.push(convertWeight(targetWeight, unit));
     }
 
-    let path = `M ${pts[0].x} ${pts[0].y}`;
+    const minWeight = Math.min(...allWeights);
+    const maxWeight = Math.max(...allWeights);
+    const weightRange = maxWeight - minWeight || 1;
+    const weightPadding = weightRange * 0.1; // Add 10% padding
 
-    for (let i = 0; i < pts.length - 1; i++) {
-      const p0 = pts[i - 1] || pts[i];
-      const p1 = pts[i];
-      const p2 = pts[i + 1];
-      const p3 = pts[i + 2] || p2;
+    const yMin = minWeight - weightPadding;
+    const yMax = maxWeight + weightPadding;
+    const yRange = yMax - yMin;
 
-      const cp1x = p1.x + (p2.x - p0.x) / 6;
-      const cp1y = p1.y + (p2.y - p0.y) / 6;
-      const cp2x = p2.x - (p3.x - p1.x) / 6;
-      const cp2y = p2.y - (p3.y - p1.y) / 6;
+    // Generate points for raw scale weights (scatter points)
+    const scalePoints = data.map((entry, index) => {
+      const x = padding.left + (index / (data.length - 1 || 1)) * graphWidth;
+      const weight = convertWeight(entry.weightKg, unit);
+      const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+      return { x, y, weight, date: entry.recordedAt, index };
+    });
 
-      path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
-    }
+    // Generate points for trend weights (smooth line)
+    const trendPoints = (trendData ?? []).map((entry, index, arr) => {
+      const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+      const weight = convertWeight(entry.trendWeight, unit);
+      const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+      // Also include scale weight for this date if available
+      const scaleWeight = entry.scaleWeight !== null ? convertWeight(entry.scaleWeight, unit) : null;
+      return { x, y, weight, date: entry.date, index, scaleWeight };
+    });
 
-    return path;
-  }
+    // Generate trend confidence band points
+    const upperTrendBandPoints: SplinePoint[] = (trendData ?? []).map((entry, index, arr) => {
+      const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+      const weight = convertWeight(entry.trendWeight + residualStdDev, unit);
+      const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+      return { x, y };
+    });
 
-  // Use trend data for the line if available, otherwise fall back to scale data
-  const linePoints = showTrendLine && trendPoints.length > 0 ? trendPoints : scalePoints;
-  const linePath = createSmoothPath(linePoints);
+    const lowerTrendBandPoints: SplinePoint[] = (trendData ?? []).map((entry, index, arr) => {
+      const x = padding.left + (index / (arr.length - 1 || 1)) * graphWidth;
+      const weight = convertWeight(entry.trendWeight - residualStdDev, unit);
+      const y = padding.top + graphHeight - ((weight - yMin) / yRange) * graphHeight;
+      return { x, y };
+    });
 
-  // Create gradient area path
-  const areaPath = linePath && linePoints.length > 0
-    ? `${linePath} L ${linePoints[linePoints.length - 1]?.x} ${padding.top + graphHeight} L ${linePoints[0]?.x} ${padding.top + graphHeight} Z`
-    : '';
+    // Use trend data for the line if available, otherwise fall back to scale data
+    const linePoints = showTrendLine && trendPoints.length > 0 ? trendPoints : scalePoints;
+    const linePath = createSmoothPath(linePoints);
 
-  // Create trend confidence band path
-  const upperBandPath = createSmoothPath(upperTrendBandPoints);
-  const trendConfidenceBandPath = upperTrendBandPoints.length >= 2 && lowerTrendBandPoints.length >= 2
-    ? `${upperBandPath} L ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].x} ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].y} ${createSmoothPath([...lowerTrendBandPoints].reverse()).replace('M', 'L')} L ${upperTrendBandPoints[0].x} ${upperTrendBandPoints[0].y} Z`
-    : '';
+    // Create gradient area path
+    const areaPath = linePath && linePoints.length > 0
+      ? `${linePath} L ${linePoints[linePoints.length - 1]?.x} ${padding.top + graphHeight} L ${linePoints[0]?.x} ${padding.top + graphHeight} Z`
+      : '';
 
-  // Goal line position
-  const goalY = targetWeight
-    ? padding.top + graphHeight - ((convertWeight(targetWeight, unit) - yMin) / yRange) * graphHeight
-    : null;
+    // Create trend confidence band path (and the standalone forward paths used
+    // to draw the dashed upper/lower band edges, so they don't need to be
+    // recomputed again at render time)
+    const upperBandPath = createSmoothPath(upperTrendBandPoints);
+    const lowerBandPath = createSmoothPath(lowerTrendBandPoints);
+    const trendConfidenceBandPath = upperTrendBandPoints.length >= 2 && lowerTrendBandPoints.length >= 2
+      ? `${upperBandPath} L ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].x} ${lowerTrendBandPoints[lowerTrendBandPoints.length - 1].y} ${createSmoothPath([...lowerTrendBandPoints].reverse()).replace('M', 'L')} L ${upperTrendBandPoints[0].x} ${upperTrendBandPoints[0].y} Z`
+      : '';
 
-  // Y-axis labels (3 labels)
-  const yLabels = [
-    { value: yMax, y: padding.top },
-    { value: (yMax + yMin) / 2, y: padding.top + graphHeight / 2 },
-    { value: yMin, y: padding.top + graphHeight },
-  ];
+    // Goal line position
+    const goalY = targetWeight
+      ? padding.top + graphHeight - ((convertWeight(targetWeight, unit) - yMin) / yRange) * graphHeight
+      : null;
 
-  // X-axis labels (first and last date)
-  // Helper to get date from either type
-  const getDateFromEntry = (entry: WeightLogEntry | WeightDataPoint): string => {
-    if ('recordedAt' in entry) {
-      return entry.recordedAt;
-    }
-    return entry.date;
-  };
+    // Y-axis labels (3 labels)
+    const yLabels = [
+      { value: yMax, y: padding.top },
+      { value: (yMax + yMin) / 2, y: padding.top + graphHeight / 2 },
+      { value: yMin, y: padding.top + graphHeight },
+    ];
 
-  const dateSource = trendData && trendData.length > 0 ? trendData : data;
-  const xLabels =
-    dateSource.length > 0
-      ? [
-        { label: formatShortDate(getDateFromEntry(dateSource[0] as WeightLogEntry | WeightDataPoint)), x: padding.left },
-        { label: formatShortDate(getDateFromEntry(dateSource[dateSource.length - 1] as WeightLogEntry | WeightDataPoint)), x: chartWidth - padding.right },
-      ]
-      : [];
+    // X-axis labels (first and last date)
+    const dateSource = trendData && trendData.length > 0 ? trendData : data;
+    const xLabels =
+      dateSource.length > 0
+        ? [
+          { label: formatShortDate(getDateFromEntry(dateSource[0] as WeightLogEntry | WeightDataPoint)), x: padding.left },
+          { label: formatShortDate(getDateFromEntry(dateSource[dateSource.length - 1] as WeightLogEntry | WeightDataPoint)), x: chartWidth - padding.right },
+        ]
+        : [];
+
+    return {
+      scalePoints,
+      trendPoints,
+      upperTrendBandPoints,
+      lowerTrendBandPoints,
+      linePath,
+      upperBandPath,
+      lowerBandPath,
+      areaPath,
+      trendConfidenceBandPath,
+      goalY,
+      yLabels,
+      xLabels,
+    };
+  }, [data, unit, trendData, targetWeight, showTrendLine]);
 
   // Handle mouse move for hover
   const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -399,7 +404,7 @@ export function WeightChart({
         {/* Upper confidence band edge (dashed) */}
         {showTrendLine && upperTrendBandPoints.length >= 2 && (
           <path
-            d={createSmoothPath(upperTrendBandPoints)}
+            d={upperBandPath}
             fill="none"
             stroke="#60A5FA"
             strokeWidth={0.75}
@@ -412,7 +417,7 @@ export function WeightChart({
         {/* Lower confidence band edge (dashed) */}
         {showTrendLine && lowerTrendBandPoints.length >= 2 && (
           <path
-            d={createSmoothPath(lowerTrendBandPoints)}
+            d={lowerBandPath}
             fill="none"
             stroke="#60A5FA"
             strokeWidth={0.75}
@@ -436,7 +441,7 @@ export function WeightChart({
         {/* Trend Line (smooth, solid) */}
         {showTrendLine && trendPoints.length > 0 && (
           <path
-            d={createSmoothPath(trendPoints)}
+            d={linePath}
             fill="none"
             stroke="url(#trendLineGradient)"
             strokeWidth={2.5}

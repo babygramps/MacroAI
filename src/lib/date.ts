@@ -36,3 +36,16 @@ export function parseLocalDateString(dateStr: string): Date {
   const [year, month, day] = dateStr.split('-').map(Number);
   return new Date(year, month - 1, day, 0, 0, 0, 0);
 }
+
+/**
+ * Format a date string as a short label (e.g. "Jan 5") for chart axes and
+ * tooltips. A bare YYYY-MM-DD string is parsed as local midnight so it
+ * doesn't shift a day under UTC-behind timezones; anything else is parsed
+ * as-is.
+ */
+export function formatShortDate(dateString: string): string {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(dateString)
+    ? new Date(`${dateString}T00:00:00`)
+    : new Date(dateString);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
