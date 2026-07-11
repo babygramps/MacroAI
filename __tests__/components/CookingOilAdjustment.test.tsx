@@ -98,7 +98,7 @@ describe('CookingOilAdjustment', () => {
 
     const status = screen.getByRole('status');
     expect(status).toHaveAttribute('aria-live', 'polite');
-    expect(status).toBeEmptyDOMElement();
+    expect(status).toHaveTextContent('No cooking oil added');
 
     await user.click(screen.getByRole('button', { name: '1 tsp' }));
 
@@ -107,7 +107,7 @@ describe('CookingOilAdjustment', () => {
 
     await user.click(screen.getByRole('button', { name: 'None' }));
 
-    expect(status).toBeEmptyDOMElement();
+    expect(status).toHaveTextContent('No cooking oil added');
     expect(screen.getByRole('status')).toBe(status);
   });
 
@@ -177,7 +177,9 @@ describe('CookingOilAdjustment', () => {
       expect(
         screen.queryByRole('spinbutton', { name: 'Teaspoons' })
       ).not.toBeInTheDocument();
-      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'No cooking oil added'
+      );
     }
   );
 
@@ -207,6 +209,8 @@ describe('CookingOilAdjustment', () => {
       'aria-pressed',
       'true'
     );
-    expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No cooking oil added'
+    );
   });
 });

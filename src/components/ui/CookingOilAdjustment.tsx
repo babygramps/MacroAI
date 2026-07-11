@@ -155,7 +155,7 @@ export function CookingOilAdjustment({
       >
         {cookingOil
           ? `+${cookingOil.calories} kcal · +${cookingOil.fat}g fat`
-          : null}
+          : 'No cooking oil added'}
       </p>
     </section>
   );
