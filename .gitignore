@@ -53,6 +53,8 @@ next-env.d.ts
 # AI Agent Context (contains project-specific guidance, not for VCS)
 CLAUDE.md
 .cursorrules
+.superpowers/
+.worktrees/
 
 # Misc
 *.log
