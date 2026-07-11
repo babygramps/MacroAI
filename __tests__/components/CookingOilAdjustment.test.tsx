@@ -48,6 +48,19 @@ describe('CookingOilAdjustment', () => {
     expect(screen.getByText('+40 kcal · +4.5g fat')).toBeInTheDocument();
   });
 
+  it('selects 2 tsp and shows its nutrition preview', async () => {
+    const user = userEvent.setup();
+    render(<ControlledCookingOilAdjustment />);
+
+    await user.click(screen.getByRole('button', { name: '2 tsp' }));
+
+    expect(screen.getByRole('button', { name: '2 tsp' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByText('+80 kcal · +9g fat')).toBeInTheDocument();
+  });
+
   it('selects 1 tbsp as 3 tsp and shows its nutrition preview', async () => {
     const user = userEvent.setup();
     render(<ControlledCookingOilAdjustment />);
@@ -79,6 +92,25 @@ describe('CookingOilAdjustment', () => {
     expect(screen.getByText('+50 kcal · +5.6g fat')).toBeInTheDocument();
   });
 
+  it('keeps the nutrition status region mounted as its text updates', async () => {
+    const user = userEvent.setup();
+    render(<ControlledCookingOilAdjustment />);
+
+    const status = screen.getByRole('status');
+    expect(status).toHaveAttribute('aria-live', 'polite');
+    expect(status).toBeEmptyDOMElement();
+
+    await user.click(screen.getByRole('button', { name: '1 tsp' }));
+
+    expect(status).toHaveTextContent('+40 kcal · +4.5g fat');
+    expect(screen.getByRole('status')).toBe(status);
+
+    await user.click(screen.getByRole('button', { name: 'None' }));
+
+    expect(status).toBeEmptyDOMElement();
+    expect(screen.getByRole('status')).toBe(status);
+  });
+
   it('clears a selected amount back to None', async () => {
     const user = userEvent.setup();
     render(<ControlledCookingOilAdjustment initialTeaspoons={1} />);
@@ -92,5 +124,89 @@ describe('CookingOilAdjustment', () => {
       'true'
     );
     expect(screen.queryByText(/\+\d+ kcal/)).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { nextTeaspoons: 0, activeButton: 'None' },
+    { nextTeaspoons: 2, activeButton: '2 tsp' },
+  ])(
+    'closes a custom input when controlled teaspoons changes to $nextTeaspoons',
+    ({ nextTeaspoons, activeButton }) => {
+      const onChange = jest.fn();
+      const { rerender } = render(
+        <CookingOilAdjustment teaspoons={1.25} onChange={onChange} />
+      );
+
+      expect(
+        screen.getByRole('spinbutton', { name: 'Teaspoons' })
+      ).toBeInTheDocument();
+
+      rerender(
+        <CookingOilAdjustment
+          teaspoons={nextTeaspoons}
+          onChange={onChange}
+        />
+      );
+
+      expect(
+        screen.queryByRole('spinbutton', { name: 'Teaspoons' })
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: activeButton })
+      ).toHaveAttribute('aria-pressed', 'true');
+    }
+  );
+
+  it.each([
+    { value: -1, label: 'negative' },
+    { value: Number.NaN, label: 'NaN' },
+    { value: Number.POSITIVE_INFINITY, label: 'Infinity' },
+  ])(
+    'normalizes a $label controlled value to None',
+    ({ value }) => {
+      render(<CookingOilAdjustment teaspoons={value} onChange={jest.fn()} />);
+
+      expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute(
+        'aria-pressed',
+        'true'
+      );
+      expect(screen.getByRole('button', { name: 'Custom' })).toHaveAttribute(
+        'aria-pressed',
+        'false'
+      );
+      expect(
+        screen.queryByRole('spinbutton', { name: 'Teaspoons' })
+      ).not.toBeInTheDocument();
+      expect(screen.getByRole('status')).toBeEmptyDOMElement();
+    }
+  );
+
+  it('closes an open custom input when the controlled value becomes invalid', async () => {
+    const user = userEvent.setup();
+    const onChange = jest.fn();
+    const { rerender } = render(
+      <CookingOilAdjustment teaspoons={0} onChange={onChange} />
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Custom' }));
+    expect(
+      screen.getByRole('spinbutton', { name: 'Teaspoons' })
+    ).toBeInTheDocument();
+
+    rerender(
+      <CookingOilAdjustment
+        teaspoons={Number.POSITIVE_INFINITY}
+        onChange={onChange}
+      />
+    );
+
+    expect(
+      screen.queryByRole('spinbutton', { name: 'Teaspoons' })
+    ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 });

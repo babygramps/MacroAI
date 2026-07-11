@@ -8,6 +8,11 @@ interface CookingOilAdjustmentProps {
   onChange: (teaspoons: number) => void;
 }
 
+interface CustomDisclosureState {
+  isOpen: boolean;
+  previousTeaspoons: number;
+}
+
 const PRESETS = [
   { label: 'None', teaspoons: 0 },
   { label: '1 tsp', teaspoons: 1 },
@@ -27,18 +32,37 @@ export function CookingOilAdjustment({
   const headingId = `${id}-heading`;
   const customInputId = `${id}-custom`;
   const teaspoonsInputId = `${id}-teaspoons`;
-  const isCustomAmount = teaspoons > 0 && !isPresetAmount(teaspoons);
-  const [isCustomOpen, setIsCustomOpen] = useState(isCustomAmount);
-  const showCustomInput = isCustomOpen || isCustomAmount;
-  const cookingOil = createCookingOilIngredient(teaspoons);
+  const normalizedTeaspoons =
+    Number.isFinite(teaspoons) && teaspoons > 0 ? teaspoons : 0;
+  const isCustomAmount =
+    normalizedTeaspoons > 0 && !isPresetAmount(normalizedTeaspoons);
+  const [customDisclosure, setCustomDisclosure] =
+    useState<CustomDisclosureState>({
+      isOpen: false,
+      previousTeaspoons: teaspoons,
+    });
+
+  if (!Object.is(customDisclosure.previousTeaspoons, teaspoons)) {
+    setCustomDisclosure({
+      isOpen: false,
+      previousTeaspoons: teaspoons,
+    });
+  }
+
+  const showCustomInput = customDisclosure.isOpen || isCustomAmount;
+  const cookingOil = createCookingOilIngredient(normalizedTeaspoons);
 
   const handleCustomChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextTeaspoons = event.currentTarget.valueAsNumber;
-    onChange(
+    const normalizedNextTeaspoons =
       Number.isFinite(nextTeaspoons) && nextTeaspoons > 0
         ? nextTeaspoons
-        : 0
-    );
+        : 0;
+    setCustomDisclosure({
+      isOpen: true,
+      previousTeaspoons: normalizedNextTeaspoons,
+    });
+    onChange(normalizedNextTeaspoons);
   };
 
   return (
@@ -60,7 +84,7 @@ export function CookingOilAdjustment({
         <legend className="sr-only">Cooking oil amount</legend>
         <div className="flex flex-wrap gap-2">
           {PRESETS.map((preset) => {
-            const isActive = teaspoons === preset.teaspoons;
+            const isActive = normalizedTeaspoons === preset.teaspoons;
 
             return (
               <button
@@ -69,7 +93,10 @@ export function CookingOilAdjustment({
                 className={`preset-button ${isActive ? 'active' : ''}`}
                 aria-pressed={isActive}
                 onClick={() => {
-                  setIsCustomOpen(false);
+                  setCustomDisclosure({
+                    isOpen: false,
+                    previousTeaspoons: preset.teaspoons,
+                  });
                   onChange(preset.teaspoons);
                 }}
               >
@@ -83,7 +110,12 @@ export function CookingOilAdjustment({
             aria-pressed={isCustomAmount}
             aria-expanded={showCustomInput}
             aria-controls={customInputId}
-            onClick={() => setIsCustomOpen(true)}
+            onClick={() => {
+              setCustomDisclosure({
+                isOpen: true,
+                previousTeaspoons: teaspoons,
+              });
+            }}
           >
             Custom
           </button>
@@ -103,7 +135,7 @@ export function CookingOilAdjustment({
               min="0"
               step="0.25"
               inputMode="decimal"
-              value={teaspoons > 0 ? teaspoons : ''}
+              value={normalizedTeaspoons > 0 ? normalizedTeaspoons : ''}
               onChange={handleCustomChange}
               className="input-number w-full sm:max-w-40"
             />
@@ -111,14 +143,20 @@ export function CookingOilAdjustment({
         ) : null}
       </fieldset>
 
-      {cookingOil ? (
-        <p
-          className="mt-4 rounded-lg bg-bg-primary/40 px-3 py-2 font-mono text-sm text-macro-calories"
-          aria-live="polite"
-        >
-          +{cookingOil.calories} kcal · +{cookingOil.fat}g fat
-        </p>
-      ) : null}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className={
+          cookingOil
+            ? 'mt-4 rounded-lg bg-bg-primary/40 px-3 py-2 font-mono text-sm text-macro-calories'
+            : 'sr-only'
+        }
+      >
+        {cookingOil
+          ? `+${cookingOil.calories} kcal · +${cookingOil.fat}g fat`
+          : null}
+      </p>
     </section>
   );
 }
