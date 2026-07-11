@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { CookingOilAdjustment } from '@/components/ui/CookingOilAdjustment';
 
@@ -80,7 +80,8 @@ describe('CookingOilAdjustment', () => {
     await user.click(screen.getByRole('button', { name: 'Custom' }));
 
     const input = screen.getByRole('spinbutton', { name: 'Teaspoons' });
-    expect(input).toHaveAttribute('min', '0');
+    expect(input).toHaveAttribute('min', '0.25');
+    expect(input).toHaveAttribute('max', '48');
     expect(input).toHaveAttribute('step', '0.25');
 
     await user.clear(input);
@@ -90,6 +91,35 @@ describe('CookingOilAdjustment', () => {
 
     expect(input).toHaveValue(1.25);
     expect(screen.getByText('+50 kcal · +5.6g fat')).toBeInTheDocument();
+  });
+
+  it('does not preview a positive custom amount below the minimum', async () => {
+    const user = userEvent.setup();
+    render(<ControlledCookingOilAdjustment />);
+
+    await user.click(screen.getByRole('button', { name: 'Custom' }));
+    const input = screen.getByRole('spinbutton', { name: 'Teaspoons' });
+
+    fireEvent.change(input, { target: { value: '0.1' } });
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'No cooking oil added'
+    );
+  });
+
+  it('clamps a custom amount above the maximum in the controlled UI', async () => {
+    const user = userEvent.setup();
+    render(<ControlledCookingOilAdjustment />);
+
+    await user.click(screen.getByRole('button', { name: 'Custom' }));
+    const input = screen.getByRole('spinbutton', { name: 'Teaspoons' });
+
+    await user.type(input, '49');
+
+    expect(input).toHaveValue(48);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      '+1920 kcal · +216g fat'
+    );
   });
 
   it('keeps the nutrition status region mounted as its text updates', async () => {

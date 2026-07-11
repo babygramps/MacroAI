@@ -1,5 +1,7 @@
 import {
   createCookingOilIngredient,
+  MAX_COOKING_OIL_TEASPOONS,
+  MIN_COOKING_OIL_TEASPOONS,
   withCookingOil,
 } from '@/lib/meal/cookingOil';
 import type { LogMealIngredientInput } from '@/lib/meal/logMeal';
@@ -61,6 +63,51 @@ describe('createCookingOilIngredient', () => {
     });
   });
 
+  it('rejects an amount just below the minimum', () => {
+    expect(
+      createCookingOilIngredient(MIN_COOKING_OIL_TEASPOONS - 0.001)
+    ).toBeNull();
+  });
+
+  it('accepts the minimum with a usable weight', () => {
+    const ingredient = createCookingOilIngredient(
+      MIN_COOKING_OIL_TEASPOONS
+    );
+
+    expect(ingredient).not.toBeNull();
+    expect(ingredient?.weightG).toBeGreaterThanOrEqual(1);
+    expect(ingredient?.servingSizeGrams).toBeGreaterThanOrEqual(1);
+  });
+
+  it('accepts the maximum with finite nutrition values', () => {
+    const ingredient = createCookingOilIngredient(
+      MAX_COOKING_OIL_TEASPOONS
+    );
+
+    expect(ingredient).not.toBeNull();
+    expect(ingredient).toEqual(
+      expect.objectContaining({
+        servingDescription: `${MAX_COOKING_OIL_TEASPOONS} tsp`,
+      })
+    );
+    for (const value of [
+      ingredient?.calories,
+      ingredient?.protein,
+      ingredient?.carbs,
+      ingredient?.fat,
+      ingredient?.weightG,
+      ingredient?.servingSizeGrams,
+    ]) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+  });
+
+  it('rejects an amount just above the maximum', () => {
+    expect(
+      createCookingOilIngredient(MAX_COOKING_OIL_TEASPOONS + 0.001)
+    ).toBeNull();
+  });
+
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
     'returns null for invalid input %s',
     (teaspoons) => {
@@ -74,6 +121,12 @@ describe('withCookingOil', () => {
     const ingredients = [chicken];
 
     expect(withCookingOil(ingredients, 0)).toBe(ingredients);
+    expect(
+      withCookingOil(ingredients, MIN_COOKING_OIL_TEASPOONS - 0.001)
+    ).toBe(ingredients);
+    expect(
+      withCookingOil(ingredients, MAX_COOKING_OIL_TEASPOONS + 0.001)
+    ).toBe(ingredients);
   });
 
   it('appends oil without mutating the caller array', () => {

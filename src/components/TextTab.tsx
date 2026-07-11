@@ -134,8 +134,8 @@ export function TextTab({ onSuccess }: TextTabProps) {
       tab: 'text',
       mealName,
       category,
-      ingredientCount: selectedFoods.length,
-      ingredientNames: selectedFoods.map(f => f.name),
+      ingredientCount: ingredients.length,
+      ingredientNames: ingredients.map((ingredient) => ingredient.name),
       oilTeaspoons,
     });
 

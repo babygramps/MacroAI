@@ -1,7 +1,11 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { createCookingOilIngredient } from '@/lib/meal/cookingOil';
+import {
+  createCookingOilIngredient,
+  MAX_COOKING_OIL_TEASPOONS,
+  MIN_COOKING_OIL_TEASPOONS,
+} from '@/lib/meal/cookingOil';
 
 interface CookingOilAdjustmentProps {
   teaspoons: number;
@@ -33,7 +37,9 @@ export function CookingOilAdjustment({
   const customInputId = `${id}-custom`;
   const teaspoonsInputId = `${id}-teaspoons`;
   const normalizedTeaspoons =
-    Number.isFinite(teaspoons) && teaspoons > 0 ? teaspoons : 0;
+    Number.isFinite(teaspoons) && teaspoons > 0
+      ? Math.min(teaspoons, MAX_COOKING_OIL_TEASPOONS)
+      : 0;
   const isCustomAmount =
     normalizedTeaspoons > 0 && !isPresetAmount(normalizedTeaspoons);
   const [customDisclosure, setCustomDisclosure] =
@@ -56,7 +62,7 @@ export function CookingOilAdjustment({
     const nextTeaspoons = event.currentTarget.valueAsNumber;
     const normalizedNextTeaspoons =
       Number.isFinite(nextTeaspoons) && nextTeaspoons > 0
-        ? nextTeaspoons
+        ? Math.min(nextTeaspoons, MAX_COOKING_OIL_TEASPOONS)
         : 0;
     setCustomDisclosure({
       isOpen: true,
@@ -83,6 +89,7 @@ export function CookingOilAdjustment({
       <fieldset className="mt-4">
         <legend className="sr-only">Cooking oil amount</legend>
         <div className="flex flex-wrap gap-2">
+          {/* Dark active text locally overrides white-on-orange to preserve AA contrast. */}
           {PRESETS.map((preset) => {
             const isActive = normalizedTeaspoons === preset.teaspoons;
 
@@ -90,7 +97,7 @@ export function CookingOilAdjustment({
               <button
                 key={preset.label}
                 type="button"
-                className={`preset-button ${isActive ? 'active' : ''}`}
+                className={`preset-button ${isActive ? 'active !text-bg-primary' : ''}`}
                 aria-pressed={isActive}
                 onClick={() => {
                   setCustomDisclosure({
@@ -106,7 +113,7 @@ export function CookingOilAdjustment({
           })}
           <button
             type="button"
-            className={`preset-button ${isCustomAmount ? 'active' : ''}`}
+            className={`preset-button ${isCustomAmount ? 'active !text-bg-primary' : ''}`}
             aria-pressed={isCustomAmount}
             aria-expanded={showCustomInput}
             aria-controls={customInputId}
@@ -132,8 +139,9 @@ export function CookingOilAdjustment({
             <input
               id={teaspoonsInputId}
               type="number"
-              min="0"
-              step="0.25"
+              min={MIN_COOKING_OIL_TEASPOONS}
+              max={MAX_COOKING_OIL_TEASPOONS}
+              step={MIN_COOKING_OIL_TEASPOONS}
               inputMode="decimal"
               value={normalizedTeaspoons > 0 ? normalizedTeaspoons : ''}
               onChange={handleCustomChange}

@@ -179,8 +179,8 @@ describe('cooking oil in food logging flows', () => {
       'MEAL_LOG_START',
       expect.objectContaining({
         tab: 'text',
-        ingredientCount: 1,
-        ingredientNames: ['Grilled chicken'],
+        ingredientCount: 2,
+        ingredientNames: ['Grilled chicken', 'Cooking oil'],
         oilTeaspoons: 1,
       })
     );
@@ -214,6 +214,8 @@ describe('cooking oil in food logging flows', () => {
       'MEAL_LOG_START',
       expect.objectContaining({
         tab: 'text',
+        ingredientCount: 1,
+        ingredientNames: ['Grilled chicken'],
         oilTeaspoons: 0,
       })
     );
@@ -272,8 +274,8 @@ describe('cooking oil in food logging flows', () => {
       'MEAL_LOG_START',
       expect.objectContaining({
         tab: 'photo',
-        ingredientCount: 1,
-        ingredientNames: ['Salmon'],
+        ingredientCount: 2,
+        ingredientNames: ['Salmon', 'Cooking oil'],
         oilTeaspoons: 2,
       })
     );
