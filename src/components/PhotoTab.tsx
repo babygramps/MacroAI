@@ -8,7 +8,9 @@ import { logMeal, AmplifyClientNotReadyError } from '@/lib/meal/logMeal';
 import { CategoryPicker } from './ui/CategoryPicker';
 import { showToast } from './ui/Toast';
 import { SourceBadge, SourceSummary } from './ui/SourceBadge';
+import { CookingOilAdjustment } from './ui/CookingOilAdjustment';
 import { logRemote, getFileContext, getErrorContext, generateTraceId } from '@/lib/clientLogger';
+import { withCookingOil } from '@/lib/meal/cookingOil';
 
 interface PhotoTabProps {
   onSuccess: (options?: { verified?: boolean; meal?: MealEntry }) => void;
@@ -32,6 +34,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
   // Category selection state
   const [category, setCategory] = useState<MealCategory>('meal');
   const [mealName, setMealName] = useState('');
+  const [oilTeaspoons, setOilTeaspoons] = useState(0);
 
   // Error state for analysis failures
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -160,6 +163,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
       setResults(result.foods);
       setSelectedItems(new Set(result.foods.map((_: NormalizedFood, i: number) => i)));
+      setOilTeaspoons(0);
       setView('review');
     } catch (error) {
       // Log detailed error for debugging
@@ -214,6 +218,18 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
 
     const traceId = generateTraceId();
     const selectedFoods = results.filter((_, i) => selectedItems.has(i));
+    const baseIngredients = selectedFoods.map((food) => ({
+      name: food.name,
+      weightG: food.servingSize || 100,
+      calories: food.calories || 0,
+      protein: food.protein || 0,
+      carbs: food.carbs || 0,
+      fat: food.fat || 0,
+      source: food.source,
+      servingDescription: food.servingDescription || undefined,
+      servingSizeGrams: food.servingSizeGrams,
+    }));
+    const ingredients = withCookingOil(baseIngredients, oilTeaspoons);
 
     logRemote.info('MEAL_LOG_START', {
       traceId,
@@ -222,6 +238,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
       category,
       ingredientCount: selectedFoods.length,
       ingredientNames: selectedFoods.map(f => f.name),
+      oilTeaspoons,
     });
 
     setIsSaving(true);
@@ -230,17 +247,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
         {
           name: mealName || 'Meal',
           category,
-          ingredients: selectedFoods.map((food) => ({
-            name: food.name,
-            weightG: food.servingSize || 100,
-            calories: food.calories || 0,
-            protein: food.protein || 0,
-            carbs: food.carbs || 0,
-            fat: food.fat || 0,
-            source: food.source,
-            servingDescription: food.servingDescription || undefined,
-            servingSizeGrams: food.servingSizeGrams,
-          })),
+          ingredients,
         },
         { traceId, tab: 'photo' }
       );
@@ -268,6 +275,7 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
     setDescription('');
     setPendingFile(null);
     setErrorMessage(null);
+    setOilTeaspoons(0);
     setView('input');
     if (fileInputRef.current) fileInputRef.current.value = '';
     if (cameraInputRef.current) cameraInputRef.current.value = '';
@@ -365,6 +373,13 @@ export function PhotoTab({ onSuccess }: PhotoTabProps) {
               <p className="text-caption">fat</p>
             </div>
           </div>
+        </div>
+
+        <div className="mb-6">
+          <CookingOilAdjustment
+            teaspoons={oilTeaspoons}
+            onChange={setOilTeaspoons}
+          />
         </div>
 
         <button
