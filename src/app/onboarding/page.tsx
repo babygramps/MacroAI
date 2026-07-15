@@ -11,6 +11,7 @@ import {
   getWeightUnit,
 } from '@/lib/unitConversions';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { MacroGoalsStep } from '@/components/onboarding/MacroGoalsStep';
 
 interface BaseStep {
   emoji: string;
@@ -57,7 +58,12 @@ interface InfoStep extends BaseStep {
   content: 'ai-explainer'; // ID of which info content to show
 }
 
-type Step = NumberStep | SelectStep | DateStep | ToggleStep | HeightStep | InfoStep;
+/** Combined protein/carbs/fat step; reads and writes the three *Goal fields. */
+interface MacrosStep extends BaseStep {
+  type: 'macros';
+}
+
+type Step = NumberStep | SelectStep | DateStep | ToggleStep | HeightStep | InfoStep | MacrosStep;
 
 // Helper function to calculate age
 function calculateAge(birthDate: string): number {
@@ -221,38 +227,12 @@ export default function OnboardingPage() {
       step: 50,
     } as NumberStep,
     {
-      emoji: '💪',
-      title: 'How much protein?',
-      subtitle: 'Protein helps build and repair muscle',
-      field: 'proteinGoal',
-      type: 'number',
-      unit: 'grams',
-      defaultValue: 150,
-      presets: [100, 150, 200],
-      step: 5,
-    } as NumberStep,
-    {
-      emoji: '🍞',
-      title: 'Daily carbohydrates?',
-      subtitle: 'Carbs are your main energy source',
-      field: 'carbsGoal',
-      type: 'number',
-      unit: 'grams',
-      defaultValue: 200,
-      presets: [150, 200, 250],
-      step: 10,
-    } as NumberStep,
-    {
-      emoji: '🥑',
-      title: 'Daily fat intake?',
-      subtitle: 'Healthy fats support hormone production',
-      field: 'fatGoal',
-      type: 'number',
-      unit: 'grams',
-      defaultValue: 65,
-      presets: [50, 65, 80],
-      step: 5,
-    } as NumberStep,
+      emoji: '⚖️',
+      title: 'Set your macros',
+      subtitle: 'Split those calories across protein, carbs, and fat',
+      field: '_macros', // Virtual: MacroGoalsStep edits the three *Goal fields
+      type: 'macros',
+    } as MacrosStep,
   ], [unitSystem]);
 
   // Check for existing profile
@@ -325,6 +305,20 @@ export default function OnboardingPage() {
         [step.field]: Math.max(min, Math.min(max, Math.round(newValue * 100) / 100)),
       };
     });
+  };
+
+  // Direct typing for number steps (goalRate keeps stepper-only: its stored
+  // value goes through unit conversion that the stepper handlers own).
+  const handleDirectInput = (raw: string) => {
+    if (step.type !== 'number') return;
+    const numStep = step as NumberStep;
+    const parsed = parseInt(raw, 10);
+    const min = numStep.min ?? 0;
+    const max = numStep.max ?? Infinity;
+    setValues((prev) => ({
+      ...prev,
+      [step.field]: Number.isNaN(parsed) ? 0 : Math.max(min, Math.min(max, parsed)),
+    }));
   };
 
   const handlePresetClick = (value: number) => {
@@ -454,9 +448,21 @@ export default function OnboardingPage() {
           <>
             <div className="value-display animate-fade-in-up" style={{ '--stagger-index': 2 } as React.CSSProperties}>
               <div className="text-center">
-                <span className="value-display-number">
-                  {displayValue}
-                </span>
+                {step.field === 'goalRate' ? (
+                  <span className="value-display-number">
+                    {displayValue}
+                  </span>
+                ) : (
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={displayValue}
+                    onChange={(e) => handleDirectInput(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="value-display-number bg-transparent border-none text-center w-40 p-0 focus:outline-none"
+                    aria-label={step.title}
+                  />
+                )}
                 <span className="text-body text-text-muted ml-2">{numStep.unit}</span>
               </div>
             </div>
@@ -494,6 +500,23 @@ export default function OnboardingPage() {
               ))}
             </div>
           </>
+        );
+      }
+
+      case 'macros': {
+        return (
+          <MacroGoalsStep
+            calorieGoal={values.calorieGoal}
+            grams={{ protein: values.proteinGoal, carbs: values.carbsGoal, fat: values.fatGoal }}
+            onChange={(g) =>
+              setValues((prev) => ({
+                ...prev,
+                proteinGoal: g.protein,
+                carbsGoal: g.carbs,
+                fatGoal: g.fat,
+              }))
+            }
+          />
         );
       }
 
