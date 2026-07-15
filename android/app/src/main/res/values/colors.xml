@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the web app's bg-primary token so the system-bar bands blend in. -->
+    <color name="macroaiBackground">#0A0A0F</color>
+</resources>

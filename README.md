@@ -142,6 +142,26 @@ For production, set these in Amplify Console → Environment Variables:
 - `USDA_API_KEY`
 - `GEMINI_API_KEY`
 
+## Android App (Capacitor)
+
+The `android/` project is a Capacitor shell that loads the production
+deployment (`https://macroai-gold.vercel.app`) in a native WebView. The app
+depends on Next.js server actions, so the shell points at the live server
+rather than bundling static assets. `capacitor.config.ts` holds the URL;
+`capacitor-web/` contains the offline fallback page.
+
+Prerequisites: JDK 21 and the Android SDK (`brew install openjdk@21 --cask android-commandlinetools`),
+with `sdk.dir` set in `android/local.properties`.
+
+```bash
+npm run android:apk      # sync config + build android/app/build/outputs/apk/debug/app-debug.apk
+npm run android:assets   # regenerate launcher icons + splash from assets/
+adb install android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Camera permission is declared in the manifest for barcode scanning and photo
+analysis; Capacitor grants WebView `getUserMedia` requests automatically.
+
 ## License
 
 MIT
