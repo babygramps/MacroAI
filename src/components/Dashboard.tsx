@@ -23,7 +23,7 @@ import { DebugOverlay } from './ui/DebugOverlay';
 import { isToday } from '@/lib/date';
 import { logError } from '@/lib/logger';
 import { logRemote, setUserContext } from '@/lib/clientLogger';
-import { getRecentFoods } from '@/actions/getRecentFoods';
+import { getRecentFoodsWithCache } from '@/lib/offline/recentFoodsCache';
 
 export function Dashboard() {
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined);
@@ -58,7 +58,7 @@ export function Dashboard() {
 
     async function prefetchRecents() {
       try {
-        const data = await getRecentFoods();
+        const data = await getRecentFoodsWithCache();
         setPrefetchedRecents(data);
       } catch (error) {
         // Silent fail - SearchTab will fetch on its own if needed
@@ -191,7 +191,7 @@ export function Dashboard() {
 
     // Refresh prefetched recents so they're up-to-date for next modal open
     try {
-      const data = await getRecentFoods();
+      const data = await getRecentFoodsWithCache();
       setPrefetchedRecents(data);
     } catch {
       // Silent fail - will fetch fresh next time

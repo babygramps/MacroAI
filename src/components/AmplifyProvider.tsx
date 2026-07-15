@@ -5,6 +5,7 @@ import { Amplify } from 'aws-amplify';
 import { getCurrentUser } from 'aws-amplify/auth';
 import { Hub } from 'aws-amplify/utils';
 import { ToastContainer } from './ui/Toast';
+import { OfflineBanner } from './ui/OfflineBanner';
 import { UnitProvider } from '@/lib/UnitContext';
 import { SignIn } from './auth/SignIn';
 
@@ -78,7 +79,11 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
           setIsAuthenticated(false);
           break;
         case 'tokenRefresh_failure':
-          setIsAuthenticated(false);
+          // Offline refresh failures are expected — keep the cached session
+          // so the app stays usable; a genuine online failure signs out.
+          if (typeof navigator === 'undefined' || navigator.onLine) {
+            setIsAuthenticated(false);
+          }
           break;
       }
     });
@@ -142,6 +147,7 @@ export function AmplifyProvider({ children }: AmplifyProviderProps) {
       <UnitProvider>
         {children}
       </UnitProvider>
+      <OfflineBanner />
       <ToastContainer />
     </>
   );

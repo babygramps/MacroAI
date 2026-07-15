@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DailySummary, UserGoals, WeightLogEntry, LogStatus } from '@/lib/types';
-import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
+import { DEFAULT_GOALS, calculateDailyTotals, fetchDashboardData } from '@/lib/data/dashboard';
 import { backfillMetabolicData } from '@/lib/metabolicService';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { flushQueuedMeals } from '@/lib/meal/logMeal';
+import { pendingMealCount, queuedMealEntriesForDate } from '@/lib/offline/mealQueue';
+import { loadDashboardSnapshot, saveDashboardSnapshot } from '@/lib/offline/snapshotCache';
 import { logError } from '@/lib/logger';
 import { logRemote, getErrorContext } from '@/lib/clientLogger';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
@@ -51,6 +54,21 @@ function formatDateKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+/**
+ * Merge offline-queued meals for the given date into a summary so meals
+ * logged while offline stay visible. Any previously merged pending entries
+ * are replaced by the queue's current contents (avoids duplicates as the
+ * queue drains).
+ */
+function withQueuedMeals(summary: DailySummary, dateKey: string): DailySummary {
+  const pending = queuedMealEntriesForDate(dateKey);
+  const synced = summary.meals.filter((meal) => meal.syncStatus !== 'pending');
+  if (pending.length === 0 && synced.length === summary.meals.length) {
+    return summary;
+  }
+  return calculateDailyTotals([...synced, ...pending]);
 }
 
 export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
@@ -163,11 +181,20 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
       });
 
       setGoals(data.goals);
-      setSummary(data.summary);
+      setSummary(withQueuedMeals(data.summary, dateStr));
       setLatestWeight(data.latestWeight);
       setNeedsOnboarding(data.needsOnboarding);
       setLatestTdee(data.latestTdee);
       setDayStatus(status);
+
+      // Cache the server truth (without pending merge) for offline rendering
+      saveDashboardSnapshot(dateStr, {
+        goals: data.goals,
+        summary: data.summary,
+        latestWeight: data.latestWeight,
+        latestTdee: data.latestTdee,
+        dayStatus: status,
+      });
 
       // Update the status map for the current day
       if (status) {
@@ -184,6 +211,21 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
         ...getErrorContext(error),
       });
       logError('Error fetching dashboard data', { error });
+
+      // Offline fallback: render the last-known snapshot for this date plus
+      // any offline-queued meals, instead of stale data from another date.
+      const snapshot = loadDashboardSnapshot(dateStr);
+      if (snapshot) {
+        logRemote.info('DASHBOARD_OFFLINE_SNAPSHOT_USED', { date: dateStr });
+        setGoals(snapshot.goals);
+        setSummary(withQueuedMeals(snapshot.summary, dateStr));
+        setLatestWeight(snapshot.latestWeight);
+        setLatestTdee(snapshot.latestTdee);
+        setDayStatus(snapshot.dayStatus);
+        setNeedsOnboarding(false);
+      } else {
+        setSummary((prev) => withQueuedMeals(prev, dateStr));
+      }
     } finally {
       if (shouldShowLoading) {
         setIsLoading(false);
@@ -229,6 +271,33 @@ export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
 
   useEffect(() => {
     refresh();
+  }, [refresh]);
+
+  // Replay offline-queued meals when connectivity returns (and on mount, in
+  // case the app was reopened online with a non-empty queue).
+  useEffect(() => {
+    let cancelled = false;
+
+    const flushAndRefresh = async () => {
+      if (pendingMealCount() === 0) return;
+      const { sent, remaining } = await flushQueuedMeals();
+      logRemote.info('OFFLINE_QUEUE_FLUSHED', { sent, remaining });
+      if (!cancelled && sent > 0) {
+        await refresh();
+      }
+    };
+
+    const onOnline = () => {
+      void flushAndRefresh();
+    };
+
+    window.addEventListener('online', onOnline);
+    void flushAndRefresh();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('online', onOnline);
+    };
   }, [refresh]);
 
   return {

@@ -12,6 +12,7 @@ A mobile-responsive calorie and macro tracking web app built with Next.js 15, AW
 - **AI Photo Analysis** - Take a photo and let Gemini 3 identify foods
 - **Beautiful Dark UI** - "Neon Vitality" design with animated progress rings
 - **Cost-Optimized** - Waterfall strategy prioritizes free APIs first
+- **Offline Mode** - Service-worker app shell, cached dashboard, and an offline meal queue that syncs when connectivity returns
 
 ## Tech Stack
 

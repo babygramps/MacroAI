@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AmplifyProvider } from '@/components/AmplifyProvider';
+import { SWRegister } from '@/components/SWRegister';
 
 export const metadata: Metadata = {
   title: 'MacroAI - Smart Calorie & Macro Tracker',
@@ -30,6 +31,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-bg-primary text-text-primary font-satoshi antialiased min-h-screen">
+        <SWRegister />
         <AmplifyProvider>{children}</AmplifyProvider>
       </body>
     </html>

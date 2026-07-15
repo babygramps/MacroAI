@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { searchFoods } from '@/actions/searchFoods';
-import { getRecentFoods } from '@/actions/getRecentFoods';
+import { getRecentFoodsWithCache } from '@/lib/offline/recentFoodsCache';
 import type { NormalizedFood, MealCategory, RecentFood, RecentFoodsResponse, MealEntry } from '@/lib/types';
 import { MEAL_CATEGORY_INFO } from '@/lib/types';
 import { scaleNutrition } from '@/lib/normalizer';
@@ -73,7 +73,7 @@ export function SearchTab({ onSuccess, prefetchedRecents }: SearchTabProps) {
 
     async function fetchRecents() {
       try {
-        const data = await getRecentFoods();
+        const data = await getRecentFoodsWithCache();
         if (mounted) {
           setRecentsData(data);
         }

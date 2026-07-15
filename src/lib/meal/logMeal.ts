@@ -2,6 +2,7 @@ import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
 import { logRemote } from '@/lib/clientLogger';
 import { getLocalDateString } from '@/lib/date';
 import { onMealLogged } from '@/lib/metabolicService';
+import { enqueueMeal, flushMealQueue } from '@/lib/offline/mealQueue';
 import { verifyMealById } from './mealVerification';
 import { calculateMealTotals } from './totals';
 import type { MealCategory, MealEntry, IngredientEntry } from '@/lib/types';
@@ -42,6 +43,8 @@ export interface LogMealOptions {
 export interface LogMealResult {
   verified: boolean;
   meal: MealEntry;
+  /** True when the device was offline and the meal was queued for later sync. */
+  queued?: boolean;
 }
 
 /**
@@ -128,8 +131,30 @@ export function buildOptimisticMeal(mealRow: MealRow, ingredientRows: MealIngred
  * MealIngredient rows are created with Promise.all (in parallel) — the one
  * sanctioned behavior change over the original per-tab code, some of which
  * created ingredients one at a time in a serial loop.
+ *
+ * When the device is offline, the meal is queued locally instead (returned
+ * with queued: true and a `pending` syncStatus) and replayed by
+ * flushQueuedMeals() when connectivity returns.
  */
 export async function logMeal(input: LogMealInput, opts: LogMealOptions = {}): Promise<LogMealResult> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    const meal = enqueueMeal(input);
+    logRemote.info('MEAL_QUEUED_OFFLINE', { traceId: opts.traceId, tab: opts.tab, mealId: meal.id });
+    return { verified: false, queued: true, meal };
+  }
+  return logMealOnline(input, opts);
+}
+
+/**
+ * Replay offline-queued meals through the normal network path. Stops at the
+ * first failure (typically: connectivity dropped again), leaving the rest
+ * queued. Exposed for the online-event handler in useDashboardData.
+ */
+export async function flushQueuedMeals(): Promise<{ sent: number; remaining: number }> {
+  return flushMealQueue((input) => logMealOnline(input));
+}
+
+async function logMealOnline(input: LogMealInput, opts: LogMealOptions = {}): Promise<LogMealResult> {
   const { traceId, tab } = opts;
 
   const client = getAmplifyDataClient();

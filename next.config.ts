@@ -66,6 +66,17 @@ const nextConfig: NextConfig = {
         source: '/:path*',
         headers: securityHeaders,
       },
+      {
+        // Serve the service worker uncached so new deploys take effect on
+        // the next visit instead of waiting out a CDN/browser TTL.
+        source: '/sw.js',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
     ];
   },
 };
