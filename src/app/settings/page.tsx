@@ -17,6 +17,7 @@ import { AppHeader } from '@/components/ui/AppHeader';
 import { BottomNav } from '@/components/ui/BottomNav';
 import { FoodLogModal } from '@/components/FoodLogModal';
 import { getAmplifyDataClient } from '@/lib/data/amplifyClient';
+import { loadViewCache, saveViewCache } from '@/lib/offline/viewCache';
 import { EXPORT_SCOPES, exportUserData, type ExportScope } from '@/lib/export/exportData';
 import { PasskeyManager } from '@/components/ui/PasskeyManager';
 
@@ -36,6 +37,8 @@ interface ProfileData {
   targetWeightKg: number | null;
 }
 
+const PROFILE_VIEW_KEY = 'settings-profile';
+
 // Helper function to calculate age
 function calculateAge(birthDate: string): number {
   const birth = new Date(birthDate);
@@ -52,9 +55,12 @@ function calculateAge(birthDate: string): number {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
+  // Stale-while-revalidate: seed from the last visit's profile so the page
+  // paints instantly; fetchProfile() revalidates in the background.
+  const [seed] = useState(() => loadViewCache<ProfileData>(PROFILE_VIEW_KEY));
+  const [isLoading, setIsLoading] = useState(!seed);
   const [isSaving, setIsSaving] = useState(false);
-  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [profile, setProfile] = useState<ProfileData | null>(seed);
   const [exportScope, setExportScope] = useState<ExportScope>('all');
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState<string | null>(null);
@@ -64,14 +70,13 @@ export default function SettingsPage() {
   const [tempValue, setTempValue] = useState<string | number | boolean>('');
   
   // Height state for imperial
-  const [heightFeet, setHeightFeet] = useState(5);
-  const [heightInches, setHeightInches] = useState(7);
+  const [heightFeet, setHeightFeet] = useState(() => (seed ? cmToFeetInches(seed.heightCm).feet : 5));
+  const [heightInches, setHeightInches] = useState(() => (seed ? cmToFeetInches(seed.heightCm).inches : 7));
   
   // Food log modal
   const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
 
   const fetchProfile = useCallback(async () => {
-    setIsLoading(true);
     try {
       const client = getAmplifyDataClient();
       if (!client) {
@@ -119,6 +124,13 @@ export default function SettingsPage() {
   useEffect(() => {
     fetchProfile();
   }, [fetchProfile]);
+
+  // Keep the view cache in sync with every profile change (fetch and saves)
+  useEffect(() => {
+    if (profile) {
+      saveViewCache(PROFILE_VIEW_KEY, profile);
+    }
+  }, [profile]);
 
   const saveField = async (field: string, value: unknown) => {
     if (!profile) return;

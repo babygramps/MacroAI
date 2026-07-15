@@ -72,16 +72,23 @@ function withQueuedMeals(summary: DailySummary, dateKey: string): DailySummary {
 }
 
 export function useDashboardData(selectedDate: Date): UseDashboardDataResult {
-  const [goals, setGoals] = useState<UserGoals>(DEFAULT_GOALS);
-  const [summary, setSummary] = useState<DailySummary>(EMPTY_SUMMARY);
-  const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(null);
+  // Stale-while-revalidate: seed state from the offline snapshot so returning
+  // to the dashboard paints instantly with last-known data; refresh() then
+  // revalidates in the background (isSyncing) instead of showing the full
+  // loading skeleton.
+  const [seed] = useState(() => loadDashboardSnapshot(formatDateKey(selectedDate)));
+  const [goals, setGoals] = useState<UserGoals>(seed?.goals ?? DEFAULT_GOALS);
+  const [summary, setSummary] = useState<DailySummary>(() =>
+    seed ? withQueuedMeals(seed.summary, formatDateKey(selectedDate)) : EMPTY_SUMMARY
+  );
+  const [latestWeight, setLatestWeight] = useState<WeightLogEntry | null>(seed?.latestWeight ?? null);
   const [needsOnboarding, setNeedsOnboarding] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!seed);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [dayStatus, setDayStatus] = useState<LogStatus | null>(null);
+  const [dayStatus, setDayStatus] = useState<LogStatus | null>(seed?.dayStatus ?? null);
   const [dayStatusMap, setDayStatusMap] = useState<Map<string, LogStatus>>(new Map());
-  const [latestTdee, setLatestTdee] = useState<number | null>(null);
-  const hasLoadedRef = useRef(false);
+  const [latestTdee, setLatestTdee] = useState<number | null>(seed?.latestTdee ?? null);
+  const hasLoadedRef = useRef(seed !== null);
   const backfillCheckedRef = useRef(false);
   const statusMapLoadedRef = useRef(false);
   const legacyClearedRef = useRef(false);

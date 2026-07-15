@@ -2,6 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { useDashboardData } from '@/lib/hooks/useDashboardData';
 import { DEFAULT_GOALS, fetchDashboardData } from '@/lib/data/dashboard';
 import { fetchDayStatus, fetchDayStatusRange } from '@/actions/updateDayStatus';
+import { saveDashboardSnapshot } from '@/lib/offline/snapshotCache';
 
 jest.mock('@/lib/data/dashboard', () => {
   const actual = jest.requireActual('@/lib/data/dashboard');
@@ -62,6 +63,10 @@ describe('useDashboardData', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Isolate the snapshot cache and offline queue: the hook seeds its
+    // initial state from localStorage (stale-while-revalidate), so state
+    // leaked from a previous test would skip the loading phase.
+    localStorage.clear();
     mockFetchDashboardData.mockResolvedValue(baseData);
     mockFetchDayStatus.mockResolvedValue(null);
     mockFetchDayStatusRange.mockResolvedValue(new Map());
@@ -83,6 +88,28 @@ describe('useDashboardData', () => {
     expect(mockFetchDashboardData).toHaveBeenCalledWith(selectedDate);
     expect(result.current.goals).toEqual(DEFAULT_GOALS);
     expect(result.current.summary).toEqual(emptySummary);
+  });
+
+  it('paints instantly from a cached snapshot, then revalidates (stale-while-revalidate)', async () => {
+    const selectedDate = new Date('2026-02-01T10:00:00.000Z');
+    saveDashboardSnapshot('2026-02-01', {
+      goals: DEFAULT_GOALS,
+      summary: { ...emptySummary, totalCalories: 1234 },
+      latestWeight: null,
+      latestTdee: 2400,
+      dayStatus: null,
+    });
+
+    const { result } = renderHook(() => useDashboardData(selectedDate));
+
+    // No loading skeleton: state is seeded from the snapshot synchronously
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.summary.totalCalories).toBe(1234);
+    expect(result.current.latestTdee).toBe(2400);
+
+    // ...but the hook still revalidates against the server in the background
+    await waitFor(() => expect(mockFetchDashboardData).toHaveBeenCalled());
+    await waitFor(() => expect(result.current.summary.totalCalories).toBe(0));
   });
 
   it('returns fetched meals in summary', async () => {

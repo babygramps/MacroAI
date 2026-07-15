@@ -16,15 +16,30 @@ import {
   deriveTdeeHistory,
 } from '@/lib/stats/statsBundle';
 import { METABOLIC_CONSTANTS } from '@/lib/types';
+import { loadViewCache, saveViewCache } from '@/lib/offline/viewCache';
 import type { WeeklyStats, UserGoals, WeightStatsWithTrend, MetabolicInsights, TdeeDataPoint } from '@/lib/types';
 
+// Everything the page renders, cached for stale-while-revalidate paints.
+interface StatsViewCache {
+  stats: WeeklyStats;
+  goals: UserGoals | null;
+  weightStats: WeightStatsWithTrend;
+  metabolicInsights: MetabolicInsights | null;
+  tdeeHistory: TdeeDataPoint[];
+}
+
+const STATS_VIEW_KEY = 'stats';
+
 export default function StatsPage() {
-  const [isLoading, setIsLoading] = useState(true);
-  const [stats, setStats] = useState<WeeklyStats | null>(null);
-  const [goals, setGoals] = useState<UserGoals | null>(null);
-  const [weightStats, setWeightStats] = useState<WeightStatsWithTrend | null>(null);
-  const [metabolicInsights, setMetabolicInsights] = useState<MetabolicInsights | null>(null);
-  const [tdeeHistory, setTdeeHistory] = useState<TdeeDataPoint[]>([]);
+  // Seed from the last visit's data so returning to this page paints
+  // instantly; loadStats() below revalidates in the background.
+  const [seed] = useState(() => loadViewCache<StatsViewCache>(STATS_VIEW_KEY));
+  const [isLoading, setIsLoading] = useState(!seed);
+  const [stats, setStats] = useState<WeeklyStats | null>(seed?.stats ?? null);
+  const [goals, setGoals] = useState<UserGoals | null>(seed?.goals ?? null);
+  const [weightStats, setWeightStats] = useState<WeightStatsWithTrend | null>(seed?.weightStats ?? null);
+  const [metabolicInsights, setMetabolicInsights] = useState<MetabolicInsights | null>(seed?.metabolicInsights ?? null);
+  const [tdeeHistory, setTdeeHistory] = useState<TdeeDataPoint[]>(seed?.tdeeHistory ?? []);
   const [error, setError] = useState<string | null>(null);
   const [isWeightModalOpen, setIsWeightModalOpen] = useState(false);
   const [isFoodModalOpen, setIsFoodModalOpen] = useState(false);
@@ -61,6 +76,15 @@ export default function StatsPage() {
       setWeightStats(weightData);
       setMetabolicInsights(insights);
       setTdeeHistory(tdeeData);
+      setError(null);
+
+      saveViewCache<StatsViewCache>(STATS_VIEW_KEY, {
+        stats: weeklyStats,
+        goals: userGoals,
+        weightStats: weightData,
+        metabolicInsights: insights,
+        tdeeHistory: tdeeData,
+      });
     } catch (err) {
       console.error('[StatsPage] Error loading stats:', err);
       setError('Failed to load statistics. Please try again.');
@@ -98,7 +122,7 @@ export default function StatsPage() {
 
       {/* Main Content */}
       <main className="content-wrapper py-6 space-y-4">
-        {error ? (
+        {error && !stats ? (
           <div className="card text-center py-8">
             <p className="text-red-500 mb-4">{error}</p>
             <button
