@@ -141,12 +141,20 @@ describe('edgeCaseHandler', () => {
       expect(result).toBe(-0.15);
     });
 
+    it.each([
+      [-1, -0.1], [1, 0.1], [-2, 0.1], [2, -0.1], [1, 0],
+    ])('never amplifies or reverses trend delta (scale=%s, trend=%s)', (scale, trend) => {
+      const result = dampWhooshEffect(scale, trend);
+      expect(Math.abs(result)).toBeLessThanOrEqual(Math.abs(trend));
+      expect(Math.sign(result)).toBe(Math.sign(trend));
+    });
+
     it('should apply 70% dampening for mild whoosh', () => {
       // Raw change = 0.45 (< 0.5 so mild), divergence > 0.3
       const rawDelta = -0.45;
       const trendDelta = -0.1;
       const result = dampWhooshEffect(rawDelta, trendDelta);
-      expect(result).toBeCloseTo(rawDelta * 0.7, 2);
+      expect(result).toBeCloseTo(trendDelta * 0.7, 2);
     });
 
     it('should apply 50% dampening for moderate whoosh', () => {
@@ -154,14 +162,14 @@ describe('edgeCaseHandler', () => {
       const rawDelta = -0.6;
       const trendDelta = -0.2;
       const result = dampWhooshEffect(rawDelta, trendDelta);
-      expect(result).toBeCloseTo(rawDelta * 0.5, 2);
+      expect(result).toBeCloseTo(trendDelta * 0.5, 2);
     });
 
     it('should apply 30% dampening for extreme whoosh', () => {
       const rawDelta = -2.0;
       const trendDelta = -0.3;
       const result = dampWhooshEffect(rawDelta, trendDelta);
-      expect(result).toBeCloseTo(rawDelta * 0.3, 2);
+      expect(result).toBeCloseTo(trendDelta * 0.3, 2);
     });
   });
 

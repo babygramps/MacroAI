@@ -223,6 +223,69 @@ describe('metabolicService', () => {
       // This is expected behavior - only matching dates get updated
     });
 
+    it('replays the same history for a latest-day update, historical edit, and full rebuild', async () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 0, 20, 18));
+      try {
+        const weights = [0, 1, 2, 4, 5, 6, 7, 8, 9].map((i) => ({
+          id: `w${i}`, weightKg: 80 - i * 0.1,
+          recordedAt: new Date(2026, 0, 11 + i, 8).toISOString(),
+        }));
+        const logs = Array.from({ length: 10 }, (_, i) => ({
+          date: formatDateKey(new Date(2026, 0, 11 + i)),
+          nutritionCalories: 2000 + (i % 3) * 100, logStatus: 'complete',
+        }));
+        // Respect query boundaries and pagination so a suffix-only fetch cannot
+        // accidentally pass because the mocks supplied all historical records.
+        mockWeightLogList.mockImplementation(async ({ filter, nextToken }) => {
+          const [start, end] = filter.recordedAt.between;
+          const rows = weights.filter(w => w.recordedAt >= start && w.recordedAt <= end);
+          return nextToken ? { data: rows.slice(4) } : { data: rows.slice(0, 4), nextToken: 'page2' };
+        });
+        mockDailyLogList.mockImplementation(async ({ filter, nextToken }) => {
+          const [start, end] = filter.date.between;
+          const rows = logs.filter(l => l.date >= start && l.date <= end);
+          return nextToken ? { data: rows.slice(4) } : { data: rows.slice(0, 4), nextToken: 'page2' };
+        });
+        await recalculateTdeeFromDate('2026-01-11');
+        const baseline = mockComputedStateCreate.mock.calls.map(([row]) => row);
+        expect(baseline).toHaveLength(10);
+        expect(baseline.at(-1).weightDeltaKg).toBeLessThan(0);
+        expect(baseline.at(-1).fluxConfidenceRange).toBeLessThan(500);
+
+        for (const date of ['2026-01-20', '2026-01-15']) {
+          mockComputedStateCreate.mockClear();
+          await recalculateTdeeFromDate(date);
+          expect(mockComputedStateCreate.mock.calls.map(([row]) => row)).toEqual(baseline);
+        }
+
+        // A replay with unchanged persisted rows should perform no writes,
+        // including when those rows span multiple pages.
+        mockComputedStateList.mockImplementation(async ({ nextToken }) => {
+          const rows = baseline.map((row, i) => ({ ...row, id: `cs${i}` }));
+          return nextToken ? { data: rows.slice(4) } : { data: rows.slice(0, 4), nextToken: 'page2' };
+        });
+        mockComputedStateCreate.mockClear();
+        mockComputedStateUpdate.mockClear();
+        await recalculateTdeeFromDate('2026-01-20');
+        expect(mockComputedStateCreate).not.toHaveBeenCalled();
+        expect(mockComputedStateUpdate).not.toHaveBeenCalled();
+
+        // An actual historical correction must propagate identically whether
+        // triggered at the edit date or replayed from the beginning.
+        weights[4].weightKg -= 0.4;
+        mockComputedStateList.mockResolvedValue({ data: [] });
+        mockComputedStateCreate.mockClear();
+        await recalculateTdeeFromDate('2026-01-16');
+        const corrected = mockComputedStateCreate.mock.calls.map(([row]) => row);
+        expect(corrected).not.toEqual(baseline);
+        mockComputedStateCreate.mockClear();
+        await recalculateTdeeFromDate('2026-01-11');
+        expect(mockComputedStateCreate.mock.calls.map(([row]) => row)).toEqual(corrected);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
     it('holds TDEE on partial logging days in recalculation path', async () => {
       const today = new Date();
       const todayIso = today.toISOString();

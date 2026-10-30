@@ -99,7 +99,7 @@ describe('computeStateChain', () => {
 
   describe('whoosh-dampening interaction', () => {
     // Day 2 shows a 2 kg scale jump against a 0.2 kg trend move -> extreme whoosh,
-    // damping factor 0.3 -> adjusted delta = 2 * 0.3 = 0.6 (overrides the trend delta).
+    // damping factor 0.3 -> adjusted delta = 0.2 * 0.3 = 0.06 (overrides the trend delta).
     const trendData: WeightDataPoint[] = [
       point(D(1), 80, 80),
       point(D(2), 80.2, 82),
@@ -115,13 +115,13 @@ describe('computeStateChain', () => {
       expect(info.date).toBe(D(2));
       expect(info.scaleWeightDeltaKg).toBeCloseTo(2, 5);
       expect(info.trendWeightDeltaKg).toBeCloseTo(0.2, 5);
-      expect(info.adjustedWeightDeltaKg).toBeCloseTo(0.6, 5);
+      expect(info.adjustedWeightDeltaKg).toBeCloseTo(0.06, 5);
     });
 
     it('feeds the whoosh-adjusted delta into buildComputedState', () => {
       const states = computeStateChain({ trendData, dailyLogsByDate: logs, initialTdee: 2500 });
       // weightDeltaKg on the state is the adjusted (damped) delta, not the raw 0.2 trend delta.
-      expect(states[1].weightDeltaKg).toBeCloseTo(0.6, 5);
+      expect(states[1].weightDeltaKg).toBeCloseTo(0.06, 5);
     });
 
     it('does not require the callback (chain still computes without onWhooshDamp)', () => {

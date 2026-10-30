@@ -174,9 +174,11 @@ export function dampWhooshEffect(
       dampingFactor = 0.7; // Use 70%
   }
   
-  console.log(`[EdgeCaseHandler] Whoosh detected (${whooshCheck.severity}): dampening delta from ${rawWeightDelta.toFixed(3)} to ${(rawWeightDelta * dampingFactor).toFixed(3)}`);
+  console.log(`[EdgeCaseHandler] Whoosh detected (${whooshCheck.severity}): dampening delta from ${trendWeightDelta.toFixed(3)} to ${(trendWeightDelta * dampingFactor).toFixed(3)}`);
   
-  return rawWeightDelta * dampingFactor;
+  // Damp the already-smoothed signal; using the raw scale change can amplify
+  // noise or reverse the direction of the trend.
+  return trendWeightDelta * dampingFactor;
 }
 
 // ============================================

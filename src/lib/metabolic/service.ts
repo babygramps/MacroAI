@@ -21,6 +21,7 @@ import {
   fetchComputedStates,
 } from '@/lib/data/metabolicRepo';
 import { formatDateKey } from '../statsHelpers';
+import { parseLocalDateString } from '../date';
 import { calculateTrendWeights } from '../trendEngine';
 import { calculateColdStartTdee } from '../expenditureEngine';
 import { computeStateChain } from './stateChain';
@@ -143,11 +144,11 @@ export async function aggregateDailyNutrition(date: string | Date): Promise<Dail
 // ============================================
 
 /**
- * Recalculate TDEE from a specific date forward
- * This handles the cascade effect when historical data is modified
+ * Replay TDEE history after data changes on a specific date.
+ * Includes earlier interpolated days that a new measurement may affect.
  *
- * @param fromDate - Start recalculating from this date (YYYY-MM-DD string or Date)
- * @returns Number of days recalculated
+ * @param fromDate - Date of the changed data (YYYY-MM-DD string or Date)
+ * @returns Number of history days recalculated
  */
 export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<number> {
   const client = getAmplifyDataClient();
@@ -156,20 +157,29 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     return 0;
   }
 
-  const startDate = typeof fromDate === 'string' ? new Date(fromDate) : new Date(fromDate);
+  const startDate = typeof fromDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(fromDate)
+    ? parseLocalDateString(fromDate)
+    : new Date(fromDate);
   startDate.setHours(0, 0, 0, 0);
 
   const today = new Date();
   today.setHours(23, 59, 59, 999);
 
   try {
+    if (startDate > today) return 0;
+
+    // Replay from the first measurement: a persisted TDEE alone cannot restore
+    // the unrounded weight EMA, valid-day count, or outlier window. A new weight
+    // can also change interpolated days before fromDate. Diff-skip below keeps
+    // writes limited to rows that actually change.
+    const historyStart = new Date(0);
     // Fetch all required data in parallel
     const [userGoals, weightEntries, dailyLogs, existingStates] = await Promise.all([
       fetchUserGoals(client),
-      fetchWeightHistory(startDate, today, client),
-      fetchDailyLogsRange(formatDateKey(startDate), formatDateKey(today), client),
+      fetchWeightHistory(historyStart, today, client),
+      fetchDailyLogsRange('1970-01-01', formatDateKey(today), client),
       // Also fetch existing ComputedStates to update them
-      fetchComputedStates(formatDateKey(startDate), formatDateKey(today), client),
+      fetchComputedStates('1970-01-01', formatDateKey(today), client),
     ]);
 
     if (weightEntries.length === 0) {
@@ -193,39 +203,18 @@ export async function recalculateTdeeFromDate(fromDate: string | Date): Promise<
     }
 
     // Calculate trend weights using the trendEngine
-    const trendData = calculateTrendWeights(weightEntries, startDate, today);
+    const replayStart = new Date(weightEntries[0].recordedAt);
+    replayStart.setHours(0, 0, 0, 0);
+    const trendData = calculateTrendWeights(weightEntries, replayStart, today);
 
     if (trendData.length === 0) {
       return 0;
     }
 
-    // Get initial TDEE for the chain
-    // Try to get the previous day's state, or use cold start
-    let prevTdee = 2000;
-
-    // Check for state from day before startDate
-    const dayBefore = new Date(startDate);
-    dayBefore.setDate(dayBefore.getDate() - 1);
-    const dayBeforeKey = formatDateKey(dayBefore);
-
-    const { data: prevStates } = await client.models.ComputedState.list({
-      filter: {
-        date: { eq: dayBeforeKey },
-      },
-    });
-
-    if (prevStates && prevStates.length > 0) {
-      const persistedPrevTdee = prevStates[0].estimatedTdeeKcal;
-      if (typeof persistedPrevTdee === 'number' && Number.isFinite(persistedPrevTdee)) {
-        prevTdee = persistedPrevTdee;
-      }
-    } else if (userGoals && weightEntries.length > 0) {
-      // Cold start - use Mifflin-St Jeor
-      const coldStart = calculateColdStartTdee(userGoals, weightEntries[0].weightKg);
-      if (coldStart) {
-        prevTdee = coldStart;
-      }
-    }
+    // Always use the same initial seed, regardless of the edited date.
+    const prevTdee = userGoals
+      ? calculateColdStartTdee(userGoals, weightEntries[0].weightKg) ?? 2000
+      : 2000;
 
     // Compute the full day-by-day state chain (pure) using the seed above.
     // The whoosh-dampening diagnostic log is reproduced here via the observer so
