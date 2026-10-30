@@ -13,8 +13,8 @@
  *
  * Purity: no I/O, no Amplify client, no Date.now() — every input arrives via
  * parameters. The seed (initialTdee) is resolved by each caller *before* calling,
- * because the two callers seed differently (see field docs below); that divergence
- * is intentionally preserved, not unified. The optional onWhooshDamp observer lets
+ * using the profile-based cold start or a fallback of 2000.
+ * The optional onWhooshDamp observer lets
  * the write side reproduce its per-day diagnostic log without the chain performing
  * I/O itself.
  */
@@ -43,10 +43,7 @@ export interface StateChainInput {
    */
   dailyLogsByDate: Map<string, DailyLog>;
   /**
-   * Seed for day 0's previous TDEE. Resolved by the caller, which differs by
-   * call site and is deliberately NOT unified here:
-   *   - write side: day-before persisted ComputedState -> cold start -> 2000
-   *   - read  side: cold start -> 2000
+   * Seed for day 0's previous TDEE: profile-based cold start, otherwise 2000.
    */
   initialTdee: number;
   /**

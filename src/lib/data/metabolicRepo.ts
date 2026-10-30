@@ -174,13 +174,14 @@ export async function fetchWeightHistory(
     return [];
   }
   try {
-    const { data: logs } = await client.models.WeightLog.list({
+    const logs = await listAllPages((nextToken) => client.models.WeightLog.list({
+      nextToken,
       filter: {
         recordedAt: {
           between: [startDate.toISOString(), endDate.toISOString()],
         },
       },
-    });
+    }));
 
     if (!logs || logs.length === 0) {
       return [];
@@ -249,13 +250,14 @@ export async function fetchDailyLogsRange(
     return [];
   }
   try {
-    const { data: logs } = await client.models.DailyLog.list({
+    const logs = await listAllPages((nextToken) => client.models.DailyLog.list({
+      nextToken,
       filter: {
         date: {
           between: [startDateKey, endDateKey],
         },
       },
-    });
+    }));
 
     if (!logs) {
       return [];
@@ -326,13 +328,14 @@ export async function fetchComputedStates(
   if (!client) {
     return [];
   }
-  const { data: storedStates } = await client.models.ComputedState.list({
+  const storedStates = await listAllPages((nextToken) => client.models.ComputedState.list({
+    nextToken,
     filter: {
       date: {
         between: [startDateKey, endDateKey],
       },
     },
-  });
+  }));
 
   if (!storedStates) {
     return [];
